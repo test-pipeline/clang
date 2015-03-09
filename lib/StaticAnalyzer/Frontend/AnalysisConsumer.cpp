@@ -385,9 +385,11 @@ private:
   AnalysisMode getModeForDecl(Decl *D, AnalysisMode Mode);
 
   // HAXX
-  bool ctorVisited = false;
-  // HAXX
+  typedef SmallVector<Decl *, 10>				OrderedDeclTy;
+  typedef SmallVector<Decl *, 10>::iterator			OrderedDeclItor;
 
+  void OrderDeclInCG(CallGraph *CG, OrderedDeclTy *DV);
+  // HAXX
 };
 } // end anonymous namespace
 
@@ -473,29 +475,12 @@ void AnalysisConsumer::HandleDeclsCallGraph(const unsigned LocalTUDeclsSize) {
   // often.
   SetOfConstDecls Visited;
   SetOfConstDecls VisitedAsTopLevel;
-  llvm::ReversePostOrderTraversal<clang::CallGraph*> RPOT(&CG);
-  for (llvm::ReversePostOrderTraversal<clang::CallGraph*>::rpo_iterator
-         I = RPOT.begin(), E = RPOT.end(); I != E; ++I) {
-    NumFunctionTopLevel++;
+  OrderedDeclTy	  DV;
+  OrderDeclInCG(&CG, &DV);
 
-    CallGraphNode *N = *I;
-    Decl *D = N->getDecl();
-    
-    // Skip the abstract root node.
-    if (!D)
-      continue;
+  for(OrderedDeclItor I = DV.begin(), E = DV.end(); I != E; ++I) {
 
-    /* HAXX:
-     * Visit Ctor Decl first. Start iteration afresh once Ctor has been visited
-     * to visit unvisited CG nodes.
-     */
-    if(dyn_cast<CXXConstructorDecl>(D) && !ctorVisited){
-      ctorVisited = true;
-      I = RPOT.begin();
-    }
-    else if(!dyn_cast<CXXConstructorDecl>(D) && !ctorVisited)
-      continue;
-    // HAXX
+    Decl *D = *I;
 
     // Skip the functions which have been processed already or previously
     // inlined.
@@ -515,6 +500,49 @@ void AnalysisConsumer::HandleDeclsCallGraph(const unsigned LocalTUDeclsSize) {
     }
     VisitedAsTopLevel.insert(D);
   }
+}
+
+void AnalysisConsumer::OrderDeclInCG(CallGraph *CG, OrderedDeclTy *DV) {
+
+  llvm::DenseSet<Decl *>	VisitedDecl;
+  llvm::ReversePostOrderTraversal<clang::CallGraph*> RPOT(CG);
+
+  // Loop 1 pushes Ctors into vector
+  for (llvm::ReversePostOrderTraversal<clang::CallGraph*>::rpo_iterator
+         I = RPOT.begin(), E = RPOT.end(); I != E; ++I) {
+    NumFunctionTopLevel++;
+
+    CallGraphNode *N = *I;
+    Decl *D = N->getDecl();
+
+    // Skip the abstract root node.
+    if (!D)
+      continue;
+
+    // Push all Ctor Decls to Vector
+    if(dyn_cast<CXXConstructorDecl>(D) && !(VisitedDecl.find(D) != VisitedDecl.end())){
+	DV->push_back(D);
+	VisitedDecl.insert(D);
+    }
+  }
+
+  // Loop 2 pushes everything else
+  for (llvm::ReversePostOrderTraversal<clang::CallGraph*>::rpo_iterator
+           I = RPOT.begin(), E = RPOT.end(); I != E; ++I) {
+
+      CallGraphNode *N = *I;
+      Decl *D = N->getDecl();
+
+      // Skip the abstract root node.
+      if (!D)
+        continue;
+
+      if (!(VisitedDecl.find(D) != VisitedDecl.end())){
+	DV->push_back(D);
+	VisitedDecl.insert(D);
+      }
+  }
+
 }
 
 void AnalysisConsumer::HandleTranslationUnit(ASTContext &C) {
