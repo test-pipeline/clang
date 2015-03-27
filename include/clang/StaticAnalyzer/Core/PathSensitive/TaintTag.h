@@ -21,6 +21,7 @@ namespace ento {
 /// taint.
 typedef unsigned TaintTagType;
 static const TaintTagType TaintTagGeneric = 0;
+static const TaintTagType TaintTagIPA = 1;
 
 }}
 
