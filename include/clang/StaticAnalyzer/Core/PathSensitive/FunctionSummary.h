@@ -31,6 +31,7 @@ typedef std::deque<Decl*> SetOfDecls;
 typedef llvm::DenseSet<const Decl*> SetOfConstDecls;
 
 class FunctionSummariesTy {
+public:
   class FunctionSummary {
   public:
     /// Marks the IDs of the basic blocks visited during the analyzes.
@@ -57,6 +58,11 @@ class FunctionSummariesTy {
     typedef std::pair<const Decl *, TaintTagType> DTPair;
 
     TLDTaintMapTy TLDTaintMap;
+
+    const TLDTaintMapTy &getTaintMap() const {
+      const TLDTaintMapTy &TaintMap = TLDTaintMap;
+      return TaintMap;
+    }
 
     void addTaint(const Decl *D, TaintTagType Kind = TaintTagIPA) {
 
@@ -88,8 +94,7 @@ class FunctionSummariesTy {
       TimesInlined(0) {}
   };
 
-public:
-  typedef llvm::DenseMap<const Decl *, FunctionSummary> MapTy;
+  typedef llvm::DenseMap<const Decl *, FunctionSummary> 	MapTy;
 private:
   MapTy Map;
 
@@ -105,7 +110,7 @@ public:
     return I;
   }
 
-  const MapTy &getMap(){
+  const MapTy &getMap() const {
     const MapTy &MapConstRef = Map;
     return MapConstRef;
   }
