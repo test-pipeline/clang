@@ -597,7 +597,7 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
   SourceLocation SL = SM.getExpansionLoc(D->getLocation());
 
   // If we are in source file, return Mode right away
-  if(SM.isWrittenInMainFile(SL))
+  if(SM.isInMainFile(SL))
     return Mode;
 
   // HAXX
@@ -643,7 +643,7 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
     assert(SLI.isValid() && "Source location of included header is invalid");
 
     // Do (a)
-    if(!SM.isWrittenInMainFile(SLI))
+    if(!SM.isInMainFile(SLI))
       return Mode & ~AM_Path;
 
     // Do (b)
