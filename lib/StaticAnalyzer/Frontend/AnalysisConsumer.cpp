@@ -427,11 +427,9 @@ static bool shouldSkipFunction(const Decl *D,
   //   not catch errors within defensive code.
   // - We want to reanalyze all ObjC methods as top level to report Retain
   //   Count naming convention errors more aggressively.
-  if (isa<ObjCMethodDecl>(D))
-    return false;
 
-  // Otherwise, if we visited the function before, do not reanalyze it.
-  return Visited.count(D);
+  // HAXX: We disable skips for non ObjC Decls as well
+  return false;
 }
 
 ExprEngine::InliningModes
@@ -441,11 +439,13 @@ AnalysisConsumer::getInliningModeForFunction(const Decl *D,
   // Count naming convention errors more aggressively. But we should tune down
   // inlining when reanalyzing an already inlined function.
   if (Visited.count(D)) {
-    assert(isa<ObjCMethodDecl>(D) &&
-           "We are only reanalyzing ObjCMethods.");
-    const ObjCMethodDecl *ObjCM = cast<ObjCMethodDecl>(D);
-    if (ObjCM->getMethodFamily() != OMF_init)
-      return ExprEngine::Inline_Minimal;
+    if (isa<ObjCMethodDecl>(D)) {
+      const ObjCMethodDecl *ObjCM = cast<ObjCMethodDecl>(D);
+      if (ObjCM->getMethodFamily() != OMF_init)
+	return ExprEngine::Inline_Minimal;
+    }
+    else if (!isa<CXXConstructorDecl>(D))
+	return ExprEngine::Inline_Minimal;
   }
 
   return ExprEngine::Inline_Regular;
