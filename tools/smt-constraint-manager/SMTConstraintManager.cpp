@@ -1004,9 +1004,9 @@ public:
 } // end of namespace clang
 
 extern "C" {
-  clang::ento::ConstraintManager *
+  std::unique_ptr<clang::ento::ConstraintManager>
   CreateSMTConstraintManager(clang::ento::ProgramStateManager &StMgr,
                              clang::ento::SubEngine *Eng) {
-    return new clang::ento::STPConstraintManager(Eng, StMgr);
+    return llvm::make_unique<clang::ento::STPConstraintManager>(Eng, StMgr);
   }
 }

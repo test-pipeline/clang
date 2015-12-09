@@ -1,22 +1,7 @@
-set(MODULE TRUE)
-
 set( LLVM_LINK_COMPONENTS support mc)
 
 add_library(SMTConstraintManagerPlugin SHARED
  SMTConstraintManager.cpp)
-
-# add_dependencies(SMTConstraintManagerPlugin
-#   ClangAttrClasses
-#   ClangAttrList
-#   ClangCommentNodes
-#   ClangDeclNodes
-#   ClangDiagnosticCommon
-#   ClangStmtNodes
-#   )
-
-target_link_libraries(SMTConstraintManagerPlugin
-  clangStaticAnalyzerCore
-  )
 
 set_target_properties(SMTConstraintManagerPlugin
   PROPERTIES
