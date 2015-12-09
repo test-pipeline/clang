@@ -152,6 +152,10 @@ std::unique_ptr<ConstraintManager>
 CreateRangeConstraintManager(ProgramStateManager &statemgr,
                              SubEngine *subengine);
 
+std::unique_ptr<ConstraintManager>
+StubCreateSMTConstraintManager(ProgramStateManager& statemgr,
+                               SubEngine *subengine);
+
 } // end GR namespace
 
 } // end clang namespace
