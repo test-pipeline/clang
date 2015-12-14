@@ -305,8 +305,9 @@ SVal SValBuilder::makeSymExprValNN(ProgramStateRef State,
                                    BinaryOperator::Opcode Op,
                                    NonLoc LHS, NonLoc RHS,
                                    QualType ResultTy) {
-  if (!State->isTainted(RHS) && !State->isTainted(LHS))
-    return UnknownVal();
+  // TODO: Ask the ConstraintManager if it can handle this SymExpr
+  //if (!State->isTainted(RHS) && !State->isTainted(LHS))
+  //  return UnknownVal();
     
   const SymExpr *symLHS = LHS.getAsSymExpr();
   const SymExpr *symRHS = RHS.getAsSymExpr();
