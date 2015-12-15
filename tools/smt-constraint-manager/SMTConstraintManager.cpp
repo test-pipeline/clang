@@ -383,7 +383,7 @@ protected:
   STPExpr buildVariable(const SymExpr *SE) {
     assert(isa<SymbolData>(SE));
     
-    std::string varName = "Var_" + cast<SymbolData>(SE)->getSymbolID();
+    std::string varName = "Var_" + std::to_string(cast<SymbolData>(SE)->getSymbolID());
     llvm::Twine name = llvm::Twine(varName);
     
     STPType T = vc_bvType(VC, AC.getTypeSize(SE->getType()));
