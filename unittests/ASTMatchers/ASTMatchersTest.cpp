@@ -482,6 +482,10 @@ TEST(DeclarationMatcher, MatchAnyOf) {
   EXPECT_TRUE(matches("int F() { return 1 + 2; }", MixedTypes));
   EXPECT_TRUE(matches("int F() { if (true) return 1; }", MixedTypes));
   EXPECT_TRUE(notMatches("int F() { return 1; }", MixedTypes));
+
+  EXPECT_TRUE(
+      matches("void f() try { } catch (int) { } catch (...) { }",
+              catchStmt(anyOf(hasDescendant(varDecl()), isCatchAll()))));
 }
 
 TEST(DeclarationMatcher, MatchHas) {
@@ -747,12 +751,12 @@ public:
     Name.clear();
   }
 
-  ~VerifyIdIsBoundTo() {
+  ~VerifyIdIsBoundTo() override {
     EXPECT_EQ(0, Count);
     EXPECT_EQ("", Name);
   }
 
-  virtual bool run(const BoundNodes *Nodes) override {
+  bool run(const BoundNodes *Nodes) override {
     const BoundNodes::IDToNodeMap &M = Nodes->getMap();
     if (Nodes->getNodeAs<T>(Id)) {
       ++Count;
@@ -774,7 +778,7 @@ public:
     return false;
   }
 
-  virtual bool run(const BoundNodes *Nodes, ASTContext *Context) override {
+  bool run(const BoundNodes *Nodes, ASTContext *Context) override {
     return run(Nodes);
   }
 
@@ -1398,6 +1402,12 @@ TEST(Callee, MatchesDeclarations) {
 
   EXPECT_TRUE(matches("class Y { void x() { x(); } };", CallMethodX));
   EXPECT_TRUE(notMatches("class Y { void x() {} };", CallMethodX));
+
+  CallMethodX = callExpr(callee(conversionDecl()));
+  EXPECT_TRUE(
+      matches("struct Y { operator int() const; }; int i = Y();", CallMethodX));
+  EXPECT_TRUE(notMatches("struct Y { operator int() const; }; Y y = Y();",
+                         CallMethodX));
 }
 
 TEST(Callee, MatchesMemberExpressions) {
@@ -1587,6 +1597,13 @@ TEST(IsDeleted, MatchesDeletedFunctionDeclarations) {
       notMatches("void Func();", functionDecl(hasName("Func"), isDeleted())));
   EXPECT_TRUE(matches("void Func() = delete;",
                       functionDecl(hasName("Func"), isDeleted())));
+}
+
+TEST(isConstexpr, MatchesConstexprDeclarations) {
+  EXPECT_TRUE(matches("constexpr int foo = 42;",
+                      varDecl(hasName("foo"), isConstexpr())));
+  EXPECT_TRUE(matches("constexpr int bar();",
+                      functionDecl(hasName("bar"), isConstexpr())));
 }
 
 TEST(HasAnyParameter, DoesntMatchIfInnerMatcherDoesntMatch) {
@@ -1790,6 +1807,9 @@ TEST(Matcher, MatchesOverridingMethod) {
        methodDecl(isOverride())));
   EXPECT_TRUE(notMatches("class X { int f(); int f(int); }; ",
        methodDecl(isOverride())));
+  EXPECT_TRUE(
+      matches("template <typename Base> struct Y : Base { void f() override;};",
+              methodDecl(isOverride(), hasName("::Y::f"))));
 }
 
 TEST(Matcher, ConstructorCall) {
@@ -2133,6 +2153,10 @@ TEST(Matcher, FloatLiterals) {
 
 TEST(Matcher, NullPtrLiteral) {
   EXPECT_TRUE(matches("int* i = nullptr;", nullPtrLiteralExpr()));
+}
+
+TEST(Matcher, GNUNullExpr) {
+  EXPECT_TRUE(matches("int* i = __null;", gnuNullExpr()));
 }
 
 TEST(Matcher, AsmStatement) {
@@ -2538,10 +2562,9 @@ TEST(AstMatcherPMacro, Works) {
       HasClassB, new VerifyIdIsBoundTo<Decl>("b")));
 }
 
-AST_POLYMORPHIC_MATCHER_P(
-    polymorphicHas,
-    AST_POLYMORPHIC_SUPPORTED_TYPES_2(Decl, Stmt),
-    internal::Matcher<Decl>, AMatcher) {
+AST_POLYMORPHIC_MATCHER_P(polymorphicHas,
+                          AST_POLYMORPHIC_SUPPORTED_TYPES(Decl, Stmt),
+                          internal::Matcher<Decl>, AMatcher) {
   return Finder->matchesChildOf(
       Node, AMatcher, Builder,
       ASTMatchFinder::TK_IgnoreImplicitCastsAndParentheses,
@@ -3302,6 +3325,10 @@ TEST(ExceptionHandling, SimpleCases) {
                       throwExpr()));
   EXPECT_TRUE(matches("void foo() try { throw 5;} catch(int X) { }",
                       throwExpr()));
+  EXPECT_TRUE(matches("void foo() try { throw; } catch(...) { }",
+                      catchStmt(isCatchAll())));
+  EXPECT_TRUE(notMatches("void foo() try { throw; } catch(int) { }",
+                         catchStmt(isCatchAll())));
 }
 
 TEST(HasConditionVariableStatement, DoesNotMatchCondition) {
@@ -4377,9 +4404,9 @@ public:
       : Id(Id), InnerMatcher(InnerMatcher), InnerId(InnerId) {
   }
 
-  virtual bool run(const BoundNodes *Nodes) { return false; }
+  bool run(const BoundNodes *Nodes) override { return false; }
 
-  virtual bool run(const BoundNodes *Nodes, ASTContext *Context) {
+  bool run(const BoundNodes *Nodes, ASTContext *Context) override {
     const T *Node = Nodes->getNodeAs<T>(Id);
     return selectFirst<T>(InnerId, match(InnerMatcher, *Node, *Context)) !=
            nullptr;
@@ -4428,9 +4455,9 @@ TEST(MatchFinder, CanMatchSingleNodesRecursively) {
 template <typename T>
 class VerifyAncestorHasChildIsEqual : public BoundNodesCallback {
 public:
-  virtual bool run(const BoundNodes *Nodes) { return false; }
+  bool run(const BoundNodes *Nodes) override { return false; }
 
-  virtual bool run(const BoundNodes *Nodes, ASTContext *Context) {
+  bool run(const BoundNodes *Nodes, ASTContext *Context) override {
     const T *Node = Nodes->getNodeAs<T>("");
     return verify(*Nodes, *Context, Node);
   }
@@ -4486,12 +4513,10 @@ TEST(MatchFinder, CheckProfiling) {
 class VerifyStartOfTranslationUnit : public MatchFinder::MatchCallback {
 public:
   VerifyStartOfTranslationUnit() : Called(false) {}
-  virtual void run(const MatchFinder::MatchResult &Result) {
+  void run(const MatchFinder::MatchResult &Result) override {
     EXPECT_TRUE(Called);
   }
-  virtual void onStartOfTranslationUnit() {
-    Called = true;
-  }
+  void onStartOfTranslationUnit() override { Called = true; }
   bool Called;
 };
 
@@ -4514,12 +4539,10 @@ TEST(MatchFinder, InterceptsStartOfTranslationUnit) {
 class VerifyEndOfTranslationUnit : public MatchFinder::MatchCallback {
 public:
   VerifyEndOfTranslationUnit() : Called(false) {}
-  virtual void run(const MatchFinder::MatchResult &Result) {
+  void run(const MatchFinder::MatchResult &Result) override {
     EXPECT_FALSE(Called);
   }
-  virtual void onEndOfTranslationUnit() {
-    Called = true;
-  }
+  void onEndOfTranslationUnit() override { Called = true; }
   bool Called;
 };
 
@@ -4711,6 +4734,51 @@ TEST(Matcher, IsExpansionInFileMatching) {
 }
 
 #endif // LLVM_ON_WIN32
+
+  
+TEST(ObjCMessageExprMatcher, SimpleExprs) {
+  // don't find ObjCMessageExpr where none are present
+  EXPECT_TRUE(notMatchesObjC("", objcMessageExpr(anything())));
+ 
+  std::string Objc1String =
+  "@interface Str "
+  " - (Str *)uppercaseString:(Str *)str;"
+  "@end "
+  "@interface foo "
+  "- (void)meth:(Str *)text;"
+  "@end "
+  " "
+  "@implementation foo "
+  "- (void) meth:(Str *)text { "
+  "  [self contents];"
+  "  Str *up = [text uppercaseString];"
+  "} "
+  "@end ";
+  EXPECT_TRUE(matchesObjC(
+      Objc1String,
+      objcMessageExpr(anything())));
+  EXPECT_TRUE(matchesObjC(
+      Objc1String,
+      objcMessageExpr(hasSelector("contents"))));
+  EXPECT_TRUE(matchesObjC(
+      Objc1String,
+      objcMessageExpr(matchesSelector("cont*"))));
+  EXPECT_FALSE(matchesObjC(
+      Objc1String,
+      objcMessageExpr(matchesSelector("?cont*"))));
+  EXPECT_TRUE(notMatchesObjC(
+      Objc1String,
+      objcMessageExpr(hasSelector("contents"), hasNullSelector())));
+  EXPECT_TRUE(matchesObjC(
+      Objc1String,
+      objcMessageExpr(hasSelector("contents"), hasUnarySelector())));
+  EXPECT_TRUE(matchesObjC(
+      Objc1String,
+      objcMessageExpr(matchesSelector("uppercase*"),
+                      argumentCountIs(0)
+                      )));
+  
+}
 
 } // end namespace ast_matchers
 } // end namespace clang

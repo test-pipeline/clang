@@ -69,8 +69,6 @@ def err_drv_no_module_support : Error<
   "'%0': unable to use module files with this tool">;
 def err_drv_clang_unsupported : Error<
   "the clang compiler does not support '%0'">;
-def err_drv_clang_unsupported_per_platform : Error<
-  "the clang compiler does not support '%0' on this platform">;
 def err_drv_clang_unsupported_opt_cxx_darwin_i386 : Error<
   "the clang compiler does not support '%0' for C++ on Darwin/i386">;
 def err_drv_command_failed : Error<
@@ -142,6 +140,8 @@ def warn_drv_empty_joined_argument : Warning<
   InGroup<UnusedCommandLineArgument>;
 def warn_drv_clang_unsupported : Warning<
   "the clang compiler does not support '%0'">;
+def warn_drv_deprecated_arg : Warning<
+  "argument '%0' is deprecated, use '%1' instead">, InGroup<Deprecated>;
 def warn_drv_assuming_mfloat_abi_is : Warning<
   "unknown platform, assuming -mfloat-abi=%0">;
 def warn_ignoring_ftabstop_value : Warning<
@@ -185,4 +185,11 @@ def err_drv_modules_validate_once_requires_timestamp : Error<
 
 def warn_drv_invoking_fallback : Warning<"falling back to %0">,
   InGroup<Fallback>;
+
+def warn_target_unsupported_nan2008 : Warning<
+  "ignoring '-mnan=2008' option because the '%0' architecture does not support it">,
+  InGroup<UnsupportedNan>;
+def warn_target_unsupported_nanlegacy : Warning<
+  "ignoring '-mnan=legacy' option because the '%0' architecture does not support it">,
+  InGroup<UnsupportedNan>;
 }
