@@ -587,11 +587,6 @@ void AnalysisConsumer::HandleTranslationUnit(ASTContext &C) {
     if (Mgr->shouldInlineCall())
       HandleDeclsCallGraph(LocalTUDeclsSize);
 
-    /* Make FunctionSummaries available as a const object pointer in Mgr.
-     * This makes it available to EOTU checks that follow.
-     */
-    Mgr->FunctionSummary = &FunctionSummaries;
-
     // After all decls handled, run checkers on the entire TranslationUnit.
     checkerMgr->runCheckersOnEndOfTranslationUnit(TU, *Mgr, BR);
 

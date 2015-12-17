@@ -20,7 +20,6 @@
 #include "clang/StaticAnalyzer/Core/BugReporter/BugReporter.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/PathDiagnostic.h"
 #include "clang/StaticAnalyzer/Core/PathDiagnosticConsumers.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/FunctionSummary.h"
 
 namespace clang {
 
@@ -46,9 +45,6 @@ class AnalysisManager : public BugReporterData {
 
 public:
   AnalyzerOptions &options;
-
-  /// This makes function summaries available to checkers via e.g., checkEndofTU
-  FunctionSummariesTy const *FunctionSummary = nullptr;
   
   AnalysisManager(ASTContext &ctx,DiagnosticsEngine &diags,
                   const LangOptions &lang,
