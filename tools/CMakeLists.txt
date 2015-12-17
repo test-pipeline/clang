@@ -14,7 +14,6 @@ endif()
 if(CLANG_ENABLE_STATIC_ANALYZER)
   add_subdirectory(clang-check)
 endif()
-add_subdirectory(smt-constraint-manager)
 
 # We support checking out the clang-tools-extra repository into the 'extra'
 # subdirectory. It contains tools developed as part of the Clang/LLVM project

@@ -32,9 +32,4 @@ ifeq ($(BUILD_CLANG_ONLY),YES)
   OPTIONAL_PARALLEL_DIRS :=
 endif
 
-# Build the SMT constraint manager plug-in if STPPREFIX is set.
-ifdef STPPREFIX
-	DIRS += smt-constraint-manager
-endif
-
 include $(CLANG_LEVEL)/Makefile
