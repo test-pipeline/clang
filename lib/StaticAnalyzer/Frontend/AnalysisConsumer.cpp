@@ -651,7 +651,7 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
 
     /* Now we have the pure header file name including the file extension
      */
-    HeaderFileName = HeaderFileName.substr(0, HeaderFileName.rfind("."));
+    HeaderFileName = HeaderFileName.substr(0, HeaderFileName.rfind(".") - 1);
 #if 0
     llvm::errs() << "Header file name is: " << HeaderFileName << "\n";
 #endif
@@ -663,7 +663,7 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
     if(index != std::string::npos)
       MainFileName = MainFileName.substr(index+1);
 
-    MainFileName = MainFileName.substr(0, MainFileName.rfind("."));
+    MainFileName = MainFileName.substr(0, MainFileName.rfind(".") - 1);
 #if 0
     llvm::errs() << "Main file name is: " << MainFileName << "\n";
 #endif
