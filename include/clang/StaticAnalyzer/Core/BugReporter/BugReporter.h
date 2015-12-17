@@ -65,7 +65,7 @@ public:
   typedef const SourceRange *ranges_iterator;
   typedef SmallVector<std::unique_ptr<BugReporterVisitor>, 8> VisitorList;
   typedef VisitorList::iterator visitor_iterator;
-  typedef SmallVector<std::string, 2> ExtraTextList;
+  typedef SmallVector<StringRef, 2> ExtraTextList;
 
 protected:
   friend class BugReporter;
@@ -249,7 +249,7 @@ public:
   /// \brief This allows for addition of meta data to the diagnostic.
   ///
   /// Currently, only the HTMLDiagnosticClient knows how to display it. 
-  void addExtraText(std::string S) {
+  void addExtraText(StringRef S) {
     ExtraText.push_back(S);
   }
 
