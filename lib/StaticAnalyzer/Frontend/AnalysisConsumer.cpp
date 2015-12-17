@@ -596,9 +596,6 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
   SourceManager &SM = Ctx->getSourceManager();
   SourceLocation SL = SM.getExpansionLoc(D->getLocation());
 
-  // PresumedLoc gives us IncludeLoc which SourceLocation doesn't
-  PresumedLoc Loc = SM.getPresumedLoc(D->getLocation());
-
   // HAXX
   /* Bypass PS analysis of headers that don't have a bearing on the main
    * source file being analyzed. The heuristic we employ here is to
@@ -613,43 +610,60 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
    * 	a. Not analyzed at all -> System headers and invalid locs
    * 	b. Analyzed non path sensitively -> All other header files
    */
-  if (!Opts->AnalyzeAll && !SM.isWrittenInMainFile(SL)) {
-    if (SL.isInvalid() || SM.isInSystemHeader(SL))
-      return AM_None;
-    return Mode & ~AM_Path;
-  }
-
-  // If we are in source file, return Mode right away
-  if (SM.isWrittenInMainFile(SL))
-    return Mode;
 
   // Bail if header is system or we are in an invalid loc
   if ((SL.isInvalid() || SM.isInSystemHeader(SL)))
     return AM_None;
 
+  // If we are in source file, return Mode right away
+  if (SM.isInMainFile(SL))
+    return Mode;
+
+  if (!Opts->AnalyzeAll)
+    return Mode & ~AM_Path;
+
   if ((Mode == AM_Syntax) || (Mode == AM_None))
     return Mode;
 
+  // Analyze headers is ON
+  // Get name of header file from the Decl being handled
+  PresumedLoc Loc = SM.getPresumedLoc(D->getLocation());
+  /* This gives us the file path string including the
+   * name of the header file
+   */
+  const char *HeaderFileNameFull = Loc.getFilename();
+  assert(HeaderFileNameFull && "Header file name returned null");
+
+  /* getIncludeLoc gives us the location of #include "this_header.h"
+   * We switch off PS analysis when:
+   *   a. Loc is in a header file. This means we disable
+   *   PS analysis for declarations in headers that are included in
+   *   other headers i.e., nested header files
+   *   b. Header file name is not equal to main source filename
+   *
+   * (b) is somewhat nasty as this is a crude heuristic. But I think
+   * even (b) does deeper analysis than -analyze-headers turned OFF.
+   */
+  SourceLocation SLI = Loc.getIncludeLoc();
+  assert(SLI.isValid() && "Source location of included header is invalid");
+
+  // Do (a)
+  if(!SM.isInMainFile(SLI))
+    return Mode & ~AM_Path;
+
+  // Do (b)
+
   // Get Header file name
-  std::string HeaderFileNameFull = std::string(Loc.getFilename());
   std::string HeaderFileName = HeaderFileNameFull;
   std::string::size_type index = HeaderFileName.rfind("/");
   if (index != std::string::npos)
     HeaderFileName = HeaderFileName.substr(index+1);
-  // Now we have the pure header file name including the file extension
+
+  /* Now we have the pure header file name including the file extension
+   */
   HeaderFileName = HeaderFileName.substr(0, HeaderFileName.rfind("."));
-
-  // Get Source file name
-  SourceLocation SLI = Loc.getIncludeLoc();
-  assert(SLI.isValid() && "Invalid Include Loc");
-
-  std::string MainFileNameFull;
-  while (SLI.isValid()) {
-    MainFileNameFull = std::string(SM.getFilename(SLI));
-    PresumedLoc Loc = SM.getPresumedLoc(SLI);
-    SLI = Loc.getIncludeLoc();
-  }
-
+  // Get name of main file clang is analyzing. But how?
+  StringRef MainFileNameFull = SM.getFilename(SLI);
   std::string MainFileName = MainFileNameFull;
   index = MainFileName.rfind("/");
   if(index != std::string::npos)
@@ -664,7 +678,7 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
   /* If names match, return Mode
    * Mode == AM_Path by default, so we're good
    */
-  if (MainFileName.compare(HeaderFileName))
+  if(MainFileName.compare(HeaderFileName))
     return Mode & ~AM_Path;
 
   return Mode;
