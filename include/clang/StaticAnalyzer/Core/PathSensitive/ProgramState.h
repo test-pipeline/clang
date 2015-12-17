@@ -330,18 +330,6 @@ public:
   ProgramStateRef addTaint(const MemRegion *R,
                                TaintTagType Kind = TaintTagGeneric) const;
 
-  /// Create a new state in taint on a statement has been removed.
-  ProgramStateRef removeTaint(const Stmt *S, const LocationContext *LCtx,
-                               TaintTagType Kind = TaintTagGeneric) const;
-
-  /// Create a new state in which the symbol is marked as tainted.
-  ProgramStateRef removeTaint(SymbolRef S,
-                               TaintTagType Kind = TaintTagGeneric) const;
-
-  /// Create a new state in which the region symbol is marked as tainted.
-  ProgramStateRef removeTaint(const MemRegion *R,
-                               TaintTagType Kind = TaintTagGeneric) const;
-
   /// Check if the statement is tainted in the current state.
   bool isTainted(const Stmt *S, const LocationContext *LCtx,
                  TaintTagType Kind = TaintTagGeneric) const;
