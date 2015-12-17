@@ -219,8 +219,13 @@ public:
 				  FDecl, isTaintedDecl);
   }
 
-  const Decl *getTopLevelDecl() {
+  const Decl *getTopLevelDecl() const {
     return Eng.getCoreEngine().getTopLevelDecl();
+  }
+
+  /// Get Const ref to Function summaries map.
+  const FunctionSummariesTy::MapTy &getFunctionSummariesMap() {
+    return Eng.getCoreEngine().getFunctionSummaries()->getMap();
   }
 
   /// \brief Generates a new transition in the program state graph
