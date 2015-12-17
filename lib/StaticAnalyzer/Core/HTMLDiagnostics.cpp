@@ -209,17 +209,12 @@ void HTMLDiagnostics::ReportDiag(const PathDiagnostic& D,
          "<tr><td class=\"rowname\">Description:</td><td>"
       << D.getVerboseDescription() << "</td></tr>\n";
 
-    // HAXX
     // Output any other meta data.
-    os << "<tr><td class=\"rowname\">Local Path to Bug:</td><td>";
+
     for (PathDiagnostic::meta_iterator I=D.meta_begin(), E=D.meta_end();
          I!=E; ++I) {
-	  os << html::EscapeText(*I) <<
-	      ((I+1 != E) ? "&rarr;" : ""); //<< "</td><td>";
-//      os << "<tr><td></td><td>" << html::EscapeText(*I) << "</td></tr>\n";
+      os << "<tr><td></td><td>" << html::EscapeText(*I) << "</td></tr>\n";
     }
-    os << "</td></tr>\n";
-    // HAXX
 
     os << "</table>\n<!-- REPORTSUMMARYEXTRA -->\n"
           "<h3>Annotated Source Code</h3>\n";
