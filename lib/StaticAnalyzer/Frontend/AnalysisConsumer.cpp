@@ -590,20 +590,6 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
   // - System headers: don't run any checks.
   SourceManager &SM = Ctx->getSourceManager();
   SourceLocation SL = SM.getExpansionLoc(D->getLocation());
-
-  /* HAXX: Bypass system headers even if -analyzer-opt-analyze-headers is passed
-   * This is just a performance optimization when headers are to be analyzed
-   * in a path-sensitive manner.
-   * Opts->AnalyzeAll is set when -analyzer-opt-analyze-headers is passed in
-   * the command line
-   * 	1. If this flag is set AND we are in a system header or in an
-   * 	invalid source location, we bail i.e., we don't
-   * 	perform PS analysis
-   */
-  if(Opts->AnalyzeAll && (SM.isInSystemHeader(SL) || SL.isInvalid()))
-    return AM_None;
-  // HAXX
-
   if (!Opts->AnalyzeAll && !SM.isWrittenInMainFile(SL)) {
     if (SL.isInvalid() || SM.isInSystemHeader(SL))
       return AM_None;
