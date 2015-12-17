@@ -507,8 +507,7 @@ void AnalysisConsumer::OrderDeclInCG(CallGraph *CG, OrderedDeclTy *DV) {
   llvm::DenseSet<Decl *>	VisitedDecl;
   llvm::ReversePostOrderTraversal<clang::CallGraph*> RPOT(CG);
 
-  // Loop 1 pushes Ctors into vector. If there are no Ctors we visit function
-  // declarations in the same order as per Clang SA's original logic.
+  // Loop 1 pushes Ctors into vector
   for (llvm::ReversePostOrderTraversal<clang::CallGraph*>::rpo_iterator
          I = RPOT.begin(), E = RPOT.end(); I != E; ++I) {
     NumFunctionTopLevel++;
@@ -658,7 +657,7 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
   // Analyze headers is ON
   if(Opts->AnalyzeAll){
     // Bail if header is system or we are in an invalid loc
-    if((SL.isInvalid() || SM.isInSystemHeader(SL)))
+    if((SM.isInSystemHeader(SL) || SL.isInvalid()))
       return AM_None;
 
     // Get name of header file from the Decl being handled
