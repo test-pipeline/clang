@@ -84,8 +84,6 @@ private:
   /// (This data is owned by AnalysisConsumer.)
   FunctionSummariesTy *FunctionSummaries;
 
-  const LocationContext *LC;
-
   void generateNode(const ProgramPoint &Loc,
                     ProgramStateRef State,
                     ExplodedNode *Pred);
@@ -175,10 +173,6 @@ public:
 
   /// \brief Enqueue a single node created as a result of statement processing.
   void enqueueStmtNode(ExplodedNode *N, const CFGBlock *Block, unsigned Idx);
-
-  const Decl *getTopLevelDecl() const { return LC->getDecl(); }
-
-  FunctionSummariesTy *getFunctionSummaries() const { return FunctionSummaries; }
 };
 
 // TODO: Turn into a calss.

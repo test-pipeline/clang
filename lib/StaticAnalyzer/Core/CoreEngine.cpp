@@ -165,16 +165,6 @@ WorkList* WorkList::makeBFSBlockDFSContents() {
 bool CoreEngine::ExecuteWorkList(const LocationContext *L, unsigned Steps,
                                    ProgramStateRef InitState) {
 
-  /* Hack: We track top level declaration visited by PS Core engine
-   * by adding a LocationContext field and updating it each time
-   * ExecuteWorkList is eventually invoked by AnalysisConsumer.
-   *
-   * We expose an API called CoreEngine::getTopLevelDecl() that
-   * calls L->getDecl(). getTopLevelDecl() is called by its namesake
-   * in CheckerContext.h.
-   */
-  LC = L;
-
   if (G.num_roots() == 0) { // Initialize the analysis by constructing
     // the root if none exists.
 

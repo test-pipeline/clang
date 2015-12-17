@@ -17,7 +17,6 @@
 
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/FunctionSummary.h"
 
 namespace clang {
 namespace ento {
@@ -195,37 +194,6 @@ public:
   /// \brief Get the value of arbitrary expressions at this point in the path.
   SVal getSVal(const Stmt *S) const {
     return getState()->getSVal(S, getLocationContext());
-  }
-
-  /// Context-sensitive taint
-  void addCSTaint(const Decl *TaintedDecl){
-    Eng.getCoreEngine().getFunctionSummaries()->addTaint(
-				  getTopLevelDecl(), TaintedDecl);
-  }
-
-  bool isCSTainted(const Decl *isTaintedDecl){
-    return Eng.getCoreEngine().getFunctionSummaries()->isTainted(
-				  getTopLevelDecl(), isTaintedDecl);
-  }
-
-  /// Context-insensitive taint
-  void addTaint(const Decl *FDecl, const Decl *TaintedDecl){
-    Eng.getCoreEngine().getFunctionSummaries()->addTaint(
-    				  FDecl, TaintedDecl);
-  }
-
-  bool isTainted(const Decl *FDecl, const Decl *isTaintedDecl){
-    return Eng.getCoreEngine().getFunctionSummaries()->isTainted(
-				  FDecl, isTaintedDecl);
-  }
-
-  const Decl *getTopLevelDecl() const {
-    return Eng.getCoreEngine().getTopLevelDecl();
-  }
-
-  /// Get Const ref to Function summaries map.
-  const FunctionSummariesTy::MapTy &getFunctionSummariesMap() {
-    return Eng.getCoreEngine().getFunctionSummaries()->getMap();
   }
 
   /// \brief Generates a new transition in the program state graph

@@ -19,8 +19,6 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallBitVector.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/TaintTag.h"
-
 #include <deque>
 
 namespace clang {
@@ -49,48 +47,13 @@ class FunctionSummariesTy {
     /// The number of times the function has been inlined.
     unsigned TimesInlined : 32;
 
-    /* We need a multi-map to support multiple types of taint on
-     * a single Decl. For the moment, we only support one taint
-     * (one of possibly many types) per Decl.
-     */
-    typedef llvm::DenseMap<const Decl *, TaintTagType> TLDTaintMapTy;
-    typedef std::pair<const Decl *, TaintTagType> DTPair;
-
-    TLDTaintMapTy TLDTaintMap;
-
-    void addTaint(const Decl *D, TaintTagType Kind = TaintTagIPA) {
-
-      // Is Decl already in Taint map?
-      TLDTaintMapTy::iterator I = TLDTaintMap.find(D);
-      if (I != TLDTaintMap.end())
-	return;
-
-      // Taint
-      I = TLDTaintMap.insert(DTPair(D, Kind)).first;
-      assert(I != TLDTaintMap.end());
-    }
-
-    bool isTainted(const Decl *D, TaintTagType Kind = TaintTagIPA) {
-      if(!D)
-	return false;
-
-      bool Tainted = false;
-      TLDTaintMapTy::iterator I = TLDTaintMap.find(D);
-      if (I != TLDTaintMap.end() && I->second == Kind)
-	Tainted = true;
-
-      return Tainted;
-    }
-
     FunctionSummary() :
       TotalBasicBlocks(0),
       InlineChecked(0),
       TimesInlined(0) {}
   };
 
-public:
   typedef llvm::DenseMap<const Decl *, FunctionSummary> MapTy;
-private:
   MapTy Map;
 
 public:
@@ -103,24 +66,6 @@ public:
     I = Map.insert(KVPair(D, FunctionSummary())).first;
     assert(I != Map.end());
     return I;
-  }
-
-  const MapTy &getMap(){
-    const MapTy &MapConstRef = Map;
-    return MapConstRef;
-  }
-
-  void addTaint(const Decl *FDecl, const Decl *TaintDecl) {
-    MapTy::iterator I = findOrInsertSummary(FDecl);
-    I->second.addTaint(TaintDecl);
-  }
-
-  bool isTainted(const Decl *FDecl, const Decl *isTaintedDecl) {
-    MapTy::iterator I = Map.find(FDecl);
-    if (I == Map.end())
-      return false;
-
-    return I->second.isTainted(isTaintedDecl);
   }
 
   void markMayInline(const Decl *D) {
