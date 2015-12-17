@@ -384,10 +384,6 @@ private:
   /// \brief Check if we should skip (not analyze) the given function.
   AnalysisMode getModeForDecl(Decl *D, AnalysisMode Mode);
 
-  // HAXX
-  bool ctorVisited = false;
-  // HAXX
-
 };
 } // end anonymous namespace
 
@@ -484,18 +480,6 @@ void AnalysisConsumer::HandleDeclsCallGraph(const unsigned LocalTUDeclsSize) {
     // Skip the abstract root node.
     if (!D)
       continue;
-
-    /* HAXX:
-     * Visit Ctor Decl first. Start iteration afresh once Ctor has been visited
-     * to visit unvisited CG nodes.
-     */
-    if(dyn_cast<CXXConstructorDecl>(D) && !ctorVisited){
-      ctorVisited = true;
-      I = RPOT.begin();
-    }
-    else if(!dyn_cast<CXXConstructorDecl>(D) && !ctorVisited)
-      continue;
-    // HAXX
 
     // Skip the functions which have been processed already or previously
     // inlined.
