@@ -638,7 +638,7 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
     assert(SLI.isValid() && "Source location of included header is invalid");
 
     // Do (a)
-    if(!SM.isWrittenInMainFile(SLI))
+    if(!SM.isInMainFile(SLI))
       return Mode & ~AM_Path;
 
     // Do (b)
