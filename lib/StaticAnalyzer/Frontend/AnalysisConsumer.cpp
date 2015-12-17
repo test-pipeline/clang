@@ -596,6 +596,10 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
   SourceManager &SM = Ctx->getSourceManager();
   SourceLocation SL = SM.getExpansionLoc(D->getLocation());
 
+  // If we are in source file, return Mode right away
+  if(SM.isInMainFile(SL))
+    return Mode;
+
   // HAXX
   /* Bypass PS analysis of headers that don't have a bearing on the main
    * source file being analyzed. The heuristic we employ here is to
@@ -611,76 +615,80 @@ AnalysisConsumer::getModeForDecl(Decl *D, AnalysisMode Mode) {
    * 	b. Analyzed non path sensitively -> All other header files
    */
 
-  // Bail if header is system or we are in an invalid loc
-  if ((SL.isInvalid() || SM.isInSystemHeader(SL)))
-    return AM_None;
-
-  // If we are in source file, return Mode right away
-  if (SM.isInMainFile(SL))
-    return Mode;
-
-  if (!Opts->AnalyzeAll)
-    return Mode & ~AM_Path;
-
-  if ((Mode == AM_Syntax) || (Mode == AM_None))
-    return Mode;
-
   // Analyze headers is ON
-  // Get name of header file from the Decl being handled
-  PresumedLoc Loc = SM.getPresumedLoc(D->getLocation());
-  /* This gives us the file path string including the
-   * name of the header file
-   */
-  const char *HeaderFileNameFull = Loc.getFilename();
-  assert(HeaderFileNameFull && "Header file name returned null");
+  if(Opts->AnalyzeAll){
+    // Bail if header is system or we are in an invalid loc
+    if((SL.isInvalid() || SM.isInSystemHeader(SL)))
+      return AM_None;
 
-  /* getIncludeLoc gives us the location of #include "this_header.h"
-   * We switch off PS analysis when:
-   *   a. Loc is in a header file. This means we disable
-   *   PS analysis for declarations in headers that are included in
-   *   other headers i.e., nested header files
-   *   b. Header file name is not equal to main source filename
-   *
-   * (b) is somewhat nasty as this is a crude heuristic. But I think
-   * even (b) does deeper analysis than -analyze-headers turned OFF.
-   */
-  SourceLocation SLI = Loc.getIncludeLoc();
-  assert(SLI.isValid() && "Source location of included header is invalid");
+    // Get name of header file from the Decl being handled
+    PresumedLoc Loc = SM.getPresumedLoc(D->getLocation());
+    /* This gives us the file path string including the
+     * name of the header file
+     */
+    const char *HeaderFileNameFull = Loc.getFilename();
+    assert(HeaderFileNameFull && "Header file name returned null");
 
-  // Do (a)
-  if(!SM.isInMainFile(SLI))
-    return Mode & ~AM_Path;
+    /* getIncludeLoc gives us the location of #include "this_header.h"
+     * We switch off PS analysis when:
+     *   a. Loc is in a header file. This means we disable
+     *   PS analysis for declarations in headers that are included in
+     *   other headers i.e., nested header files
+     *   b. Header file name is not equal to main source filename
+     *
+     * (b) is somewhat nasty as this is a crude heuristic. But I think
+     * even (b) does deeper analysis than -analyze-headers turned OFF.
+     */
+    SourceLocation SLI = Loc.getIncludeLoc();
+    assert(SLI.isValid() && "Source location of included header is invalid");
 
-  // Do (b)
+    // Do (a)
+    if(!SM.isInMainFile(SLI))
+      return Mode & ~AM_Path;
 
-  // Get Header file name
-  std::string HeaderFileName = HeaderFileNameFull;
-  std::string::size_type index = HeaderFileName.rfind("/");
-  if (index != std::string::npos)
-    HeaderFileName = HeaderFileName.substr(index+1);
+    // Do (b)
 
-  /* Now we have the pure header file name including the file extension
-   */
-  HeaderFileName = HeaderFileName.substr(0, HeaderFileName.rfind("."));
-  // Get name of main file clang is analyzing. But how?
-  StringRef MainFileNameFull = SM.getFilename(SLI);
-  std::string MainFileName = MainFileNameFull;
-  index = MainFileName.rfind("/");
-  if(index != std::string::npos)
-    MainFileName = MainFileName.substr(index+1);
+    // Get Header file name
+    std::string HeaderFileName = HeaderFileNameFull;
+    std::string::size_type index = HeaderFileName.rfind("/");
+    if (index != std::string::npos)
+      HeaderFileName = HeaderFileName.substr(index+1);
 
-  // Mainfile name has neither .cpp or .cc as its file extension
-  if ((MainFileName.rfind(".cpp") == std::string::npos) &&
-      (MainFileName.rfind(".cc") == std::string::npos))
-    return Mode & ~AM_Path;
+    /* Now we have the pure header file name including the file extension
+     */
+    HeaderFileName = HeaderFileName.substr(0, HeaderFileName.rfind("."));
+#if 0
+    llvm::errs() << "Header file name is: " << HeaderFileName << "\n";
+#endif
 
-  MainFileName = MainFileName.substr(0, MainFileName.rfind("."));
-  /* If names match, return Mode
-   * Mode == AM_Path by default, so we're good
-   */
-  if(MainFileName.compare(HeaderFileName))
-    return Mode & ~AM_Path;
+    // Get name of main file clang is analyzing. But how?
+    StringRef MainFileNameFull = SM.getFilename(SLI);
+    std::string MainFileName = MainFileNameFull;
+    index = MainFileName.rfind("/");
+    if(index != std::string::npos)
+      MainFileName = MainFileName.substr(index+1);
 
+    MainFileName = MainFileName.substr(0, MainFileName.rfind("."));
+#if 0
+    llvm::errs() << "Main file name is: " << MainFileName << "\n";
+#endif
+
+    /* If names match, return Mode
+     * Mode == AM_Path by default, so we're good
+     */
+    if(MainFileName.compare(HeaderFileName))
+      return Mode & ~AM_Path;
+
+    return Mode;
+  }
+  // Analyze headers is OFF
+  else{
+      if (SL.isInvalid() || SM.isInSystemHeader(SL))
+	return AM_None;
+      return Mode & ~AM_Path;
+  }
+  // HAXX
+  llvm_unreachable("This has to be a fuck up with analyze headers hack!");
   return Mode;
 }
 
