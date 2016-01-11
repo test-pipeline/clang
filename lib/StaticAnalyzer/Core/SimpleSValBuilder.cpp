@@ -29,7 +29,7 @@ public:
   SimpleSValBuilder(llvm::BumpPtrAllocator &alloc, ASTContext &context,
                     ProgramStateManager &stateMgr)
                     : SValBuilder(alloc, context, stateMgr) {}
-  ~SimpleSValBuilder() override {}
+  virtual ~SimpleSValBuilder() {}
 
   SVal evalMinus(NonLoc val) override;
   SVal evalComplement(NonLoc val) override;

@@ -19,7 +19,6 @@
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/Type.h"
 #include "llvm/IR/Value.h"
-#include "llvm/IR/Type.h"
 
 namespace llvm {
   class Constant;
@@ -300,7 +299,6 @@ public:
 
     LValue R;
     R.LVType = Simple;
-    assert(address->getType()->isPointerTy());
     R.V = address;
     R.Initialize(type, qs, alignment, TBAAInfo);
     return R;

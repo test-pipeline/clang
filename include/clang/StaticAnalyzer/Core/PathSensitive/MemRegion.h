@@ -609,7 +609,7 @@ public:
 
   AnalysisDeclContext *getAnalysisDeclContext() const { return AC; }
 
-  void dumpToStream(raw_ostream &os) const override;
+  virtual void dumpToStream(raw_ostream &os) const override;
 
   void Profile(llvm::FoldingSetNodeID& ID) const override;
 
@@ -704,7 +704,7 @@ private:
 };
 
 /// SymbolicRegion - A special, "non-concrete" region. Unlike other region
-///  classes, SymbolicRegion represents a region that serves as an alias for
+///  clases, SymbolicRegion represents a region that serves as an alias for
 ///  either a real region, a NULL pointer, etc.  It essentially is used to
 ///  map the concept of symbolic values into the domain of regions.  Symbolic
 ///  regions do not need to be typed.

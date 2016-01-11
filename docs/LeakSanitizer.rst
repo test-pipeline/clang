@@ -17,8 +17,7 @@ only, at a minimal performance cost.
 Current status
 ==============
 
-LeakSanitizer is turned on by default, but it is only supported on x86\_64
-Linux.
+LeakSanitizer is experimental and supported only on x86\_64 Linux.
 
 The combined mode has been tested on fairly large software projects. The
 stand-alone mode has received much less testing.

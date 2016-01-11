@@ -1,12 +1,7 @@
 // RUN: %clang -g -S -emit-llvm %s -o - | FileCheck %s
 
-// CHECK: !DIDerivedType(tag: DW_TAG_member, name: "p"
-// CHECK-SAME:           baseType: ![[INT:[0-9]+]]
-// CHECK-SAME:           DIFlagPublic
-// CHECK: ![[INT]] = !DIBasicType(name: "int"
-// CHECK: !DIDerivedType(tag: DW_TAG_member, name: "pr"
-// CHECK-NOT:            flags:
-// CHECK-SAME:           baseType: ![[INT]]
+// CHECK: [ DW_TAG_member ] [p] [{{[^]]*}}] [public] [from int]
+// CHECK: [ DW_TAG_member ] [pr] [{{[^]]*}}] [from int]
 
 class A {
 public:

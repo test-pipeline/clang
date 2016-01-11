@@ -1130,8 +1130,9 @@ void FindLastStoreBRVisitor::registerStatementVarDecls(BugReport &BR,
       }
     }
 
-    for (const Stmt *SubStmt : Head->children())
-      WorkList.push_back(SubStmt);
+    for (Stmt::const_child_iterator I = Head->child_begin();
+        I != Head->child_end(); ++I)
+      WorkList.push_back(*I);
   }
 }
 
@@ -1528,7 +1529,7 @@ LikelyFalsePositiveSuppressionBRVisitor::getEndPath(BugReporterContext &BRC,
       return nullptr;
 
     } else {
-      // If the complete 'std' suppression is not enabled, suppress reports
+      // If the the complete 'std' suppression is not enabled, suppress reports
       // from the 'std' namespace that are known to produce false positives.
 
       // The analyzer issues a false use-after-free when std::list::pop_front

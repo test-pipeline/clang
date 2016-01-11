@@ -1258,20 +1258,7 @@ using T = condition<(is_const())>;
 void foo(const T &t) {
   T &t2 = t;
 }
-// CHECK-ELIDE-NOTREE: binding value of type 'const condition<[...]>' to reference to type 'condition<[...]>' drops 'const' qualifier
-}
-
-namespace BoolArgumentBitExtended {
-template <bool B> struct BoolT {};
-
-template <typename T> void foo(T) {}
-
-void test() {
-  BoolT<false> X;
-  foo<BoolT<true>>(X);
-}
-// CHECK-ELIDE-NOTREE: no matching function for call to 'foo'
-// CHECK-ELIDE-NOTREE: candidate function [with T = BoolArgumentBitExtended::BoolT<true>] not viable: no known conversion from 'BoolT<0>' to 'BoolT<1>' for 1st argument
+// CHECK-ELIDE-NOTREE: binding of reference to type 'condition<[...]>' to a value of type 'const condition<[...]>' drops qualifiers
 }
 
 // CHECK-ELIDE-NOTREE: {{[0-9]*}} errors generated.

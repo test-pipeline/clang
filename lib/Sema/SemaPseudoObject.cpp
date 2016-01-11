@@ -689,7 +689,15 @@ ExprResult ObjCPropertyOpBuilder::buildGet() {
   if (SyntacticRefExpr)
     SyntacticRefExpr->setIsMessagingGetter();
 
-  QualType receiverType = RefExpr->getReceiverType(S.Context);
+  QualType receiverType;
+  if (RefExpr->isClassReceiver()) {
+    receiverType = S.Context.getObjCInterfaceType(RefExpr->getClassReceiver());
+  } else if (RefExpr->isSuperReceiver()) {
+    receiverType = RefExpr->getSuperReceiverType();
+  } else {
+    assert(InstanceReceiver);
+    receiverType = InstanceReceiver->getType();
+  }
   if (!Getter->isImplicit())
     S.DiagnoseUseOfDecl(Getter, GenericLoc, nullptr, true);
   // Build a message-send.
@@ -722,17 +730,21 @@ ExprResult ObjCPropertyOpBuilder::buildSet(Expr *op, SourceLocation opcLoc,
   if (SyntacticRefExpr)
     SyntacticRefExpr->setIsMessagingSetter();
 
-  QualType receiverType = RefExpr->getReceiverType(S.Context);
+  QualType receiverType;
+  if (RefExpr->isClassReceiver()) {
+    receiverType = S.Context.getObjCInterfaceType(RefExpr->getClassReceiver());
+  } else if (RefExpr->isSuperReceiver()) {
+    receiverType = RefExpr->getSuperReceiverType();
+  } else {
+    assert(InstanceReceiver);
+    receiverType = InstanceReceiver->getType();
+  }
 
   // Use assignment constraints when possible; they give us better
   // diagnostics.  "When possible" basically means anything except a
   // C++ class type.
   if (!S.getLangOpts().CPlusPlus || !op->getType()->isRecordType()) {
-    QualType paramType = (*Setter->param_begin())->getType()
-                           .substObjCMemberType(
-                             receiverType,
-                             Setter->getDeclContext(),
-                             ObjCSubstitutionContext::Parameter);
+    QualType paramType = (*Setter->param_begin())->getType();
     if (!S.getLangOpts().CPlusPlus || !paramType->isRecordType()) {
       ExprResult opResult = op;
       Sema::AssignConvertType assignResult
@@ -807,9 +819,7 @@ ExprResult ObjCPropertyOpBuilder::buildRValueOperation(Expr *op) {
   // As a special case, if the method returns 'id', try to get
   // a better type from the property.
   if (RefExpr->isExplicitProperty() && result.get()->isRValue()) {
-    QualType receiverType = RefExpr->getReceiverType(S.Context);
-    QualType propType = RefExpr->getExplicitProperty()
-                          ->getUsageType(receiverType);
+    QualType propType = RefExpr->getExplicitProperty()->getType();
     if (result.get()->getType()->isObjCIdType()) {
       if (const ObjCObjectPointerType *ptr
             = propType->getAs<ObjCObjectPointerType>()) {
@@ -1109,6 +1119,9 @@ bool ObjCSubscriptOpBuilder::findAtIndexGetter() {
   if (const ObjCObjectPointerType *PTy =
       BaseT->getAs<ObjCObjectPointerType>()) {
     ResultType = PTy->getPointeeType();
+    if (const ObjCObjectType *iQFaceTy = 
+        ResultType->getAsObjCQualifiedInterfaceType())
+      ResultType = iQFaceTy->getBaseType();
   }
   Sema::ObjCSubscriptKind Res = 
     S.CheckSubscriptingKind(RefExpr->getKeyExpr());
@@ -1179,7 +1192,7 @@ bool ObjCSubscriptOpBuilder::findAtIndexGetter() {
     AtIndexGetter = 
       S.LookupInstanceMethodInGlobalPool(AtIndexGetterSelector, 
                                          RefExpr->getSourceRange(), 
-                                         true);
+                                         true, false);
   }
   
   if (AtIndexGetter) {
@@ -1215,6 +1228,9 @@ bool ObjCSubscriptOpBuilder::findAtIndexSetter() {
   if (const ObjCObjectPointerType *PTy =
       BaseT->getAs<ObjCObjectPointerType>()) {
     ResultType = PTy->getPointeeType();
+    if (const ObjCObjectType *iQFaceTy = 
+        ResultType->getAsObjCQualifiedInterfaceType())
+      ResultType = iQFaceTy->getBaseType();
   }
   
   Sema::ObjCSubscriptKind Res = 
@@ -1298,7 +1314,7 @@ bool ObjCSubscriptOpBuilder::findAtIndexSetter() {
     AtIndexSetter = 
       S.LookupInstanceMethodInGlobalPool(AtIndexSetterSelector, 
                                          RefExpr->getSourceRange(), 
-                                         true);
+                                         true, false);
   }
   
   bool err = false;
@@ -1426,7 +1442,7 @@ ExprResult MSPropertyOpBuilder::buildGet() {
   ExprResult GetterExpr = S.ActOnMemberAccessExpr(
     S.getCurScope(), RefExpr->getBaseExpr(), SourceLocation(),
     RefExpr->isArrow() ? tok::arrow : tok::period, SS, SourceLocation(),
-    GetterName, nullptr);
+    GetterName, nullptr, true);
   if (GetterExpr.isInvalid()) {
     S.Diag(RefExpr->getMemberLoc(),
            diag::error_cannot_find_suitable_accessor) << 0 /* getter */
@@ -1456,7 +1472,7 @@ ExprResult MSPropertyOpBuilder::buildSet(Expr *op, SourceLocation sl,
   ExprResult SetterExpr = S.ActOnMemberAccessExpr(
     S.getCurScope(), RefExpr->getBaseExpr(), SourceLocation(),
     RefExpr->isArrow() ? tok::arrow : tok::period, SS, SourceLocation(),
-    SetterName, nullptr);
+    SetterName, nullptr, true);
   if (SetterExpr.isInvalid()) {
     S.Diag(RefExpr->getMemberLoc(),
            diag::error_cannot_find_suitable_accessor) << 1 /* setter */

@@ -88,20 +88,8 @@
 #include <avx512bwintrin.h>
 #endif
 
-#ifdef __AVX512CD__
-#include <avx512cdintrin.h>
-#endif
-
-#ifdef __AVX512DQ__
-#include <avx512dqintrin.h>
-#endif
-
 #if defined (__AVX512VL__) && defined (__AVX512BW__)
 #include <avx512vlbwintrin.h>
-#endif
-
-#if defined (__AVX512VL__) && defined (__AVX512DQ__)
-#include <avx512vldqintrin.h>
 #endif
 
 #ifdef __AVX512ER__
@@ -186,18 +174,21 @@ _writegsbase_u64(unsigned long long __V)
 #include <rtmintrin.h>
 #endif
 
-#ifdef __RTM__
-#include <xtestintrin.h>
+/* FIXME: check __HLE__ as well when HLE is supported. */
+#if defined (__RTM__)
+static __inline__ int __attribute__((__always_inline__, __nodebug__))
+_xtest(void)
+{
+  return __builtin_ia32_xtest();
+}
 #endif
 
 #ifdef __SHA__
 #include <shaintrin.h>
 #endif
 
-#include <fxsrintrin.h>
-
-/* Some intrinsics inside adxintrin.h are available only on processors with ADX,
- * whereas others are also available at all times. */
+/* Some intrinsics inside adxintrin.h are available only if __ADX__ defined,
+ * whereas others are also available if __ADX__ undefined */
 #include <adxintrin.h>
 
 #endif /* __IMMINTRIN_H */

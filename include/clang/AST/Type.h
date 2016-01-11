@@ -533,24 +533,6 @@ struct SplitQualType {
   }
 };
 
-/// The kind of type we are substituting Objective-C type arguments into.
-///
-/// The kind of substitution affects the replacement of type parameters when
-/// no concrete type information is provided, e.g., when dealing with an
-/// unspecialized type.
-enum class ObjCSubstitutionContext {
-  /// An ordinary type.
-  Ordinary,
-  /// The result type of a method or function.
-  Result,
-  /// The parameter type of a method or function.
-  Parameter,
-  /// The type of a property.
-  Property,
-  /// The superclass of a type.
-  Superclass,
-};
-
 /// QualType - For efficiency, we don't store CV-qualified types as nodes on
 /// their own: instead each reference to a type stores the qualifiers.  This
 /// greatly reduces the number of nodes we need to allocate for types (for
@@ -1012,51 +994,6 @@ public:
   ///   type other than void.
   bool isCForbiddenLValueType() const;
 
-  /// Substitute type arguments for the Objective-C type parameters used in the
-  /// subject type.
-  ///
-  /// \param ctx ASTContext in which the type exists.
-  ///
-  /// \param typeArgs The type arguments that will be substituted for the
-  /// Objective-C type parameters in the subject type, which are generally
-  /// computed via \c Type::getObjCSubstitutions. If empty, the type
-  /// parameters will be replaced with their bounds or id/Class, as appropriate
-  /// for the context.
-  ///
-  /// \param context The context in which the subject type was written.
-  ///
-  /// \returns the resulting type.
-  QualType substObjCTypeArgs(ASTContext &ctx,
-                             ArrayRef<QualType> typeArgs,
-                             ObjCSubstitutionContext context) const;
-
-  /// Substitute type arguments from an object type for the Objective-C type
-  /// parameters used in the subject type.
-  ///
-  /// This operation combines the computation of type arguments for
-  /// substitution (\c Type::getObjCSubstitutions) with the actual process of
-  /// substitution (\c QualType::substObjCTypeArgs) for the convenience of
-  /// callers that need to perform a single substitution in isolation.
-  ///
-  /// \param objectType The type of the object whose member type we're
-  /// substituting into. For example, this might be the receiver of a message
-  /// or the base of a property access.
-  ///
-  /// \param dc The declaration context from which the subject type was
-  /// retrieved, which indicates (for example) which type parameters should
-  /// be substituted.
-  ///
-  /// \param context The context in which the subject type was written.
-  ///
-  /// \returns the subject type after replacing all of the Objective-C type
-  /// parameters with their corresponding arguments.
-  QualType substObjCMemberType(QualType objectType,
-                               const DeclContext *dc,
-                               ObjCSubstitutionContext context) const;
-
-  /// Strip Objective-C "__kindof" types from the given type.
-  QualType stripObjCKindOfType(const ASTContext &ctx) const;
-
 private:
   // These methods are implemented in a separate translation unit;
   // "static"-ize them to avoid creating temporary QualTypes in the
@@ -1351,17 +1288,10 @@ protected:
 
     unsigned : NumTypeBits;
 
-    /// The number of type arguments stored directly on this object type.
-    unsigned NumTypeArgs : 7;
-
     /// NumProtocols - The number of protocols stored directly on this
     /// object type.
-    unsigned NumProtocols : 6;
-
-    /// Whether this is a "kindof" type.
-    unsigned IsKindOf : 1;
+    unsigned NumProtocols : 32 - NumTypeBits;
   };
-  static_assert(NumTypeBits + 7 + 6 + 1 <= 32, "Does not fit in an unsigned");
 
   class ReferenceTypeBitfields {
     friend class ReferenceType;
@@ -1634,7 +1564,6 @@ public:
   bool isRecordType() const;
   bool isClassType() const;
   bool isStructureType() const;
-  bool isObjCBoxableRecordType() const;
   bool isInterfaceType() const;
   bool isStructureOrClassType() const;
   bool isUnionType() const;
@@ -1646,7 +1575,6 @@ public:
   bool isObjCLifetimeType() const;              // (array of)* retainable type
   bool isObjCIndirectLifetimeType() const;      // (pointer to)* lifetime type
   bool isObjCNSObjectType() const;              // __attribute__((NSObject))
-  bool isObjCIndependentClassType() const;      // __attribute__((objc_independent_class))
   // FIXME: change this to 'raw' interface type, so we can used 'interface' type
   // for the common case.
   bool isObjCObjectType() const;                // NSString or typeof(*(id)0)
@@ -1655,28 +1583,7 @@ public:
   bool isObjCQualifiedClassType() const;        // Class<foo>
   bool isObjCObjectOrInterfaceType() const;
   bool isObjCIdType() const;                    // id
-
-  /// Whether the type is Objective-C 'id' or a __kindof type of an
-  /// object type, e.g., __kindof NSView * or __kindof id
-  /// <NSCopying>.
-  ///
-  /// \param bound Will be set to the bound on non-id subtype types,
-  /// which will be (possibly specialized) Objective-C class type, or
-  /// null for 'id.
-  bool isObjCIdOrObjectKindOfType(const ASTContext &ctx,
-                                  const ObjCObjectType *&bound) const;
-
   bool isObjCClassType() const;                 // Class
-
-  /// Whether the type is Objective-C 'Class' or a __kindof type of an
-  /// Class type, e.g., __kindof Class <NSCopying>.
-  ///
-  /// Unlike \c isObjCIdOrObjectKindOfType, there is no relevant bound
-  /// here because Objective-C's type system cannot express "a class
-  /// object for a subclass of NSFoo".
-  bool isObjCClassOrClassKindOfType() const;
-
-  bool isBlockCompatibleObjCPointerType(ASTContext &ctx) const;
   bool isObjCSelType() const;                 // Class
   bool isObjCBuiltinType() const;               // 'id' or 'Class'
   bool isObjCARCBridgableType() const;
@@ -1788,7 +1695,6 @@ public:
   /// NOTE: getAs*ArrayType are methods on ASTContext.
   const RecordType *getAsUnionType() const;
   const ComplexType *getAsComplexIntegerType() const; // GCC complex int type.
-  const ObjCObjectType *getAsObjCInterfaceType() const;
   // The following is a convenience method that returns an ObjCObjectPointerType
   // for object declared using an interface.
   const ObjCObjectPointerType *getAsObjCInterfacePointerType() const;
@@ -1910,41 +1816,6 @@ public:
   /// \brief True if the computed linkage is valid. Used for consistency
   /// checking. Should always return true.
   bool isLinkageValid() const;
-
-  /// Determine the nullability of the given type.
-  ///
-  /// Note that nullability is only captured as sugar within the type
-  /// system, not as part of the canonical type, so nullability will
-  /// be lost by canonicalization and desugaring.
-  Optional<NullabilityKind> getNullability(const ASTContext &context) const;
-
-  /// Determine whether the given type can have a nullability
-  /// specifier applied to it, i.e., if it is any kind of pointer type
-  /// or a dependent type that could instantiate to any kind of
-  /// pointer type.
-  bool canHaveNullability() const;
-
-  /// Retrieve the set of substitutions required when accessing a member
-  /// of the Objective-C receiver type that is declared in the given context.
-  ///
-  /// \c *this is the type of the object we're operating on, e.g., the
-  /// receiver for a message send or the base of a property access, and is
-  /// expected to be of some object or object pointer type.
-  ///
-  /// \param dc The declaration context for which we are building up a
-  /// substitution mapping, which should be an Objective-C class, extension,
-  /// category, or method within.
-  ///
-  /// \returns an array of type arguments that can be substituted for
-  /// the type parameters of the given declaration context in any type described
-  /// within that context, or an empty optional to indicate that no
-  /// substitution is required.
-  Optional<ArrayRef<QualType>>
-  getObjCSubstitutions(const DeclContext *dc) const;
-
-  /// Determines if this is an ObjC interface type that may accept type
-  /// parameters.
-  bool acceptsObjCTypeParams() const;
 
   const char *getTypeClassName() const;
 
@@ -3607,11 +3478,7 @@ public:
     attr_ptr32,
     attr_ptr64,
     attr_sptr,
-    attr_uptr,
-    attr_nonnull,
-    attr_nullable,
-    attr_null_unspecified,
-    attr_objc_kindof,
+    attr_uptr
   };
 
 private:
@@ -3644,35 +3511,6 @@ public:
   bool isMSTypeSpec() const;
 
   bool isCallingConv() const;
-
-  llvm::Optional<NullabilityKind> getImmediateNullability() const;
-
-  /// Retrieve the attribute kind corresponding to the given
-  /// nullability kind.
-  static Kind getNullabilityAttrKind(NullabilityKind kind) {
-    switch (kind) {
-    case NullabilityKind::NonNull:
-      return attr_nonnull;
-     
-    case NullabilityKind::Nullable:
-      return attr_nullable;
-
-    case NullabilityKind::Unspecified:
-      return attr_null_unspecified;
-    }
-    llvm_unreachable("Unknown nullability kind.");
-  }
-
-  /// Strip off the top-level nullability annotation on the given
-  /// type, if it's there.
-  ///
-  /// \param T The type to strip. If the type is exactly an
-  /// AttributedType specifying nullability (without looking through
-  /// type sugar), the nullability is returned and this type changed
-  /// to the underlying modified type.
-  ///
-  /// \returns the top-level nullability, if present.
-  static Optional<NullabilityKind> stripOuterNullability(QualType &T);
 
   void Profile(llvm::FoldingSetNodeID &ID) {
     Profile(ID, getAttrKind(), ModifiedType, EquivalentType);
@@ -4484,25 +4322,19 @@ public:
 };
 
 /// ObjCObjectType - Represents a class type in Objective C.
-///
-/// Every Objective C type is a combination of a base type, a set of
-/// type arguments (optional, for parameterized classes) and a list of
-/// protocols.
+/// Every Objective C type is a combination of a base type and a
+/// list of protocols.
 ///
 /// Given the following declarations:
 /// \code
-///   \@class C<T>;
+///   \@class C;
 ///   \@protocol P;
 /// \endcode
 ///
 /// 'C' is an ObjCInterfaceType C.  It is sugar for an ObjCObjectType
 /// with base C and no protocols.
 ///
-/// 'C<P>' is an unspecialized ObjCObjectType with base C and protocol list [P].
-/// 'C<C*>' is a specialized ObjCObjectType with type arguments 'C*' and no 
-/// protocol list.
-/// 'C<C*><P>' is a specialized ObjCObjectType with base C, type arguments 'C*',
-/// and protocol list [P].
+/// 'C<P>' is an ObjCObjectType with base C and protocol list [P].
 ///
 /// 'id' is a TypedefType which is sugar for an ObjCObjectPointerType whose
 /// pointee is an ObjCObjectType with base BuiltinType::ObjCIdType
@@ -4512,10 +4344,8 @@ public:
 /// with base BuiltinType::ObjCIdType and protocol list [P].  Eventually
 /// this should get its own sugar class to better represent the source.
 class ObjCObjectType : public Type {
-  // ObjCObjectType.NumTypeArgs - the number of type arguments stored
-  // after the ObjCObjectPointerType node.
   // ObjCObjectType.NumProtocols - the number of protocols stored
-  // after the type arguments of ObjCObjectPointerType node.
+  // after the ObjCObjectPointerType node.
   //
   // These protocols are those written directly on the type.  If
   // protocol qualifiers ever become additive, the iterators will need
@@ -4527,37 +4357,22 @@ class ObjCObjectType : public Type {
   /// Either a BuiltinType or an InterfaceType or sugar for either.
   QualType BaseType;
 
-  /// Cached superclass type.
-  mutable llvm::PointerIntPair<const ObjCObjectType *, 1, bool>
-    CachedSuperClassType;
-
   ObjCProtocolDecl * const *getProtocolStorage() const {
     return const_cast<ObjCObjectType*>(this)->getProtocolStorage();
-  }
-
-  QualType *getTypeArgStorage();
-  const QualType *getTypeArgStorage() const {
-    return const_cast<ObjCObjectType *>(this)->getTypeArgStorage();
   }
 
   ObjCProtocolDecl **getProtocolStorage();
 
 protected:
   ObjCObjectType(QualType Canonical, QualType Base,
-                 ArrayRef<QualType> typeArgs,
-                 ArrayRef<ObjCProtocolDecl *> protocols,
-                 bool isKindOf);
+                 ObjCProtocolDecl * const *Protocols, unsigned NumProtocols);
 
   enum Nonce_ObjCInterface { Nonce_ObjCInterface };
   ObjCObjectType(enum Nonce_ObjCInterface)
         : Type(ObjCInterface, QualType(), false, false, false, false),
       BaseType(QualType(this_(), 0)) {
     ObjCObjectTypeBits.NumProtocols = 0;
-    ObjCObjectTypeBits.NumTypeArgs = 0;
-    ObjCObjectTypeBits.IsKindOf = 0;
   }
-
-  void computeSuperClassTypeSlow() const;
 
 public:
   /// getBaseType - Gets the base type of this object type.  This is
@@ -4590,33 +4405,6 @@ public:
   /// really is an interface.
   ObjCInterfaceDecl *getInterface() const;
 
-  /// Determine whether this object type is "specialized", meaning
-  /// that it has type arguments.
-  bool isSpecialized() const;
-
-  /// Determine whether this object type was written with type arguments.
-  bool isSpecializedAsWritten() const { 
-    return ObjCObjectTypeBits.NumTypeArgs > 0; 
-  }
-
-  /// Determine whether this object type is "unspecialized", meaning
-  /// that it has no type arguments.
-  bool isUnspecialized() const { return !isSpecialized(); }
-
-  /// Determine whether this object type is "unspecialized" as
-  /// written, meaning that it has no type arguments.
-  bool isUnspecializedAsWritten() const { return !isSpecializedAsWritten(); }
-
-  /// Retrieve the type arguments of this object type (semantically).
-  ArrayRef<QualType> getTypeArgs() const;
-
-  /// Retrieve the type arguments of this object type as they were
-  /// written.
-  ArrayRef<QualType> getTypeArgsAsWritten() const { 
-    return ArrayRef<QualType>(getTypeArgStorage(), 
-                              ObjCObjectTypeBits.NumTypeArgs);
-  }
-
   typedef ObjCProtocolDecl * const *qual_iterator;
   typedef llvm::iterator_range<qual_iterator> qual_range;
 
@@ -4635,35 +4423,6 @@ public:
     assert(I < getNumProtocols() && "Out-of-range protocol access");
     return qual_begin()[I];
   }
-
-  /// Retrieve all of the protocol qualifiers.
-  ArrayRef<ObjCProtocolDecl *> getProtocols() const {
-    return ArrayRef<ObjCProtocolDecl *>(qual_begin(), getNumProtocols());
-  }
-
-  /// Whether this is a "__kindof" type as written.
-  bool isKindOfTypeAsWritten() const { return ObjCObjectTypeBits.IsKindOf; }
-
-  /// Whether this ia a "__kindof" type (semantically).
-  bool isKindOfType() const;
-
-  /// Retrieve the type of the superclass of this object type.
-  ///
-  /// This operation substitutes any type arguments into the
-  /// superclass of the current class type, potentially producing a
-  /// specialization of the superclass type. Produces a null type if
-  /// there is no superclass.
-  QualType getSuperClassType() const {
-    if (!CachedSuperClassType.getInt())
-      computeSuperClassTypeSlow();
-
-    assert(CachedSuperClassType.getInt() && "Superclass not set?");
-    return QualType(CachedSuperClassType.getPointer(), 0);
-  }
-
-  /// Strip off the Objective-C "kindof" type and (with it) any
-  /// protocol qualifiers.
-  QualType stripObjCKindOfTypeAndQuals(const ASTContext &ctx) const;
 
   bool isSugared() const { return false; }
   QualType desugar() const { return QualType(this, 0); }
@@ -4685,27 +4444,21 @@ class ObjCObjectTypeImpl : public ObjCObjectType, public llvm::FoldingSetNode {
   // will need to be modified.
 
   ObjCObjectTypeImpl(QualType Canonical, QualType Base,
-                     ArrayRef<QualType> typeArgs,
-                     ArrayRef<ObjCProtocolDecl *> protocols,
-                     bool isKindOf)
-    : ObjCObjectType(Canonical, Base, typeArgs, protocols, isKindOf) {}
+                     ObjCProtocolDecl * const *Protocols,
+                     unsigned NumProtocols)
+    : ObjCObjectType(Canonical, Base, Protocols, NumProtocols) {}
 
 public:
   void Profile(llvm::FoldingSetNodeID &ID);
   static void Profile(llvm::FoldingSetNodeID &ID,
                       QualType Base,
-                      ArrayRef<QualType> typeArgs,
-                      ArrayRef<ObjCProtocolDecl *> protocols,
-                      bool isKindOf);
+                      ObjCProtocolDecl *const *protocols,
+                      unsigned NumProtocols);
 };
 
-inline QualType *ObjCObjectType::getTypeArgStorage() {
-  return reinterpret_cast<QualType *>(static_cast<ObjCObjectTypeImpl*>(this)+1);
-}
-
 inline ObjCProtocolDecl **ObjCObjectType::getProtocolStorage() {
-    return reinterpret_cast<ObjCProtocolDecl**>(
-             getTypeArgStorage() + ObjCObjectTypeBits.NumTypeArgs);
+  return reinterpret_cast<ObjCProtocolDecl**>(
+            static_cast<ObjCObjectTypeImpl*>(this) + 1);
 }
 
 /// ObjCInterfaceType - Interfaces are the core concept in Objective-C for
@@ -4756,14 +4509,9 @@ public:
 };
 
 inline ObjCInterfaceDecl *ObjCObjectType::getInterface() const {
-  QualType baseType = getBaseType();
-  while (const ObjCObjectType *ObjT = baseType->getAs<ObjCObjectType>()) {
-    if (const ObjCInterfaceType *T = dyn_cast<ObjCInterfaceType>(ObjT))
-      return T->getDecl();
-
-    baseType = ObjT->getBaseType();
-  }
-
+  if (const ObjCInterfaceType *T =
+        getBaseType()->getAs<ObjCInterfaceType>())
+    return T->getDecl();
   return nullptr;
 }
 
@@ -4780,11 +4528,7 @@ class ObjCObjectPointerType : public Type, public llvm::FoldingSetNode {
   QualType PointeeType;
 
   ObjCObjectPointerType(QualType Canonical, QualType Pointee)
-    : Type(ObjCObjectPointer, Canonical,
-           Pointee->isDependentType(),
-           Pointee->isInstantiationDependentType(),
-           Pointee->isVariablyModifiedType(),
-           Pointee->containsUnexpandedParameterPack()),
+    : Type(ObjCObjectPointer, Canonical, false, false, false, false),
       PointeeType(Pointee) {}
   friend class ASTContext;  // ASTContext creates these.
 
@@ -4826,7 +4570,9 @@ public:
   /// qualifiers on the interface are ignored.
   ///
   /// \return null if the base type for this pointer is 'id' or 'Class'
-  const ObjCInterfaceType *getInterfaceType() const;
+  const ObjCInterfaceType *getInterfaceType() const {
+    return getObjectType()->getBaseType()->getAs<ObjCInterfaceType>();
+  }
 
   /// getInterfaceDecl - If this pointer points to an Objective \@interface
   /// type, gets the declaration for that interface.
@@ -4848,12 +4594,6 @@ public:
     return getObjectType()->isObjCUnqualifiedClass();
   }
 
-  /// isObjCIdOrClassType - True if this is equivalent to the 'id' or
-  /// 'Class' type,
-  bool isObjCIdOrClassType() const {
-    return getObjectType()->isObjCUnqualifiedIdOrClass();
-  }
-
   /// isObjCQualifiedIdType - True if this is equivalent to 'id<P>' for some
   /// non-empty set of protocols.
   bool isObjCQualifiedIdType() const {
@@ -4864,34 +4604,6 @@ public:
   /// some non-empty set of protocols.
   bool isObjCQualifiedClassType() const {
     return getObjectType()->isObjCQualifiedClass();
-  }
-
-  /// Whether this is a "__kindof" type.
-  bool isKindOfType() const { return getObjectType()->isKindOfType(); }
-
-  /// Whether this type is specialized, meaning that it has type arguments.
-  bool isSpecialized() const { return getObjectType()->isSpecialized(); }
-
-  /// Whether this type is specialized, meaning that it has type arguments.
-  bool isSpecializedAsWritten() const { 
-    return getObjectType()->isSpecializedAsWritten(); 
-  }
-  
-  /// Whether this type is unspecialized, meaning that is has no type arguments.
-  bool isUnspecialized() const { return getObjectType()->isUnspecialized(); }
-
-  /// Determine whether this object type is "unspecialized" as
-  /// written, meaning that it has no type arguments.
-  bool isUnspecializedAsWritten() const { return !isSpecializedAsWritten(); }
-
-  /// Retrieve the type arguments for this type.
-  ArrayRef<QualType> getTypeArgs() const { 
-    return getObjectType()->getTypeArgs(); 
-  }
-
-  /// Retrieve the type arguments for this type.
-  ArrayRef<QualType> getTypeArgsAsWritten() const { 
-    return getObjectType()->getTypeArgsAsWritten(); 
   }
 
   /// An iterator over the qualifiers on the object type.  Provided
@@ -4923,19 +4635,6 @@ public:
 
   bool isSugared() const { return false; }
   QualType desugar() const { return QualType(this, 0); }
-
-  /// Retrieve the type of the superclass of this object pointer type.
-  ///
-  /// This operation substitutes any type arguments into the
-  /// superclass of the current class type, potentially producing a
-  /// pointer to a specialization of the superclass type. Produces a
-  /// null type if there is no superclass.
-  QualType getSuperClassType() const;
-
-  /// Strip off the Objective-C "kindof" type and (with it) any
-  /// protocol qualifiers.
-  const ObjCObjectPointerType *stripObjCKindOfTypeAndQuals(
-                                 const ASTContext &ctx) const;
 
   void Profile(llvm::FoldingSetNodeID &ID) {
     Profile(ID, getPointeeType());

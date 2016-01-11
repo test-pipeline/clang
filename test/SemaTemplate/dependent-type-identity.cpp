@@ -111,9 +111,7 @@ namespace PR18275 {
   void A<T>::f(int x) { x = 0; }
 
   template<typename T>
-  void A<T>::g(const int x) {  // expected-note {{declared const here}}
-    x = 0; // expected-error {{cannot assign to variable 'x'}}
-  }
+  void A<T>::g(const int x) { x = 0; } // expected-error {{not assignable}}
 
   template<typename T>
   void A<T>::h(T) {} // FIXME: Should reject this. Type is different from prior decl if T is an array type.

@@ -367,7 +367,7 @@ public:
         EnclosingBldr->takeNodes(*I);
   }
 
-  ~StmtNodeBuilder() override;
+  virtual ~StmtNodeBuilder();
 
   using NodeBuilder::generateNode;
   using NodeBuilder::generateSink;

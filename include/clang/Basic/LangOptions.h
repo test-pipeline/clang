@@ -67,13 +67,6 @@ public:
 
   enum AddrSpaceMapMangling { ASMM_Target, ASMM_On, ASMM_Off };
 
-  enum MSVCMajorVersion {
-    MSVC2010 = 16,
-    MSVC2012 = 17,
-    MSVC2013 = 18,
-    MSVC2015 = 19
-  };
-
 public:
   /// \brief Set of enabled sanitizers.
   SanitizerSet Sanitize;
@@ -102,8 +95,6 @@ public:
 
   /// \brief The names of any features to enable in module 'requires' decls
   /// in addition to the hard-coded list in Module.cpp and the target features.
-  ///
-  /// This list is sorted.
   std::vector<std::string> ModuleFeatures;
 
   /// \brief Options for parsing comments.
@@ -125,10 +116,6 @@ public:
   bool isSubscriptPointerArithmetic() const {
     return ObjCRuntime.isSubscriptPointerArithmetic() &&
            !ObjCSubscriptingLegacyRuntime;
-  }
-
-  bool isCompatibleWithMSVC(MSVCMajorVersion MajorVersion) const {
-    return MSCompatibilityVersion >= MajorVersion * 10000000U;
   }
 
   /// \brief Reset all of the options that are not considered when building a

@@ -486,6 +486,7 @@ public:
   }
 
   ObjCCommonTypesHelper(CodeGen::CodeGenModule &cgm);
+  ~ObjCCommonTypesHelper(){}
 };
 
 /// ObjCTypesHelper - Helper class that encapsulates lazy
@@ -594,6 +595,7 @@ public:
 
 public:
   ObjCTypesHelper(CodeGen::CodeGenModule &cgm);
+  ~ObjCTypesHelper() {}
 };
 
 /// ObjCNonFragileABITypesHelper - will have all types needed by objective-c's
@@ -731,6 +733,7 @@ public:
   llvm::Type *EHTypePtrTy;
   
   ObjCNonFragileABITypesHelper(CodeGen::CodeGenModule &cgm);
+  ~ObjCNonFragileABITypesHelper(){}
 };
 
 class CGObjCCommonMac : public CodeGen::CGObjCRuntime {
@@ -1675,13 +1678,14 @@ struct NullReturnState {
 
 /// getConstantGEP() - Help routine to construct simple GEPs.
 static llvm::Constant *getConstantGEP(llvm::LLVMContext &VMContext,
-                                      llvm::GlobalVariable *C, unsigned idx0,
+                                      llvm::Constant *C,
+                                      unsigned idx0,
                                       unsigned idx1) {
   llvm::Value *Idxs[] = {
     llvm::ConstantInt::get(llvm::Type::getInt32Ty(VMContext), idx0),
     llvm::ConstantInt::get(llvm::Type::getInt32Ty(VMContext), idx1)
   };
-  return llvm::ConstantExpr::getGetElementPtr(C->getValueType(), C, Idxs);
+  return llvm::ConstantExpr::getGetElementPtr(C, Idxs);
 }
 
 /// hasObjCExceptionAttribute - Return true if this class or any super
@@ -1787,9 +1791,8 @@ CGObjCMac::GenerateMessageSendSuper(CodeGen::CodeGenFunction &CGF,
     CGF.CreateTempAlloca(ObjCTypes.SuperTy, "objc_super");
   llvm::Value *ReceiverAsObject =
     CGF.Builder.CreateBitCast(Receiver, ObjCTypes.ObjectPtrTy);
-  CGF.Builder.CreateStore(
-      ReceiverAsObject,
-      CGF.Builder.CreateStructGEP(ObjCTypes.SuperTy, ObjCSuper, 0));
+  CGF.Builder.CreateStore(ReceiverAsObject,
+                          CGF.Builder.CreateStructGEP(ObjCSuper, 0));
 
   // If this is a class message the metaclass is passed as the target.
   llvm::Value *Target;
@@ -1802,20 +1805,20 @@ CGObjCMac::GenerateMessageSendSuper(CodeGen::CodeGenFunction &CGF,
       // the class's "isa" pointer.  The following assumes that
       // isa" is the first ivar in a class (which it must be).
       Target = EmitClassRef(CGF, Class->getSuperClass());
-      Target = CGF.Builder.CreateStructGEP(ObjCTypes.ClassTy, Target, 0);
+      Target = CGF.Builder.CreateStructGEP(Target, 0);
       Target = CGF.Builder.CreateLoad(Target);
     } else {
-      llvm::Constant *MetaClassPtr = EmitMetaClassRef(Class);
-      llvm::Value *SuperPtr =
-          CGF.Builder.CreateStructGEP(ObjCTypes.ClassTy, MetaClassPtr, 1);
+      llvm::Value *MetaClassPtr = EmitMetaClassRef(Class);
+      llvm::Value *SuperPtr = CGF.Builder.CreateStructGEP(MetaClassPtr, 1);
       llvm::Value *Super = CGF.Builder.CreateLoad(SuperPtr);
       Target = Super;
     }
-  } else if (isCategoryImpl)
+  } 
+  else if (isCategoryImpl)
     Target = EmitClassRef(CGF, Class->getSuperClass());
   else {
     llvm::Value *ClassPtr = EmitSuperClassRef(Class);
-    ClassPtr = CGF.Builder.CreateStructGEP(ObjCTypes.ClassTy, ClassPtr, 1);
+    ClassPtr = CGF.Builder.CreateStructGEP(ClassPtr, 1);
     Target = CGF.Builder.CreateLoad(ClassPtr);
   }
   // FIXME: We shouldn't need to do this cast, rectify the ASTContext and
@@ -1823,8 +1826,8 @@ CGObjCMac::GenerateMessageSendSuper(CodeGen::CodeGenFunction &CGF,
   llvm::Type *ClassTy =
     CGM.getTypes().ConvertType(CGF.getContext().getObjCClassType());
   Target = CGF.Builder.CreateBitCast(Target, ClassTy);
-  CGF.Builder.CreateStore(
-      Target, CGF.Builder.CreateStructGEP(ObjCTypes.SuperTy, ObjCSuper, 1));
+  CGF.Builder.CreateStore(Target,
+                          CGF.Builder.CreateStructGEP(ObjCSuper, 1));
   return EmitMessageSend(CGF, Return, ResultType,
                          EmitSelector(CGF, Sel),
                          ObjCSuper, ObjCTypes.SuperPtrCTy,
@@ -3807,16 +3810,15 @@ void CGObjCMac::EmitTryOrSynchronizedStmt(CodeGen::CodeGenFunction &CGF,
   // Enter a try block:
   //  - Call objc_exception_try_enter to push ExceptionData on top of
   //    the EH stack.
-  CGF.EmitNounwindRuntimeCall(ObjCTypes.getExceptionTryEnterFn(),
-                              ExceptionData);
+  CGF.EmitNounwindRuntimeCall(ObjCTypes.getExceptionTryEnterFn(), ExceptionData);
 
   //  - Call setjmp on the exception data buffer.
   llvm::Constant *Zero = llvm::ConstantInt::get(CGF.Builder.getInt32Ty(), 0);
   llvm::Value *GEPIndexes[] = { Zero, Zero, Zero };
-  llvm::Value *SetJmpBuffer = CGF.Builder.CreateGEP(
-      ObjCTypes.ExceptionDataTy, ExceptionData, GEPIndexes, "setjmp_buffer");
-  llvm::CallInst *SetJmpResult = CGF.EmitNounwindRuntimeCall(
-      ObjCTypes.getSetJmpFn(), SetJmpBuffer, "setjmp_result");
+  llvm::Value *SetJmpBuffer =
+    CGF.Builder.CreateGEP(ExceptionData, GEPIndexes, "setjmp_buffer");
+  llvm::CallInst *SetJmpResult =
+    CGF.EmitNounwindRuntimeCall(ObjCTypes.getSetJmpFn(), SetJmpBuffer, "setjmp_result");
   SetJmpResult->setCanReturnTwice();
 
   // If setjmp returned 0, enter the protected block; otherwise,
@@ -5261,7 +5263,6 @@ ObjCNonFragileABITypesHelper::ObjCNonFragileABITypesHelper(CodeGen::CodeGenModul
   //   const uint32_t size;  // sizeof(struct _protocol_t)
   //   const uint32_t flags;  // = 0
   //   const char ** extendedMethodTypes;
-  //   const char *demangledName;
   // }
 
   // Holder for struct _protocol_list_t *
@@ -5274,7 +5275,6 @@ ObjCNonFragileABITypesHelper::ObjCNonFragileABITypesHelper(CodeGen::CodeGenModul
                              MethodListnfABIPtrTy, MethodListnfABIPtrTy,
                              MethodListnfABIPtrTy, MethodListnfABIPtrTy,
                              PropertyListPtrTy, IntTy, IntTy, Int8PtrPtrTy,
-                             Int8PtrTy,
                              nullptr);
 
   // struct _protocol_t*
@@ -6207,7 +6207,6 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocolRef(
 ///   const uint32_t size;  // sizeof(struct _protocol_t)
 ///   const uint32_t flags;  // = 0
 ///   const char ** extendedMethodTypes;
-///   const char *demangledName;
 /// }
 /// @endcode
 ///
@@ -6259,7 +6258,7 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocol(
   MethodTypesExt.insert(MethodTypesExt.end(),
                         OptMethodTypesExt.begin(), OptMethodTypesExt.end());
 
-  llvm::Constant *Values[12];
+  llvm::Constant *Values[11];
   // isa is NULL
   Values[0] = llvm::Constant::getNullValue(ObjCTypes.ObjectPtrTy);
   Values[1] = GetClassName(PD->getObjCRuntimeNameAsString());
@@ -6292,9 +6291,6 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocol(
   Values[10] = EmitProtocolMethodTypes("\01l_OBJC_$_PROTOCOL_METHOD_TYPES_"
                                        + PD->getObjCRuntimeNameAsString(),
                                        MethodTypesExt, ObjCTypes);
-  // const char *demangledName;
-  Values[11] = llvm::Constant::getNullValue(ObjCTypes.Int8PtrTy);
-    
   llvm::Constant *Init = llvm::ConstantStruct::get(ObjCTypes.ProtocolnfABITy,
                                                    Values);
 
@@ -6566,8 +6562,7 @@ CGObjCNonFragileABIMac::EmitVTableMessageSend(CodeGenFunction &CGF,
   args[1].RV = RValue::get(mref);
 
   // Load the function to call from the message ref table.
-  llvm::Value *callee =
-      CGF.Builder.CreateStructGEP(ObjCTypes.MessageRefTy, mref, 0);
+  llvm::Value *callee = CGF.Builder.CreateStructGEP(mref, 0);
   callee = CGF.Builder.CreateLoad(callee, "msgSend_fn");
 
   callee = CGF.Builder.CreateBitCast(callee, MSI.MessengerType);
@@ -6732,9 +6727,8 @@ CGObjCNonFragileABIMac::GenerateMessageSendSuper(CodeGen::CodeGenFunction &CGF,
 
   llvm::Value *ReceiverAsObject =
     CGF.Builder.CreateBitCast(Receiver, ObjCTypes.ObjectPtrTy);
-  CGF.Builder.CreateStore(
-      ReceiverAsObject,
-      CGF.Builder.CreateStructGEP(ObjCTypes.SuperTy, ObjCSuper, 0));
+  CGF.Builder.CreateStore(ReceiverAsObject,
+                          CGF.Builder.CreateStructGEP(ObjCSuper, 0));
 
   // If this is a class message the metaclass is passed as the target.
   llvm::Value *Target;
@@ -6748,8 +6742,8 @@ CGObjCNonFragileABIMac::GenerateMessageSendSuper(CodeGen::CodeGenFunction &CGF,
   llvm::Type *ClassTy =
     CGM.getTypes().ConvertType(CGF.getContext().getObjCClassType());
   Target = CGF.Builder.CreateBitCast(Target, ClassTy);
-  CGF.Builder.CreateStore(
-      Target, CGF.Builder.CreateStructGEP(ObjCTypes.SuperTy, ObjCSuper, 1));
+  CGF.Builder.CreateStore(Target,
+                          CGF.Builder.CreateStructGEP(ObjCSuper, 1));
 
   return (isVTableDispatchedSelector(Sel))
     ? EmitVTableMessageSend(CGF, Return, ResultType, Sel,
@@ -6998,10 +6992,10 @@ CGObjCNonFragileABIMac::GetInterfaceEHType(const ObjCInterfaceDecl *ID,
   llvm::Value *VTableIdx = llvm::ConstantInt::get(CGM.Int32Ty, 2);
 
   llvm::Constant *Values[] = {
-      llvm::ConstantExpr::getGetElementPtr(VTableGV->getValueType(), VTableGV,
-                                           VTableIdx),
-      GetClassName(ID->getObjCRuntimeNameAsString()),
-      GetClassGlobal(ClassName.str())};
+    llvm::ConstantExpr::getGetElementPtr(VTableGV, VTableIdx),
+    GetClassName(ID->getObjCRuntimeNameAsString()),
+    GetClassGlobal(ClassName.str())
+  };
   llvm::Constant *Init =
     llvm::ConstantStruct::get(ObjCTypes.EHTypeTy, Values);
 

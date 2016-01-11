@@ -106,6 +106,7 @@ private:
 
 public:
   EnvironmentManager(llvm::BumpPtrAllocator& Allocator) : F(Allocator) {}
+  ~EnvironmentManager() {}
 
   Environment getInitialEnvironment() {
     return Environment(F.getEmptyMap());

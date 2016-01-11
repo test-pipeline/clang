@@ -42,8 +42,8 @@ using namespace clang;
 
 namespace {
 
-/// Retrieve the declaration context that should be used when mangling the given
-/// declaration.
+/// \brief Retrieve the declaration context that should be used when mangling 
+/// the given declaration.
 static const DeclContext *getEffectiveDeclContext(const Decl *D) {
   // The ABI assumes that lambda closure types that occur within 
   // default arguments live in the context of the function. However, due to
@@ -166,8 +166,6 @@ public:
                                      raw_ostream &Out) override;
   void mangleSEHFilterExpression(const NamedDecl *EnclosingDecl,
                                  raw_ostream &Out) override;
-  void mangleSEHFinallyBlock(const NamedDecl *EnclosingDecl,
-                             raw_ostream &Out) override;
   void mangleItaniumThreadLocalInit(const VarDecl *D, raw_ostream &) override;
   void mangleItaniumThreadLocalWrapper(const VarDecl *D,
                                        raw_ostream &) override;
@@ -210,7 +208,7 @@ public:
   /// @}
 };
 
-/// Manage the mangling of a single name.
+/// CXXNameMangler - Manage the mangling of a single name.
 class CXXNameMangler {
   ItaniumMangleContextImpl &Context;
   raw_ostream &Out;
@@ -221,7 +219,7 @@ class CXXNameMangler {
   const NamedDecl *Structor;
   unsigned StructorType;
 
-  /// The next substitution sequence number.
+  /// SeqID - The next subsitution sequence number.
   unsigned SeqID;
 
   class FunctionTypeDepthState {
@@ -536,7 +534,7 @@ static const DeclContext *IgnoreLinkageSpecDecls(const DeclContext *DC) {
   return DC;
 }
 
-/// Return whether a given namespace is the 'std' namespace.
+/// isStd - Return whether a given namespace is the 'std' namespace.
 static bool isStd(const NamespaceDecl *NS) {
   if (!IgnoreLinkageSpecDecls(getEffectiveParentContext(NS))
                                 ->isTranslationUnit())
@@ -1036,7 +1034,7 @@ void CXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
     Str += llvm::utostr(AnonStructId);
 
     Out << Str.size();
-    Out << Str;
+    Out << Str.str();
     break;
   }
 
@@ -2010,11 +2008,7 @@ void CXXNameMangler::mangleType(const BuiltinType *T) {
   case BuiltinType::Half: Out << "Dh"; break;
   case BuiltinType::Float: Out << 'f'; break;
   case BuiltinType::Double: Out << 'd'; break;
-  case BuiltinType::LongDouble:
-    Out << (getASTContext().getTargetInfo().useFloat128ManglingForLongDouble()
-                ? 'g'
-                : 'e');
-    break;
+  case BuiltinType::LongDouble: Out << 'e'; break;
   case BuiltinType::NullPtr: Out << "Dn"; break;
 
 #define BUILTIN_TYPE(Id, SingletonId)
@@ -2315,7 +2309,6 @@ void CXXNameMangler::mangleAArch64NeonVectorType(const VectorType *T) {
       EltName = "Poly16";
       break;
     case BuiltinType::ULong:
-    case BuiltinType::ULongLong:
       EltName = "Poly64";
       break;
     default:
@@ -2379,10 +2372,6 @@ void CXXNameMangler::mangleType(const ObjCInterfaceType *T) {
 }
 
 void CXXNameMangler::mangleType(const ObjCObjectType *T) {
-  // Treat __kindof as a vendor extended type qualifier.
-  if (T->isKindOfType())
-    Out << "U8__kindof";
-
   if (!T->qual_empty()) {
     // Mangle protocol qualifiers.
     SmallString<64> QualStr;
@@ -2395,16 +2384,7 @@ void CXXNameMangler::mangleType(const ObjCObjectType *T) {
     QualOS.flush();
     Out << 'U' << QualStr.size() << QualStr;
   }
-
   mangleType(T->getBaseType());
-
-  if (T->isSpecialized()) {
-    // Mangle type arguments as I <type>+ E
-    Out << 'I';
-    for (auto typeArg : T->getTypeArgs())
-      mangleType(typeArg);
-    Out << 'E';
-  }
 }
 
 void CXXNameMangler::mangleType(const BlockPointerType *T) {
@@ -2693,9 +2673,8 @@ recurse:
   // These all can only appear in local or variable-initialization
   // contexts and so should never appear in a mangling.
   case Expr::AddrLabelExprClass:
-  case Expr::DesignatedInitUpdateExprClass:
+  case Expr::DesignatedInitExprClass:
   case Expr::ImplicitValueInitExprClass:
-  case Expr::NoInitExprClass:
   case Expr::ParenListExprClass:
   case Expr::LambdaExprClass:
   case Expr::MSPropertyRefExprClass:
@@ -2706,7 +2685,6 @@ recurse:
   case Expr::BlockExprClass:
   case Expr::ChooseExprClass:
   case Expr::CompoundLiteralExprClass:
-  case Expr::DesignatedInitExprClass:
   case Expr::ExtVectorElementExprClass:
   case Expr::GenericSelectionExprClass:
   case Expr::ObjCEncodeExprClass:
@@ -2904,9 +2882,9 @@ recurse:
 
   case Expr::UnresolvedMemberExprClass: {
     const UnresolvedMemberExpr *ME = cast<UnresolvedMemberExpr>(E);
-    mangleMemberExpr(ME->isImplicitAccess() ? nullptr : ME->getBase(),
-                     ME->isArrow(), ME->getQualifier(), nullptr,
-                     ME->getMemberName(), Arity);
+    mangleMemberExpr(ME->getBase(), ME->isArrow(),
+                     ME->getQualifier(), nullptr, ME->getMemberName(),
+                     Arity);
     if (ME->hasExplicitTemplateArgs())
       mangleTemplateArgs(ME->getExplicitTemplateArgs());
     break;
@@ -2915,9 +2893,8 @@ recurse:
   case Expr::CXXDependentScopeMemberExprClass: {
     const CXXDependentScopeMemberExpr *ME
       = cast<CXXDependentScopeMemberExpr>(E);
-    mangleMemberExpr(ME->isImplicitAccess() ? nullptr : ME->getBase(),
-                     ME->isArrow(), ME->getQualifier(),
-                     ME->getFirstQualifierFoundInScope(),
+    mangleMemberExpr(ME->getBase(), ME->isArrow(),
+                     ME->getQualifier(), ME->getFirstQualifierFoundInScope(),
                      ME->getMember(), Arity);
     if (ME->hasExplicitTemplateArgs())
       mangleTemplateArgs(ME->getExplicitTemplateArgs());
@@ -3031,18 +3008,10 @@ recurse:
     case UETT_AlignOf:
       Out << 'a';
       break;
-    case UETT_VecStep: {
+    case UETT_VecStep:
       DiagnosticsEngine &Diags = Context.getDiags();
       unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
                                      "cannot yet mangle vec_step expression");
-      Diags.Report(DiagID);
-      return;
-    }
-    case UETT_OpenMPRequiredSimdAlign:
-      DiagnosticsEngine &Diags = Context.getDiags();
-      unsigned DiagID = Diags.getCustomDiagID(
-          DiagnosticsEngine::Error,
-          "cannot yet mangle __builtin_omp_required_simd_align expression");
       Diags.Report(DiagID);
       return;
     }
@@ -3473,9 +3442,6 @@ void CXXNameMangler::mangleCXXCtorType(CXXCtorType T) {
   case Ctor_Comdat:
     Out << "C5";
     break;
-  case Ctor_DefaultClosure:
-  case Ctor_CopyingClosure:
-    llvm_unreachable("closure constructors don't exist for the Itanium ABI!");
   }
 }
 
@@ -3667,8 +3633,8 @@ bool CXXNameMangler::mangleSubstitution(const NamedDecl *ND) {
   return mangleSubstitution(reinterpret_cast<uintptr_t>(ND));
 }
 
-/// Determine whether the given type has any qualifiers that are relevant for
-/// substitutions.
+/// \brief Determine whether the given type has any qualifiers that are
+/// relevant for substitutions.
 static bool hasMangledSubstitutionQualifiers(QualType T) {
   Qualifiers Qs = T.getQualifiers();
   return Qs.getCVRQualifiers() || Qs.hasAddressSpace();
@@ -3714,8 +3680,8 @@ static bool isCharType(QualType T) {
     T->isSpecificBuiltinType(BuiltinType::Char_U);
 }
 
-/// Returns whether a given type is a template specialization of a given name
-/// with a single argument of type char.
+/// isCharSpecialization - Returns whether a given type is a template
+/// specialization of a given name with a single argument of type char.
 static bool isCharSpecialization(QualType T, const char *Name) {
   if (T.isNull())
     return false;
@@ -3865,8 +3831,8 @@ void CXXNameMangler::addSubstitution(uintptr_t Ptr) {
 
 //
 
-/// Mangles the name of the declaration D and emits that name to the given
-/// output stream.
+/// \brief Mangles the name of the declaration D and emits that name to the
+/// given output stream.
 ///
 /// If the declaration D requires a mangled name, this routine will emit that
 /// mangled name to \p os and return true. Otherwise, \p os will be unchanged
@@ -3958,7 +3924,8 @@ void ItaniumMangleContextImpl::mangleCXXDtorThunk(
   Mangler.mangleFunctionEncoding(DD);
 }
 
-/// Returns the mangled name for a guard variable for the passed in VarDecl.
+/// mangleGuardVariable - Returns the mangled name for a guard variable
+/// for the passed in VarDecl.
 void ItaniumMangleContextImpl::mangleStaticGuardVariable(const VarDecl *D,
                                                          raw_ostream &Out) {
   //  <special-name> ::= GV <object name>       # Guard variable for one-time
@@ -3991,16 +3958,6 @@ void ItaniumMangleContextImpl::mangleSEHFilterExpression(
     const NamedDecl *EnclosingDecl, raw_ostream &Out) {
   CXXNameMangler Mangler(*this, Out);
   Mangler.getStream() << "__filt_";
-  if (shouldMangleDeclName(EnclosingDecl))
-    Mangler.mangle(EnclosingDecl);
-  else
-    Mangler.getStream() << EnclosingDecl->getName();
-}
-
-void ItaniumMangleContextImpl::mangleSEHFinallyBlock(
-    const NamedDecl *EnclosingDecl, raw_ostream &Out) {
-  CXXNameMangler Mangler(*this, Out);
-  Mangler.getStream() << "__fin_";
   if (shouldMangleDeclName(EnclosingDecl))
     Mangler.mangle(EnclosingDecl);
   else
@@ -4087,7 +4044,8 @@ void ItaniumMangleContextImpl::mangleTypeName(QualType Ty, raw_ostream &Out) {
 
 void ItaniumMangleContextImpl::mangleCXXVTableBitSet(const CXXRecordDecl *RD,
                                                      raw_ostream &Out) {
-  if (!RD->isExternallyVisible()) {
+  Linkage L = RD->getLinkageInternal();
+  if (L == InternalLinkage || L == UniqueExternalLinkage) {
     // This part of the identifier needs to be unique across all translation
     // units in the linked program. The scheme fails if multiple translation
     // units are compiled using the same relative source file path, or if

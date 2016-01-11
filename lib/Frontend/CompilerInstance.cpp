@@ -51,13 +51,12 @@
 
 using namespace clang;
 
-CompilerInstance::CompilerInstance(
-    std::shared_ptr<PCHContainerOperations> PCHContainerOps,
-    bool BuildingModule)
-    : ModuleLoader(BuildingModule), Invocation(new CompilerInvocation()),
-      ModuleManager(nullptr), ThePCHContainerOperations(PCHContainerOps),
-      BuildGlobalModuleIndex(false), HaveFullGlobalModuleIndex(false),
-      ModuleBuildFailed(false) {}
+CompilerInstance::CompilerInstance(bool BuildingModule)
+  : ModuleLoader(BuildingModule),
+    Invocation(new CompilerInvocation()), ModuleManager(nullptr),
+    BuildGlobalModuleIndex(false), HaveFullGlobalModuleIndex(false),
+    ModuleBuildFailed(false) {
+}
 
 CompilerInstance::~CompilerInstance() {
   assert(OutputFiles.empty() && "Still output files in flight?");
@@ -322,8 +321,7 @@ void CompilerInstance::createPreprocessor(TranslationUnitKind TUKind) {
                           PP->getFileManager(), PPOpts);
 
   // Predefine macros and configure the preprocessor.
-  InitializePreprocessor(*PP, PPOpts, getPCHContainerReader(),
-                         getFrontendOpts());
+  InitializePreprocessor(*PP, PPOpts, getFrontendOpts());
 
   // Initialize the header search object.
   ApplyHeaderSearchOptions(PP->getHeaderSearchInfo(), getHeaderSearchOpts(),
@@ -331,8 +329,7 @@ void CompilerInstance::createPreprocessor(TranslationUnitKind TUKind) {
 
   PP->setPreprocessedOutput(getPreprocessorOutputOpts().ShowCPP);
 
-  if (PP->getLangOpts().Modules)
-    PP->getHeaderSearchInfo().setModuleCachePath(getSpecificModuleCachePath());
+  PP->getHeaderSearchInfo().setModuleCachePath(getSpecificModuleCachePath());
 
   // Handle generating dependencies, if requested.
   const DependencyOutputOptions &DepOpts = getDependencyOutputOpts();
@@ -399,24 +396,22 @@ void CompilerInstance::createPCHExternalASTSource(
   ModuleManager = createPCHExternalASTSource(
       Path, getHeaderSearchOpts().Sysroot, DisablePCHValidation,
       AllowPCHWithCompilerErrors, getPreprocessor(), getASTContext(),
-      getPCHContainerReader(), DeserializationListener,
-      OwnDeserializationListener, Preamble,
+      DeserializationListener, OwnDeserializationListener, Preamble,
       getFrontendOpts().UseGlobalModuleIndex);
 }
 
 IntrusiveRefCntPtr<ASTReader> CompilerInstance::createPCHExternalASTSource(
-    StringRef Path, StringRef Sysroot, bool DisablePCHValidation,
+    StringRef Path, const std::string &Sysroot, bool DisablePCHValidation,
     bool AllowPCHWithCompilerErrors, Preprocessor &PP, ASTContext &Context,
-    const PCHContainerReader &PCHContainerRdr,
     void *DeserializationListener, bool OwnDeserializationListener,
     bool Preamble, bool UseGlobalModuleIndex) {
   HeaderSearchOptions &HSOpts = PP.getHeaderSearchInfo().getHeaderSearchOpts();
 
-  IntrusiveRefCntPtr<ASTReader> Reader(new ASTReader(
-      PP, Context, PCHContainerRdr, Sysroot.empty() ? "" : Sysroot.data(),
-      DisablePCHValidation, AllowPCHWithCompilerErrors,
-      /*AllowConfigurationMismatch*/ false, HSOpts.ModulesValidateSystemHeaders,
-      UseGlobalModuleIndex));
+  IntrusiveRefCntPtr<ASTReader> Reader(
+      new ASTReader(PP, Context, Sysroot.empty() ? "" : Sysroot.c_str(),
+                    DisablePCHValidation, AllowPCHWithCompilerErrors,
+                    /*AllowConfigurationMismatch*/ false,
+                    HSOpts.ModulesValidateSystemHeaders, UseGlobalModuleIndex));
 
   // We need the external source to be set up before we read the AST, because
   // eagerly-deserialized declarations may use it.
@@ -497,14 +492,12 @@ void CompilerInstance::createCodeCompletionConsumer() {
 }
 
 void CompilerInstance::createFrontendTimer() {
-  FrontendTimerGroup.reset(new llvm::TimerGroup("Clang front-end time report"));
-  FrontendTimer.reset(
-      new llvm::Timer("Clang front-end timer", *FrontendTimerGroup));
+  FrontendTimer.reset(new llvm::Timer("Clang front-end timer"));
 }
 
 CodeCompleteConsumer *
 CompilerInstance::createCodeCompletionConsumer(Preprocessor &PP,
-                                               StringRef Filename,
+                                               const std::string &Filename,
                                                unsigned Line,
                                                unsigned Column,
                                                const CodeCompleteOptions &Opts,
@@ -524,43 +517,42 @@ void CompilerInstance::createSema(TranslationUnitKind TUKind,
 
 // Output Files
 
-void CompilerInstance::addOutputFile(OutputFile &&OutFile) {
+void CompilerInstance::addOutputFile(const OutputFile &OutFile) {
   assert(OutFile.OS && "Attempt to add empty stream to output list!");
-  OutputFiles.push_back(std::move(OutFile));
+  OutputFiles.push_back(OutFile);
 }
 
 void CompilerInstance::clearOutputFiles(bool EraseFiles) {
-  for (OutputFile &OF : OutputFiles) {
-    // Manually close the stream before we rename it.
-    OF.OS.reset();
-
-    if (!OF.TempFilename.empty()) {
+  for (std::list<OutputFile>::iterator
+         it = OutputFiles.begin(), ie = OutputFiles.end(); it != ie; ++it) {
+    delete it->OS;
+    if (!it->TempFilename.empty()) {
       if (EraseFiles) {
-        llvm::sys::fs::remove(OF.TempFilename);
+        llvm::sys::fs::remove(it->TempFilename);
       } else {
-        SmallString<128> NewOutFile(OF.Filename);
+        SmallString<128> NewOutFile(it->Filename);
 
         // If '-working-directory' was passed, the output filename should be
         // relative to that.
         FileMgr->FixupRelativePath(NewOutFile);
         if (std::error_code ec =
-                llvm::sys::fs::rename(OF.TempFilename, NewOutFile)) {
+                llvm::sys::fs::rename(it->TempFilename, NewOutFile.str())) {
           getDiagnostics().Report(diag::err_unable_to_rename_temp)
-            << OF.TempFilename << OF.Filename << ec.message();
+            << it->TempFilename << it->Filename << ec.message();
 
-          llvm::sys::fs::remove(OF.TempFilename);
+          llvm::sys::fs::remove(it->TempFilename);
         }
       }
-    } else if (!OF.Filename.empty() && EraseFiles)
-      llvm::sys::fs::remove(OF.Filename);
+    } else if (!it->Filename.empty() && EraseFiles)
+      llvm::sys::fs::remove(it->Filename);
 
   }
   OutputFiles.clear();
-  NonSeekStream.reset();
 }
 
-raw_pwrite_stream *
-CompilerInstance::createDefaultOutputFile(bool Binary, StringRef InFile,
+llvm::raw_fd_ostream *
+CompilerInstance::createDefaultOutputFile(bool Binary,
+                                          StringRef InFile,
                                           StringRef Extension) {
   return createOutputFile(getFrontendOpts().OutputFile, Binary,
                           /*RemoveFileOnSignal=*/true, InFile, Extension,
@@ -568,20 +560,21 @@ CompilerInstance::createDefaultOutputFile(bool Binary, StringRef InFile,
 }
 
 llvm::raw_null_ostream *CompilerInstance::createNullOutputFile() {
-  auto OS = llvm::make_unique<llvm::raw_null_ostream>();
-  llvm::raw_null_ostream *Ret = OS.get();
-  addOutputFile(OutputFile("", "", std::move(OS)));
-  return Ret;
+  llvm::raw_null_ostream *OS = new llvm::raw_null_ostream();
+  addOutputFile(OutputFile("", "", OS));
+  return OS;
 }
 
-raw_pwrite_stream *
-CompilerInstance::createOutputFile(StringRef OutputPath, bool Binary,
-                                   bool RemoveFileOnSignal, StringRef InFile,
-                                   StringRef Extension, bool UseTemporary,
+llvm::raw_fd_ostream *
+CompilerInstance::createOutputFile(StringRef OutputPath,
+                                   bool Binary, bool RemoveFileOnSignal,
+                                   StringRef InFile,
+                                   StringRef Extension,
+                                   bool UseTemporary,
                                    bool CreateMissingDirectories) {
   std::string OutputPathName, TempPathName;
   std::error_code EC;
-  std::unique_ptr<raw_pwrite_stream> OS = createOutputFile(
+  llvm::raw_fd_ostream *OS = createOutputFile(
       OutputPath, EC, Binary, RemoveFileOnSignal, InFile, Extension,
       UseTemporary, CreateMissingDirectories, &OutputPathName, &TempPathName);
   if (!OS) {
@@ -590,16 +583,15 @@ CompilerInstance::createOutputFile(StringRef OutputPath, bool Binary,
     return nullptr;
   }
 
-  raw_pwrite_stream *Ret = OS.get();
   // Add the output file -- but don't try to remove "-", since this means we are
   // using stdin.
   addOutputFile(OutputFile((OutputPathName != "-") ? OutputPathName : "",
-                           TempPathName, std::move(OS)));
+                TempPathName, OS));
 
-  return Ret;
+  return OS;
 }
 
-std::unique_ptr<llvm::raw_pwrite_stream> CompilerInstance::createOutputFile(
+llvm::raw_fd_ostream *CompilerInstance::createOutputFile(
     StringRef OutputPath, std::error_code &Error, bool Binary,
     bool RemoveFileOnSignal, StringRef InFile, StringRef Extension,
     bool UseTemporary, bool CreateMissingDirectories,
@@ -649,14 +641,14 @@ std::unique_ptr<llvm::raw_pwrite_stream> CompilerInstance::createOutputFile(
     TempPath += "-%%%%%%%%";
     int fd;
     std::error_code EC =
-        llvm::sys::fs::createUniqueFile(TempPath, fd, TempPath);
+        llvm::sys::fs::createUniqueFile(TempPath.str(), fd, TempPath);
 
     if (CreateMissingDirectories &&
         EC == llvm::errc::no_such_file_or_directory) {
       StringRef Parent = llvm::sys::path::parent_path(OutputPath);
       EC = llvm::sys::fs::create_directories(Parent);
       if (!EC) {
-        EC = llvm::sys::fs::createUniqueFile(TempPath, fd, TempPath);
+        EC = llvm::sys::fs::createUniqueFile(TempPath.str(), fd, TempPath);
       }
     }
 
@@ -687,13 +679,7 @@ std::unique_ptr<llvm::raw_pwrite_stream> CompilerInstance::createOutputFile(
   if (TempPathName)
     *TempPathName = TempFile;
 
-  if (!Binary || OS->supportsSeeking())
-    return std::move(OS);
-
-  auto B = llvm::make_unique<llvm::buffer_ostream>(*OS);
-  assert(!NonSeekStream);
-  NonSeekStream = std::move(OS);
-  return std::move(B);
+  return OS.release();
 }
 
 // Initialization Utilities
@@ -924,8 +910,7 @@ static bool compileModuleImpl(CompilerInstance &ImportingInstance,
   
   // Construct a compiler instance that will be used to actually create the
   // module.
-  CompilerInstance Instance(ImportingInstance.getPCHContainerOperations(),
-                            /*BuildingModule=*/true);
+  CompilerInstance Instance(/*BuildingModule=*/true);
   Instance.setInvocation(&*Invocation);
 
   Instance.createDiagnostics(new ForwardingDiagnosticConsumer(
@@ -953,20 +938,19 @@ static bool compileModuleImpl(CompilerInstance &ImportingInstance,
   if (const FileEntry *ModuleMapFile =
           ModMap.getContainingModuleMapFile(Module)) {
     // Use the module map where this module resides.
-    FrontendOpts.Inputs.emplace_back(ModuleMapFile->getName(), IK);
+    FrontendOpts.Inputs.push_back(
+        FrontendInputFile(ModuleMapFile->getName(), IK));
   } else {
-    SmallString<128> FakeModuleMapFile(Module->Directory->getName());
-    llvm::sys::path::append(FakeModuleMapFile, "__inferred_module.map");
-    FrontendOpts.Inputs.emplace_back(FakeModuleMapFile, IK);
-
     llvm::raw_string_ostream OS(InferredModuleMapContent);
     Module->print(OS);
     OS.flush();
+    FrontendOpts.Inputs.push_back(
+        FrontendInputFile("__inferred_module.map", IK));
 
     std::unique_ptr<llvm::MemoryBuffer> ModuleMapBuffer =
         llvm::MemoryBuffer::getMemBuffer(InferredModuleMapContent);
     ModuleMapFile = Instance.getFileManager().getVirtualFile(
-        FakeModuleMapFile, InferredModuleMapContent.size(), 0);
+        "__inferred_module.map", InferredModuleMapContent.size(), 0);
     SourceMgr.overrideFileContents(ModuleMapFile, std::move(ModuleMapBuffer));
   }
 
@@ -1092,51 +1076,79 @@ static void checkConfigMacro(Preprocessor &PP, StringRef ConfigMacro,
   // not have changed.
   if (!Id->hadMacroDefinition())
     return;
-  auto *LatestLocalMD = PP.getLocalMacroDirectiveHistory(Id);
 
-  // Find the macro definition from the command line.
-  MacroInfo *CmdLineDefinition = nullptr;
-  for (auto *MD = LatestLocalMD; MD; MD = MD->getPrevious()) {
-    // We only care about the predefines buffer.
-    FileID FID = SourceMgr.getFileID(MD->getLocation());
-    if (FID.isInvalid() || FID != PP.getPredefinesFileID())
+  // If this identifier does not currently have a macro definition,
+  // check whether it had one on the command line.
+  if (!Id->hasMacroDefinition()) {
+    MacroDirective::DefInfo LatestDef =
+        PP.getMacroDirectiveHistory(Id)->getDefinition();
+    for (MacroDirective::DefInfo Def = LatestDef; Def;
+           Def = Def.getPreviousDefinition()) {
+      FileID FID = SourceMgr.getFileID(Def.getLocation());
+      if (FID.isInvalid())
+        continue;
+
+      // We only care about the predefines buffer.
+      if (FID != PP.getPredefinesFileID())
+        continue;
+
+      // This macro was defined on the command line, then #undef'd later.
+      // Complain.
+      PP.Diag(ImportLoc, diag::warn_module_config_macro_undef)
+        << true << ConfigMacro << Mod->getFullModuleName();
+      if (LatestDef.isUndefined())
+        PP.Diag(LatestDef.getUndefLocation(), diag::note_module_def_undef_here)
+          << true;
+      return;
+    }
+
+    // Okay: no definition in the predefines buffer.
+    return;
+  }
+
+  // This identifier has a macro definition. Check whether we had a definition
+  // on the command line.
+  MacroDirective::DefInfo LatestDef =
+      PP.getMacroDirectiveHistory(Id)->getDefinition();
+  MacroDirective::DefInfo PredefinedDef;
+  for (MacroDirective::DefInfo Def = LatestDef; Def;
+         Def = Def.getPreviousDefinition()) {
+    FileID FID = SourceMgr.getFileID(Def.getLocation());
+    if (FID.isInvalid())
       continue;
-    if (auto *DMD = dyn_cast<DefMacroDirective>(MD))
-      CmdLineDefinition = DMD->getMacroInfo();
+
+    // We only care about the predefines buffer.
+    if (FID != PP.getPredefinesFileID())
+      continue;
+
+    PredefinedDef = Def;
     break;
   }
 
-  auto *CurrentDefinition = PP.getMacroInfo(Id);
-  if (CurrentDefinition == CmdLineDefinition) {
-    // Macro matches. Nothing to do.
-  } else if (!CurrentDefinition) {
-    // This macro was defined on the command line, then #undef'd later.
-    // Complain.
+  // If there was no definition for this macro in the predefines buffer,
+  // complain.
+  if (!PredefinedDef ||
+      (!PredefinedDef.getLocation().isValid() &&
+       PredefinedDef.getUndefLocation().isValid())) {
     PP.Diag(ImportLoc, diag::warn_module_config_macro_undef)
-      << true << ConfigMacro << Mod->getFullModuleName();
-    auto LatestDef = LatestLocalMD->getDefinition();
-    assert(LatestDef.isUndefined() &&
-           "predefined macro went away with no #undef?");
-    PP.Diag(LatestDef.getUndefLocation(), diag::note_module_def_undef_here)
-      << true;
+      << false << ConfigMacro << Mod->getFullModuleName();
+    PP.Diag(LatestDef.getLocation(), diag::note_module_def_undef_here)
+      << false;
     return;
-  } else if (!CmdLineDefinition) {
-    // There was no definition for this macro in the predefines buffer,
-    // but there was a local definition. Complain.
-    PP.Diag(ImportLoc, diag::warn_module_config_macro_undef)
-      << false << ConfigMacro << Mod->getFullModuleName();
-    PP.Diag(CurrentDefinition->getDefinitionLoc(),
-            diag::note_module_def_undef_here)
-      << false;
-  } else if (!CurrentDefinition->isIdenticalTo(*CmdLineDefinition, PP,
-                                               /*Syntactically=*/true)) {
-    // The macro definitions differ.
-    PP.Diag(ImportLoc, diag::warn_module_config_macro_undef)
-      << false << ConfigMacro << Mod->getFullModuleName();
-    PP.Diag(CurrentDefinition->getDefinitionLoc(),
-            diag::note_module_def_undef_here)
-      << false;
   }
+
+  // If the current macro definition is the same as the predefined macro
+  // definition, it's okay.
+  if (LatestDef.getMacroInfo() == PredefinedDef.getMacroInfo() ||
+      LatestDef.getMacroInfo()->isIdenticalTo(*PredefinedDef.getMacroInfo(),PP,
+                                              /*Syntactically=*/true))
+    return;
+
+  // The macro definitions differ.
+  PP.Diag(ImportLoc, diag::warn_module_config_macro_undef)
+    << false << ConfigMacro << Mod->getFullModuleName();
+  PP.Diag(LatestDef.getLocation(), diag::note_module_def_undef_here)
+    << false;
 }
 
 /// \brief Write a new timestamp file with the given path.
@@ -1179,7 +1191,8 @@ static void pruneModuleCache(const HeaderSearchOptions &HSOpts) {
   std::error_code EC;
   SmallString<128> ModuleCachePathNative;
   llvm::sys::path::native(HSOpts.ModuleCachePath, ModuleCachePathNative);
-  for (llvm::sys::fs::directory_iterator Dir(ModuleCachePathNative, EC), DirEnd;
+  for (llvm::sys::fs::directory_iterator
+         Dir(ModuleCachePathNative.str(), EC), DirEnd;
        Dir != DirEnd && !EC; Dir.increment(EC)) {
     // If we don't have a directory, there's nothing to look into.
     if (!llvm::sys::fs::is_directory(Dir->path()))
@@ -1227,10 +1240,9 @@ void CompilerInstance::createModuleManager() {
     if (!hasASTContext())
       createASTContext();
 
-    // If we're implicitly building modules but not currently recursively
-    // building a module, check whether we need to prune the module cache.
-    if (getLangOpts().ImplicitModules &&
-        getSourceManager().getModuleBuildStack().empty() &&
+    // If we're not recursively building a module, check whether we
+    // need to prune the module cache.
+    if (getSourceManager().getModuleBuildStack().empty() &&
         getHeaderSearchOpts().ModuleCachePruneInterval > 0 &&
         getHeaderSearchOpts().ModuleCachePruneAfter > 0) {
       pruneModuleCache(getHeaderSearchOpts());
@@ -1239,18 +1251,13 @@ void CompilerInstance::createModuleManager() {
     HeaderSearchOptions &HSOpts = getHeaderSearchOpts();
     std::string Sysroot = HSOpts.Sysroot;
     const PreprocessorOptions &PPOpts = getPreprocessorOpts();
-    std::unique_ptr<llvm::Timer> ReadTimer;
-    if (FrontendTimerGroup)
-      ReadTimer = llvm::make_unique<llvm::Timer>("Reading modules",
-                                                 *FrontendTimerGroup);
-    ModuleManager = new ASTReader(
-        getPreprocessor(), *Context, getPCHContainerReader(),
-        Sysroot.empty() ? "" : Sysroot.c_str(), PPOpts.DisablePCHValidation,
-        /*AllowASTWithCompilerErrors=*/false,
-        /*AllowConfigurationMismatch=*/false,
-        HSOpts.ModulesValidateSystemHeaders,
-        getFrontendOpts().UseGlobalModuleIndex,
-        std::move(ReadTimer));
+    ModuleManager = new ASTReader(getPreprocessor(), *Context,
+                                  Sysroot.empty() ? "" : Sysroot.c_str(),
+                                  PPOpts.DisablePCHValidation,
+                                  /*AllowASTWithCompilerErrors=*/false,
+                                  /*AllowConfigurationMismatch=*/false,
+                                  HSOpts.ModulesValidateSystemHeaders,
+                                  getFrontendOpts().UseGlobalModuleIndex);
     if (hasASTConsumer()) {
       ModuleManager->setDeserializationListener(
         getASTConsumer().GetASTDeserializationListener());
@@ -1266,18 +1273,12 @@ void CompilerInstance::createModuleManager() {
 }
 
 bool CompilerInstance::loadModuleFile(StringRef FileName) {
-  llvm::Timer Timer;
-  if (FrontendTimerGroup)
-    Timer.init("Preloading " + FileName.str(), *FrontendTimerGroup);
-  llvm::TimeRegion TimeLoading(FrontendTimerGroup ? &Timer : nullptr);
-
   // Helper to recursively read the module names for all modules we're adding.
   // We mark these as known and redirect any attempt to load that module to
   // the files we were handed.
   struct ReadModuleNames : ASTReaderListener {
     CompilerInstance &CI;
     std::vector<StringRef> ModuleFileStack;
-    std::vector<StringRef> ModuleNameStack;
     bool Failed;
     bool TopFileIsModule;
 
@@ -1287,37 +1288,21 @@ bool CompilerInstance::loadModuleFile(StringRef FileName) {
     bool needsImportVisitation() const override { return true; }
 
     void visitImport(StringRef FileName) override {
-      if (!CI.ExplicitlyLoadedModuleFiles.insert(FileName).second) {
-        if (ModuleFileStack.size() == 0)
-          TopFileIsModule = true;
-        return;
-      }
-
       ModuleFileStack.push_back(FileName);
-      ModuleNameStack.push_back(StringRef());
       if (ASTReader::readASTFileControlBlock(FileName, CI.getFileManager(),
-                                             CI.getPCHContainerReader(),
                                              *this)) {
-        CI.getDiagnostics().Report(
-            SourceLocation(), CI.getFileManager().getBufferForFile(FileName)
-                                  ? diag::err_module_file_invalid
-                                  : diag::err_module_file_not_found)
+        CI.getDiagnostics().Report(SourceLocation(),
+                                   diag::err_module_file_not_found)
             << FileName;
-        for (int I = ModuleFileStack.size() - 2; I >= 0; --I)
-          CI.getDiagnostics().Report(SourceLocation(),
-                                     diag::note_module_file_imported_by)
-              << ModuleFileStack[I]
-              << !ModuleNameStack[I].empty() << ModuleNameStack[I];
+        // FIXME: Produce a note stack explaining how we got here.
         Failed = true;
       }
-      ModuleNameStack.pop_back();
       ModuleFileStack.pop_back();
     }
 
     void ReadModuleName(StringRef ModuleName) override {
       if (ModuleFileStack.size() == 1)
         TopFileIsModule = true;
-      ModuleNameStack.back() = ModuleName;
 
       auto &ModuleFile = CI.ModuleFileOverrides[ModuleName];
       if (!ModuleFile.empty() &&
@@ -1330,19 +1315,6 @@ bool CompilerInstance::loadModuleFile(StringRef FileName) {
     }
   } RMN(*this);
 
-  // If we don't already have an ASTReader, create one now.
-  if (!ModuleManager)
-    createModuleManager();
-
-  // Tell the module manager about this module file.
-  if (getModuleManager()->getModuleManager().addKnownModuleFile(FileName)) {
-    getDiagnostics().Report(SourceLocation(), diag::err_module_file_not_found)
-      << FileName;
-    return false;
-  }
-
-  // Build our mapping of module names to module files from this file
-  // and its imports.
   RMN.visitImport(FileName);
 
   if (RMN.Failed)
@@ -1376,7 +1348,7 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
     if (LastModuleImportResult && ModuleName != getLangOpts().CurrentModule &&
         ModuleName != getLangOpts().ImplementationOfModule)
       ModuleManager->makeModuleVisible(LastModuleImportResult, Visibility,
-                                       ImportLoc);
+                                       ImportLoc, /*Complain=*/false);
     return LastModuleImportResult;
   }
 
@@ -1429,11 +1401,6 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
 
     for (auto &Listener : DependencyCollectors)
       Listener->attachToASTReader(*ModuleManager);
-
-    llvm::Timer Timer;
-    if (FrontendTimerGroup)
-      Timer.init("Loading " + ModuleFileName, *FrontendTimerGroup);
-    llvm::TimeRegion TimeLoading(FrontendTimerGroup ? &Timer : nullptr);
 
     // Try to load the module file.
     unsigned ARRFlags =
@@ -1624,7 +1591,8 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
       return ModuleLoadResult();
     }
 
-    ModuleManager->makeModuleVisible(Module, Visibility, ImportLoc);
+    ModuleManager->makeModuleVisible(Module, Visibility, ImportLoc,
+                                     /*Complain=*/true);
   }
 
   // Check for any configuration macros that have changed.
@@ -1634,6 +1602,25 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
                      Module, ImportLoc);
   }
 
+  // Determine whether we're in the #include buffer for a module. The #includes
+  // in that buffer do not qualify as module imports; they're just an
+  // implementation detail of us building the module.
+  bool IsInModuleIncludes = !getLangOpts().CurrentModule.empty() &&
+                            getSourceManager().getFileID(ImportLoc) ==
+                                getSourceManager().getMainFileID();
+
+  // If this module import was due to an inclusion directive, create an 
+  // implicit import declaration to capture it in the AST.
+  if (IsInclusionDirective && hasASTContext() && !IsInModuleIncludes) {
+    TranslationUnitDecl *TU = getASTContext().getTranslationUnitDecl();
+    ImportDecl *ImportD = ImportDecl::CreateImplicit(getASTContext(), TU,
+                                                     ImportLoc, Module,
+                                                     Path.back().second);
+    TU->addDecl(ImportD);
+    if (Consumer)
+      Consumer->HandleImplicitImportDecl(ImportD);
+  }
+  
   LastModuleImportLoc = ImportLoc;
   LastModuleImportResult = ModuleLoadResult(Module, false);
   return LastModuleImportResult;
@@ -1641,13 +1628,9 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
 
 void CompilerInstance::makeModuleVisible(Module *Mod,
                                          Module::NameVisibilityKind Visibility,
-                                         SourceLocation ImportLoc) {
-  if (!ModuleManager)
-    createModuleManager();
-  if (!ModuleManager)
-    return;
-
-  ModuleManager->makeModuleVisible(Mod, Visibility, ImportLoc);
+                                         SourceLocation ImportLoc,
+                                         bool Complain){
+  ModuleManager->makeModuleVisible(Mod, Visibility, ImportLoc, Complain);
 }
 
 GlobalModuleIndex *CompilerInstance::loadGlobalModuleIndex(
@@ -1667,8 +1650,8 @@ GlobalModuleIndex *CompilerInstance::loadGlobalModuleIndex(
     llvm::sys::fs::create_directories(
       getPreprocessor().getHeaderSearchInfo().getModuleCachePath());
     GlobalModuleIndex::writeIndex(
-        getFileManager(), getPCHContainerReader(),
-        getPreprocessor().getHeaderSearchInfo().getModuleCachePath());
+      getFileManager(),
+      getPreprocessor().getHeaderSearchInfo().getModuleCachePath());
     ModuleManager->resetForReload();
     ModuleManager->loadGlobalIndex();
     GlobalIndex = ModuleManager->getGlobalIndex();
@@ -1695,8 +1678,8 @@ GlobalModuleIndex *CompilerInstance::loadGlobalModuleIndex(
     }
     if (RecreateIndex) {
       GlobalModuleIndex::writeIndex(
-          getFileManager(), getPCHContainerReader(),
-          getPreprocessor().getHeaderSearchInfo().getModuleCachePath());
+        getFileManager(),
+        getPreprocessor().getHeaderSearchInfo().getModuleCachePath());
       ModuleManager->resetForReload();
       ModuleManager->loadGlobalIndex();
       GlobalIndex = ModuleManager->getGlobalIndex();

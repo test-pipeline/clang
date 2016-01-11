@@ -77,10 +77,10 @@ std::error_code ModuleDependencyListener::copyToRoot(StringRef Src) {
   if (std::error_code EC = fs::create_directories(path::parent_path(Dest),
                                                    /*IgnoreExisting=*/true))
     return EC;
-  if (std::error_code EC = fs::copy_file(AbsoluteSrc, Dest))
+  if (std::error_code EC = fs::copy_file(AbsoluteSrc.str(), Dest.str()))
     return EC;
   // Use the absolute path under the root for the file mapping.
-  Collector.addFileMapping(AbsoluteSrc, Dest);
+  Collector.addFileMapping(AbsoluteSrc.str(), Dest.str());
   return std::error_code();
 }
 

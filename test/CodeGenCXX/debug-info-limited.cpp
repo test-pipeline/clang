@@ -1,8 +1,6 @@
 // RUN: %clang -flimit-debug-info -emit-llvm -g -S %s -o - | FileCheck %s
 
-// CHECK: !DICompositeType(tag: DW_TAG_class_type, name: "A"
-// CHECK-NOT:              DIFlagFwdDecl
-// CHECK-SAME:             ){{$}}
+// CHECK: ; [ DW_TAG_class_type ] [A] {{.*}} [def]
 class A {
 public:
   int z;
@@ -13,9 +11,7 @@ A *foo (A* x) {
   return a;
 }
 
-// CHECK: !DICompositeType(tag: DW_TAG_class_type, name: "B"
-// CHECK-NOT:              DIFlagFwdDecl
-// CHECK-SAME:             ){{$}}
+// CHECK: ; [ DW_TAG_class_type ] [B] {{.*}} [def]
 
 class B {
 public:
@@ -28,8 +24,7 @@ int baz(B *b) {
 }
 
 
-// CHECK: !DICompositeType(tag: DW_TAG_structure_type, name: "C"
-// CHECK-SAME:             flags: DIFlagFwdDecl
+// CHECK: ; [ DW_TAG_structure_type ] [C] {{.*}} [decl]
 
 struct C {
 };

@@ -18,8 +18,7 @@ int main(int argc, char** argv) {
 
 // Make sure we have two DW_TAG_structure_types for baz and bar and no forward
 // references.
-// CHECK-NOT: DIFlagFwdDecl
-// CHECK: !DICompositeType(tag: DW_TAG_structure_type, name: "bar"
-// CHECK-NOT:              DIFlagFwdDecl
-// CHECK: !DICompositeType(tag: DW_TAG_structure_type, name: "baz"
-// CHECK-NOT:              DIFlagFwdDecl
+// CHECK-NOT: [fwd]
+// CHECK: [ DW_TAG_structure_type ] [bar]
+// CHECK: [ DW_TAG_structure_type ] [baz]
+// CHECK-NOT: [fwd]

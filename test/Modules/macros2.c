@@ -1,6 +1,9 @@
 // RUN: rm -rf %t
-// RUN: %clang_cc1 -fmodules -fimplicit-module-maps -x objective-c -verify -fmodules-cache-path=%t -I %S/Inputs %s
-// RUN: %clang_cc1 -fmodules -fimplicit-module-maps -fmodules-local-submodule-visibility -x objective-c++ -verify -fmodules-cache-path=%t -I %S/Inputs %s -DLOCAL_VISIBILITY
+// RUN: %clang_cc1 -fmodules -x objective-c -emit-module -fmodules-cache-path=%t -fmodule-name=macros_top %S/Inputs/module.map
+// RUN: %clang_cc1 -fmodules -x objective-c -emit-module -fmodules-cache-path=%t -fmodule-name=macros_left %S/Inputs/module.map
+// RUN: %clang_cc1 -fmodules -x objective-c -emit-module -fmodules-cache-path=%t -fmodule-name=macros_right %S/Inputs/module.map
+// RUN: %clang_cc1 -fmodules -x objective-c -emit-module -fmodules-cache-path=%t -fmodule-name=macros %S/Inputs/module.map
+// RUN: %clang_cc1 -fmodules -x objective-c -verify -fmodules-cache-path=%t -I %S/Inputs %s
 
 // This test checks some of the same things as macros.c, but imports modules in
 // a different order.
@@ -46,15 +49,9 @@ void test() {
 
 @import macros_right.undef;
 
-// See macros.c.
-#ifdef LOCAL_VISIBILITY
-# ifndef TOP_RIGHT_UNDEF
-#  error TOP_RIGHT_UNDEF should still be defined
-# endif
-#else
-# ifdef TOP_RIGHT_UNDEF
-#  error TOP_RIGHT_UNDEF should not be defined
-# endif
+// FIXME: See macros.c.
+#ifdef TOP_RIGHT_UNDEF
+# error TOP_RIGHT_UNDEF should not be defined
 #endif
 
 #ifndef TOP_OTHER_UNDEF1

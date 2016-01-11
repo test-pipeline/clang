@@ -136,9 +136,9 @@ void CastSizeChecker::checkPreStmt(const CastExpr *CE,CheckerContext &C) const {
       BT.reset(new BuiltinBug(this, "Cast region with wrong size.",
                                     "Cast a region whose size is not a multiple"
                                     " of the destination type size."));
-    auto R = llvm::make_unique<BugReport>(*BT, BT->getDescription(), errorNode);
+    BugReport *R = new BugReport(*BT, BT->getDescription(), errorNode);
     R->addRange(CE->getSourceRange());
-    C.emitReport(std::move(R));
+    C.emitReport(R);
   }
 }
 

@@ -8,5 +8,4 @@ void foo (int &&i)
   printf("%d\n", i);
 }
 
-// CHECK: !DIDerivedType(tag: DW_TAG_rvalue_reference_type, baseType: ![[INT:[0-9]+]])
-// CHECK: ![[INT]] = !DIBasicType(name: "int"
+// CHECK:  !"0x42\00\000\000\000\000\000", null, null, !{{.*}}} ; [ DW_TAG_rvalue_reference_type ]

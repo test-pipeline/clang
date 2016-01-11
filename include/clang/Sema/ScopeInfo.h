@@ -568,7 +568,7 @@ public:
     Kind = SK_Block;
   }
 
-  ~BlockScopeInfo() override;
+  virtual ~BlockScopeInfo();
 
   static bool classof(const FunctionScopeInfo *FSI) { 
     return FSI->Kind == SK_Block; 
@@ -599,7 +599,7 @@ public:
     Kind = SK_CapturedRegion;
   }
 
-  ~CapturedRegionScopeInfo() override;
+  virtual ~CapturedRegionScopeInfo();
 
   /// \brief A descriptive name for the kind of captured region this is.
   StringRef getRegionName() const {
@@ -648,6 +648,13 @@ public:
   /// \brief Whether the lambda contains an unexpanded parameter pack.
   bool ContainsUnexpandedParameterPack;
 
+  /// \brief Variables used to index into by-copy array captures.
+  SmallVector<VarDecl *, 4> ArrayIndexVars;
+
+  /// \brief Offsets into the ArrayIndexVars array at which each capture starts
+  /// its list of array index variables.
+  SmallVector<unsigned, 4> ArrayIndexStarts;
+  
   /// \brief If this is a generic lambda, use this as the depth of 
   /// each 'auto' parameter, during initial AST construction.
   unsigned AutoTemplateParameterDepth;
@@ -691,13 +698,13 @@ public:
   LambdaScopeInfo(DiagnosticsEngine &Diag)
     : CapturingScopeInfo(Diag, ImpCap_None), Lambda(nullptr),
       CallOperator(nullptr), NumExplicitCaptures(0), Mutable(false),
-      ExplicitParams(false), ExprNeedsCleanups(false),
-      ContainsUnexpandedParameterPack(false), AutoTemplateParameterDepth(0),
-      GLTemplateParameterList(nullptr) {
+      ExprNeedsCleanups(false), ContainsUnexpandedParameterPack(false),
+      AutoTemplateParameterDepth(0), GLTemplateParameterList(nullptr)
+  {
     Kind = SK_Lambda;
   }
 
-  ~LambdaScopeInfo() override;
+  virtual ~LambdaScopeInfo();
 
   /// \brief Note when all explicit captures have been added.
   void finishedExplicitCaptures() {
@@ -835,6 +842,9 @@ CapturingScopeInfo::addThisCapture(bool isNested, SourceLocation Loc,
   Captures.push_back(Capture(Capture::ThisCapture, isNested, Loc, CaptureType,
                              Cpy));
   CXXThisCaptureIndex = Captures.size();
+
+  if (LambdaScopeInfo *LSI = dyn_cast<LambdaScopeInfo>(this))
+    LSI->ArrayIndexStarts.push_back(LSI->ArrayIndexVars.size());
 }
 
 } // end namespace sema

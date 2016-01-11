@@ -30,7 +30,7 @@ class CompleteTypeDiagnoser : public clang::ExternalSemaSource {
 public:
   CompleteTypeDiagnoser(bool MockResult) : CallCount(0), Result(MockResult) {}
 
-  bool MaybeDiagnoseMissingCompleteType(SourceLocation L, QualType T) override {
+  virtual bool MaybeDiagnoseMissingCompleteType(SourceLocation L, QualType T) {
     ++CallCount;
     return Result;
   }
@@ -54,8 +54,8 @@ public:
     ToNS.append("'");
   }
 
-  void HandleDiagnostic(DiagnosticsEngine::Level DiagLevel,
-                        const Diagnostic &Info) override {
+  virtual void HandleDiagnostic(DiagnosticsEngine::Level DiagLevel,
+                                const Diagnostic &Info) {
     if (Chained)
       Chained->HandleDiagnostic(DiagLevel, Info);
     if (Info.getID() - 1 == diag::err_using_directive_member_suggest) {
@@ -66,13 +66,13 @@ public:
     }
   }
 
-  void clear() override {
+  virtual void clear() {
     DiagnosticConsumer::clear();
     if (Chained)
       Chained->clear();
   }
 
-  bool IncludeInDiagnosticCounts() const override {
+  virtual bool IncludeInDiagnosticCounts() const {
     if (Chained)
       return Chained->IncludeInDiagnosticCounts();
     return false;
@@ -97,15 +97,16 @@ public:
   NamespaceTypoProvider(StringRef From, StringRef To)
       : CorrectFrom(From), CorrectTo(To), CurrentSema(nullptr), CallCount(0) {}
 
-  void InitializeSema(Sema &S) override { CurrentSema = &S; }
+  virtual void InitializeSema(Sema &S) { CurrentSema = &S; }
 
-  void ForgetSema() override { CurrentSema = nullptr; }
+  virtual void ForgetSema() { CurrentSema = nullptr; }
 
-  TypoCorrection CorrectTypo(const DeclarationNameInfo &Typo, int LookupKind,
-                             Scope *S, CXXScopeSpec *SS,
-                             CorrectionCandidateCallback &CCC,
-                             DeclContext *MemberContext, bool EnteringContext,
-                             const ObjCObjectPointerType *OPT) override {
+  virtual TypoCorrection CorrectTypo(const DeclarationNameInfo &Typo,
+                                     int LookupKind, Scope *S, CXXScopeSpec *SS,
+                                     CorrectionCandidateCallback &CCC,
+                                     DeclContext *MemberContext,
+                                     bool EnteringContext,
+                                     const ObjCObjectPointerType *OPT) {
     ++CallCount;
     if (CurrentSema && Typo.getName().getAsString() == CorrectFrom) {
       DeclContext *DestContext = nullptr;
@@ -139,13 +140,13 @@ class ExternalSemaSourceInstaller : public clang::ASTFrontendAction {
   std::unique_ptr<DiagnosticConsumer> OwnedClient;
 
 protected:
-  std::unique_ptr<clang::ASTConsumer>
+  virtual std::unique_ptr<clang::ASTConsumer>
   CreateASTConsumer(clang::CompilerInstance &Compiler,
-                    llvm::StringRef /* dummy */) override {
+                    llvm::StringRef /* dummy */) {
     return llvm::make_unique<clang::ASTConsumer>();
   }
 
-  void ExecuteAction() override {
+  virtual void ExecuteAction() {
     CompilerInstance &CI = getCompilerInstance();
     ASSERT_FALSE(CI.hasSema());
     CI.createSema(getTranslationUnitKind(), nullptr);

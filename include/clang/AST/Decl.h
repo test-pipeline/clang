@@ -39,7 +39,6 @@ class LabelStmt;
 class MemberSpecializationInfo;
 class Module;
 class NestedNameSpecifier;
-class ParmVarDecl;
 class Stmt;
 class StringLiteral;
 class TemplateArgumentList;
@@ -83,7 +82,10 @@ class TranslationUnitDecl : public Decl, public DeclContext {
   /// translation unit, if one has been created.
   NamespaceDecl *AnonymousNamespace;
 
-  explicit TranslationUnitDecl(ASTContext &ctx);
+  explicit TranslationUnitDecl(ASTContext &ctx)
+    : Decl(TranslationUnit, nullptr, SourceLocation()),
+      DeclContext(TranslationUnit),
+      Ctx(ctx), AnonymousNamespace(nullptr) {}
 public:
   ASTContext &getASTContext() const { return Ctx; }
 
@@ -99,43 +101,6 @@ public:
   }
   static TranslationUnitDecl *castFromDeclContext(const DeclContext *DC) {
     return static_cast<TranslationUnitDecl *>(const_cast<DeclContext*>(DC));
-  }
-};
-
-/// \brief Declaration context for names declared as extern "C" in C++. This
-/// is neither the semantic nor lexical context for such declarations, but is
-/// used to check for conflicts with other extern "C" declarations. Example:
-///
-/// \code
-///   namespace N { extern "C" void f(); } // #1
-///   void N::f() {}                       // #2
-///   namespace M { extern "C" void f(); } // #3
-/// \endcode
-///
-/// The semantic context of #1 is namespace N and its lexical context is the
-/// LinkageSpecDecl; the semantic context of #2 is namespace N and its lexical
-/// context is the TU. However, both declarations are also visible in the
-/// extern "C" context.
-///
-/// The declaration at #3 finds it is a redeclaration of \c N::f through
-/// lookup in the extern "C" context.
-class ExternCContextDecl : public Decl, public DeclContext {
-  virtual void anchor();
-
-  explicit ExternCContextDecl(TranslationUnitDecl *TU)
-    : Decl(ExternCContext, TU, SourceLocation()),
-      DeclContext(ExternCContext) {}
-public:
-  static ExternCContextDecl *Create(const ASTContext &C,
-                                    TranslationUnitDecl *TU);
-  // Implement isa/cast/dyncast/etc.
-  static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classofKind(Kind K) { return K == ExternCContext; }
-  static DeclContext *castToDeclContext(const ExternCContextDecl *D) {
-    return static_cast<DeclContext *>(const_cast<ExternCContextDecl*>(D));
-  }
-  static ExternCContextDecl *castFromDeclContext(const DeclContext *DC) {
-    return static_cast<ExternCContextDecl *>(const_cast<DeclContext*>(DC));
   }
 };
 
@@ -236,11 +201,7 @@ public:
   bool isHidden() const { return Hidden; }
 
   /// \brief Set whether this declaration is hidden from name lookup.
-  void setHidden(bool Hide) {
-    assert((!Hide || isFromASTFile() || hasLocalOwningModuleStorage()) &&
-           "declaration with no owning module can't be hidden");
-    Hidden = Hide;
-  }
+  void setHidden(bool Hide) { Hidden = Hide; }
 
   /// \brief Determine whether this declaration is a C++ class member.
   bool isCXXClassMember() const {
@@ -752,8 +713,37 @@ private:
     unsigned SClass : 3;
     unsigned TSCSpec : 2;
     unsigned InitStyle : 2;
+
+    /// \brief Whether this variable is the exception variable in a C++ catch
+    /// or an Objective-C @catch statement.
+    unsigned ExceptionVar : 1;
+
+    /// \brief Whether this local variable could be allocated in the return
+    /// slot of its function, enabling the named return value optimization
+    /// (NRVO).
+    unsigned NRVOVariable : 1;
+
+    /// \brief Whether this variable is the for-range-declaration in a C++0x
+    /// for-range statement.
+    unsigned CXXForRangeDecl : 1;
+
+    /// \brief Whether this variable is an ARC pseudo-__strong
+    /// variable;  see isARCPseudoStrong() for details.
+    unsigned ARCPseudoStrong : 1;
+
+    /// \brief Whether this variable is (C++0x) constexpr.
+    unsigned IsConstexpr : 1;
+
+    /// \brief Whether this variable is the implicit variable for a lambda
+    /// init-capture.
+    unsigned IsInitCapture : 1;
+
+    /// \brief Whether this local extern variable's previous declaration was
+    /// declared in the same block scope. This controls whether we should merge
+    /// the type of this declaration with its previous declaration.
+    unsigned PreviousDeclInSameBlockScope : 1;
   };
-  enum { NumVarDeclBits = 7 };
+  enum { NumVarDeclBits = 14 };
 
   friend class ASTDeclReader;
   friend class StmtIteratorBase;
@@ -789,47 +779,10 @@ protected:
     unsigned ParameterIndex : NumParameterIndexBits;
   };
 
-  class NonParmVarDeclBitfields {
-    friend class VarDecl;
-    friend class ASTDeclReader;
-
-    unsigned : NumVarDeclBits;
-
-    /// \brief Whether this variable is the exception variable in a C++ catch
-    /// or an Objective-C @catch statement.
-    unsigned ExceptionVar : 1;
-
-    /// \brief Whether this local variable could be allocated in the return
-    /// slot of its function, enabling the named return value optimization
-    /// (NRVO).
-    unsigned NRVOVariable : 1;
-
-    /// \brief Whether this variable is the for-range-declaration in a C++0x
-    /// for-range statement.
-    unsigned CXXForRangeDecl : 1;
-
-    /// \brief Whether this variable is an ARC pseudo-__strong
-    /// variable;  see isARCPseudoStrong() for details.
-    unsigned ARCPseudoStrong : 1;
-
-    /// \brief Whether this variable is (C++0x) constexpr.
-    unsigned IsConstexpr : 1;
-
-    /// \brief Whether this variable is the implicit variable for a lambda
-    /// init-capture.
-    unsigned IsInitCapture : 1;
-
-    /// \brief Whether this local extern variable's previous declaration was
-    /// declared in the same block scope. This controls whether we should merge
-    /// the type of this declaration with its previous declaration.
-    unsigned PreviousDeclInSameBlockScope : 1;
-  };
-
   union {
     unsigned AllBits;
     VarDeclBitfields VarDeclBits;
     ParmVarDeclBitfields ParmVarDeclBits;
-    NonParmVarDeclBitfields NonParmVarDeclBits;
   };
 
   VarDecl(Kind DK, ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
@@ -1182,12 +1135,9 @@ public:
   /// \brief Determine whether this variable is the exception variable in a
   /// C++ catch statememt or an Objective-C \@catch statement.
   bool isExceptionVariable() const {
-    return isa<ParmVarDecl>(this) ? false : NonParmVarDeclBits.ExceptionVar;
+    return VarDeclBits.ExceptionVar;
   }
-  void setExceptionVariable(bool EV) {
-    assert(!isa<ParmVarDecl>(this));
-    NonParmVarDeclBits.ExceptionVar = EV;
-  }
+  void setExceptionVariable(bool EV) { VarDeclBits.ExceptionVar = EV; }
 
   /// \brief Determine whether this local variable can be used with the named
   /// return value optimization (NRVO).
@@ -1199,64 +1149,36 @@ public:
   /// return slot when returning from the function. Within the function body,
   /// each return that returns the NRVO object will have this variable as its
   /// NRVO candidate.
-  bool isNRVOVariable() const {
-    return isa<ParmVarDecl>(this) ? false : NonParmVarDeclBits.NRVOVariable;
-  }
-  void setNRVOVariable(bool NRVO) {
-    assert(!isa<ParmVarDecl>(this));
-    NonParmVarDeclBits.NRVOVariable = NRVO;
-  }
+  bool isNRVOVariable() const { return VarDeclBits.NRVOVariable; }
+  void setNRVOVariable(bool NRVO) { VarDeclBits.NRVOVariable = NRVO; }
 
   /// \brief Determine whether this variable is the for-range-declaration in
   /// a C++0x for-range statement.
-  bool isCXXForRangeDecl() const {
-    return isa<ParmVarDecl>(this) ? false : NonParmVarDeclBits.CXXForRangeDecl;
-  }
-  void setCXXForRangeDecl(bool FRD) {
-    assert(!isa<ParmVarDecl>(this));
-    NonParmVarDeclBits.CXXForRangeDecl = FRD;
-  }
+  bool isCXXForRangeDecl() const { return VarDeclBits.CXXForRangeDecl; }
+  void setCXXForRangeDecl(bool FRD) { VarDeclBits.CXXForRangeDecl = FRD; }
 
   /// \brief Determine whether this variable is an ARC pseudo-__strong
   /// variable.  A pseudo-__strong variable has a __strong-qualified
   /// type but does not actually retain the object written into it.
   /// Generally such variables are also 'const' for safety.
-  bool isARCPseudoStrong() const {
-    return isa<ParmVarDecl>(this) ? false : NonParmVarDeclBits.ARCPseudoStrong;
-  }
-  void setARCPseudoStrong(bool ps) {
-    assert(!isa<ParmVarDecl>(this));
-    NonParmVarDeclBits.ARCPseudoStrong = ps;
-  }
+  bool isARCPseudoStrong() const { return VarDeclBits.ARCPseudoStrong; }
+  void setARCPseudoStrong(bool ps) { VarDeclBits.ARCPseudoStrong = ps; }
 
   /// Whether this variable is (C++11) constexpr.
-  bool isConstexpr() const {
-    return isa<ParmVarDecl>(this) ? false : NonParmVarDeclBits.IsConstexpr;
-  }
-  void setConstexpr(bool IC) {
-    assert(!isa<ParmVarDecl>(this));
-    NonParmVarDeclBits.IsConstexpr = IC;
-  }
+  bool isConstexpr() const { return VarDeclBits.IsConstexpr; }
+  void setConstexpr(bool IC) { VarDeclBits.IsConstexpr = IC; }
 
   /// Whether this variable is the implicit variable for a lambda init-capture.
-  bool isInitCapture() const {
-    return isa<ParmVarDecl>(this) ? false : NonParmVarDeclBits.IsInitCapture;
-  }
-  void setInitCapture(bool IC) {
-    assert(!isa<ParmVarDecl>(this));
-    NonParmVarDeclBits.IsInitCapture = IC;
-  }
+  bool isInitCapture() const { return VarDeclBits.IsInitCapture; }
+  void setInitCapture(bool IC) { VarDeclBits.IsInitCapture = IC; }
 
   /// Whether this local extern variable declaration's previous declaration
   /// was declared in the same block scope. Only correct in C++.
   bool isPreviousDeclInSameBlockScope() const {
-    return isa<ParmVarDecl>(this)
-               ? false
-               : NonParmVarDeclBits.PreviousDeclInSameBlockScope;
+    return VarDeclBits.PreviousDeclInSameBlockScope;
   }
   void setPreviousDeclInSameBlockScope(bool Same) {
-    assert(!isa<ParmVarDecl>(this));
-    NonParmVarDeclBits.PreviousDeclInSameBlockScope = Same;
+    VarDeclBits.PreviousDeclInSameBlockScope = Same;
   }
 
   /// \brief If this variable is an instantiated static data member of a
@@ -1902,6 +1824,11 @@ public:
   ///    allocation function. [...]
   bool isReplaceableGlobalAllocationFunction() const;
 
+  /// \brief Determine whether this function is a sized global deallocation
+  /// function in C++1y. If so, find and return the corresponding unsized
+  /// deallocation function.
+  FunctionDecl *getCorrespondingUnsizedGlobalDeallocationFunction() const;
+
   /// Compute the language linkage.
   LanguageLinkage getLanguageLinkage() const;
 
@@ -1930,10 +1857,8 @@ public:
 
   void setPreviousDeclaration(FunctionDecl * PrevDecl);
 
+  virtual const FunctionDecl *getCanonicalDecl() const;
   FunctionDecl *getCanonicalDecl() override;
-  const FunctionDecl *getCanonicalDecl() const {
-    return const_cast<FunctionDecl*>(this)->getCanonicalDecl();
-  }
 
   unsigned getBuiltinID() const;
 
@@ -2007,13 +1932,6 @@ public:
   QualType getCallResultType() const {
     return getType()->getAs<FunctionType>()->getCallResultType(getASTContext());
   }
-
-  /// \brief Returns true if this function or its return type has the
-  /// warn_unused_result attribute. If the return type has the attribute and
-  /// this function is a method of the return type's class, then false will be
-  /// returned to avoid spurious warnings on member methods such as assignment
-  /// operators.
-  bool hasUnusedResultAttr() const;
 
   /// \brief Returns the storage class as written in the source. For the
   /// computed linkage of symbol, see getLinkage.
@@ -2628,13 +2546,6 @@ public:
   /// Retrieves the canonical declaration of this typedef-name.
   TypedefNameDecl *getCanonicalDecl() override { return getFirstDecl(); }
   const TypedefNameDecl *getCanonicalDecl() const { return getFirstDecl(); }
-
-  /// Retrieves the tag declaration for which this is the typedef name for
-  /// linkage purposes, if any.
-  ///
-  /// \param AnyRedecl Look for the tag declaration in any redeclaration of
-  /// this typedef declaration.
-  TagDecl *getAnonDeclWithTypedefName(bool AnyRedecl = false) const;
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
@@ -3794,6 +3705,8 @@ void Redeclarable<decl_type>::setPreviousDecl(decl_type *PrevDecl) {
   // and Redeclarable to be defined.
   assert(RedeclLink.NextIsLatest() &&
          "setPreviousDecl on a decl already in a redeclaration chain");
+
+  decl_type *First;
 
   if (PrevDecl) {
     // Point to previous. Make sure that this is actually the most recent

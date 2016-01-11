@@ -333,7 +333,7 @@ private:
 
 public:
   ItaniumVTableContext(ASTContext &Context);
-  ~ItaniumVTableContext() override;
+  ~ItaniumVTableContext();
 
   const VTableLayout &getVTableLayout(const CXXRecordDecl *RD) {
     computeVTableRelatedInformation(RD);
@@ -511,7 +511,7 @@ public:
   MicrosoftVTableContext(ASTContext &Context)
       : VTableContextBase(/*MS=*/true), Context(Context) {}
 
-  ~MicrosoftVTableContext() override;
+  ~MicrosoftVTableContext();
 
   const VPtrInfoVector &getVFPtrOffsets(const CXXRecordDecl *RD);
 

@@ -17,16 +17,11 @@ class OuterClass
   public:
     InnerClass(); // Here createContextChain() generates a limited type for OuterClass.
   } theInnerClass;
-// CHECK0: ![[DECL:[0-9]+]] = !DISubprogram(name: "OuterClass"
-// CHECK0-SAME: line: [[@LINE+2]]
-// CHECK0-SAME: isDefinition: false
+// CHECK0: [[DECL:[0-9]+]] = {{.*}} ; [ DW_TAG_subprogram ] [line [[@LINE+1]]] [OuterClass]
   OuterClass(const Foo *); // line 10
 };
 OuterClass::InnerClass OuterClass::theInnerClass; // This toplevel decl causes InnerClass to be generated.
-// CHECK0: !DISubprogram(name: "OuterClass"
-// CHECK0-SAME: line: [[@LINE+3]]
-// CHECK0-SAME: isDefinition: true
-// CHECK0-SAME: declaration: ![[DECL]]
+// CHECK0: !"0x2e\00OuterClass\00{{.*}}\00[[@LINE+1]]"{{.*}}, ![[DECL]], {{![0-9]+}}} ; [ DW_TAG_subprogram ] [line [[@LINE+1]]] [def] [OuterClass]
 OuterClass::OuterClass(const Foo *meta) { } // line 13
 
 
@@ -41,16 +36,11 @@ class OuterClass1
   public:
     InnerClass1();
   } theInnerClass1;
-// CHECK1: ![[DECL:[0-9]+]] = !DISubprogram(name: "Bar"
-// CHECK1-SAME: line: [[@LINE+2]]
-// CHECK1-SAME: isDefinition: false
+// CHECK1: [[DECL:[0-9]+]] = {{.*}} ; [ DW_TAG_subprogram ] [line [[@LINE+2]]] [Bar]
+// CHECK1: !"0x2e\00Bar\00{{.*}}\00[[@LINE+4]]"{{.*}}, ![[DECL]], {{![0-9]+}}} ; [ DW_TAG_subprogram ] [line [[@LINE+4]]] [def] [Bar]
   void Bar(const Foo1 *);
 };
 OuterClass1::InnerClass1 OuterClass1::theInnerClass1;
-// CHECK1: !DISubprogram(name: "Bar"
-// CHECK1-SAME: line: [[@LINE+3]]
-// CHECK1-SAME: isDefinition: true
-// CHECK1-SAME: declaration: ![[DECL]]
 void OuterClass1::Bar(const Foo1 *meta) { }
 
 
@@ -64,14 +54,9 @@ class OuterClass2
   public:
     InnerClass2();
   } theInnerClass2;
-// CHECK2: ![[DECL:[0-9]+]] = !DISubprogram(name: "~OuterClass2"
-// CHECK2-SAME: line: [[@LINE+2]]
-// CHECK2-SAME: isDefinition: false
+// CHECK2: [[DECL:[0-9]+]] = {{.*}} ; [ DW_TAG_subprogram ] [line [[@LINE+1]]] [~OuterClass2]
   ~OuterClass2(); // line 10
 };
 OuterClass2::InnerClass2 OuterClass2::theInnerClass2;
-// CHECK4: !DISubprogram(name: "~OuterClass2"
-// CHECK4-SAME: line: [[@LINE+3]]
-// CHECK4-SAME: isDefinition: true
-// CHECK4-SAME: declaration: ![[DECL]]
+// CHECK2: !"0x2e\00~OuterClass2\00{{.*}}\00[[@LINE+1]]"{{.*}}, ![[DECL]], {{.*}}} ; [ DW_TAG_subprogram ] [line [[@LINE+1]]] [def] [~OuterClass2]
 OuterClass2::~OuterClass2() { }

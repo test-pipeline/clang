@@ -43,8 +43,8 @@ namespace ento {
 class ModelInjector : public CodeInjector {
 public:
   ModelInjector(CompilerInstance &CI);
-  Stmt *getBody(const FunctionDecl *D) override;
-  Stmt *getBody(const ObjCMethodDecl *D) override;
+  Stmt *getBody(const FunctionDecl *D);
+  Stmt *getBody(const ObjCMethodDecl *D);
 
 private:
   /// \brief Synthesize a body for a declaration

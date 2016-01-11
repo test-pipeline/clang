@@ -57,8 +57,8 @@ static void Scan(IvarUsageMap& M, const Stmt *S) {
       Scan(M, sub);
     }
 
-  for (const Stmt *SubStmt : S->children())
-    Scan(M, SubStmt);
+  for (Stmt::const_child_iterator I=S->child_begin(),E=S->child_end(); I!=E;++I)
+    Scan(M, *I);
 }
 
 static void Scan(IvarUsageMap& M, const ObjCPropertyImplDecl *D) {

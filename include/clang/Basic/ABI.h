@@ -17,17 +17,14 @@
 #define LLVM_CLANG_BASIC_ABI_H
 
 #include "llvm/Support/DataTypes.h"
-#include <cstring>
 
 namespace clang {
 
 /// \brief C++ constructor types.
 enum CXXCtorType {
-  Ctor_Complete,       ///< Complete object ctor
-  Ctor_Base,           ///< Base object ctor
-  Ctor_Comdat,         ///< The COMDAT used for ctors
-  Ctor_CopyingClosure, ///< Copying closure variant of a ctor
-  Ctor_DefaultClosure, ///< Default closure variant of a ctor
+    Ctor_Complete,          ///< Complete object ctor
+    Ctor_Base,              ///< Base object ctor
+    Ctor_Comdat             ///< The COMDAT used for ctors
 };
 
 /// \brief C++ destructor types.

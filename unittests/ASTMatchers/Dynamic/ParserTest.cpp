@@ -23,7 +23,7 @@ namespace {
 
 class MockSema : public Parser::Sema {
 public:
-  ~MockSema() override {}
+  virtual ~MockSema() {}
 
   uint64_t expectMatcher(StringRef MatcherName) {
     // Optimizations on the matcher framework make simple matchers like
@@ -42,8 +42,7 @@ public:
     Errors.push_back(Error.toStringFull());
   }
 
-  llvm::Optional<MatcherCtor>
-  lookupMatcherCtor(StringRef MatcherName) override {
+  llvm::Optional<MatcherCtor> lookupMatcherCtor(StringRef MatcherName) {
     const ExpectedMatchersTy::value_type *Matcher =
         &*ExpectedMatchers.find(MatcherName);
     return reinterpret_cast<MatcherCtor>(Matcher);
@@ -53,7 +52,7 @@ public:
                                         const SourceRange &NameRange,
                                         StringRef BindID,
                                         ArrayRef<ParserValue> Args,
-                                        Diagnostics *Error) override {
+                                        Diagnostics *Error) {
     const ExpectedMatchersTy::value_type *Matcher =
         reinterpret_cast<const ExpectedMatchersTy::value_type *>(Ctor);
     MatcherInfo ToStore = { Matcher->first, NameRange, Args, BindID };
@@ -162,7 +161,7 @@ using ast_matchers::internal::Matcher;
 
 Parser::NamedValueMap getTestNamedValues() {
   Parser::NamedValueMap Values;
-  Values["nameX"] = llvm::StringRef("x");
+  Values["nameX"] = std::string("x");
   Values["hasParamA"] =
       VariantMatcher::SingleMatcher(hasParameter(0, hasName("a")));
   return Values;

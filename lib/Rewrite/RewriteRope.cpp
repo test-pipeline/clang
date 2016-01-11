@@ -89,9 +89,9 @@ namespace {
     bool IsLeaf;
 
     RopePieceBTreeNode(bool isLeaf) : Size(0), IsLeaf(isLeaf) {}
-    ~RopePieceBTreeNode() = default;
-
+    ~RopePieceBTreeNode() {}
   public:
+
     bool isLeaf() const { return IsLeaf; }
     unsigned size() const { return Size; }
 

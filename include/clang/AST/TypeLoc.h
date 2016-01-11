@@ -177,9 +177,6 @@ public:
     memcpy(getOpaqueData(), Other.getOpaqueData(), Size);
   }
 
-  /// Copies the other type loc into this one.
-  void copy(TypeLoc other);
-
   friend bool operator==(const TypeLoc &LHS, const TypeLoc &RHS) {
     return LHS.Ty == RHS.Ty && LHS.Data == RHS.Data;
   }
@@ -187,10 +184,6 @@ public:
   friend bool operator!=(const TypeLoc &LHS, const TypeLoc &RHS) {
     return !(LHS == RHS);
   }
-
-  /// Find the location of the nullability specifier (__nonnull,
-  /// __nullable, or __null_unspecifier), if there is one.
-  SourceLocation findNullabilityLoc() const;
 
 private:
   static bool isKind(const TypeLoc&) {
@@ -253,10 +246,6 @@ public:
   /// Initializes the local data of this type source info block to
   /// provide no information.
   void initializeLocal(ASTContext &Context, SourceLocation Loc) {
-    // do nothing
-  }
-
-  void copyLocal(TypeLoc other) {
     // do nothing
   }
 
@@ -348,20 +337,6 @@ public:
     size = llvm::RoundUpToAlignment(size, extraAlign);
     size += asDerived()->getExtraLocalDataSize();
     return size;
-  }
-
-  void copyLocal(Derived other) {
-    // Some subclasses have no data to copy.
-    if (asDerived()->getLocalDataSize() == 0) return;
-
-    // Copy the fixed-sized local data.
-    memcpy(getLocalData(), other.getLocalData(), sizeof(LocalData));
-
-    // Copy the variable-sized local data. We need to do this
-    // separately because the padding in the source and the padding in
-    // the destination might be different.
-    memcpy(getExtraLocalData(), other.getExtraLocalData(),
-           asDerived()->getExtraLocalDataSize());
   }
 
   TypeLoc getNextTypeLoc() const {
@@ -824,11 +799,9 @@ public:
 };
 
 
-struct ObjCObjectTypeLocInfo {
-  SourceLocation TypeArgsLAngleLoc;
-  SourceLocation TypeArgsRAngleLoc;
-  SourceLocation ProtocolLAngleLoc;
-  SourceLocation ProtocolRAngleLoc;
+struct ObjCProtocolListLocInfo {
+  SourceLocation LAngleLoc;
+  SourceLocation RAngleLoc;
   bool HasBaseTypeAsWritten;
 };
 
@@ -840,59 +813,25 @@ struct ObjCObjectTypeLocInfo {
 class ObjCObjectTypeLoc : public ConcreteTypeLoc<UnqualTypeLoc,
                                                  ObjCObjectTypeLoc,
                                                  ObjCObjectType,
-                                                 ObjCObjectTypeLocInfo> {
-  // TypeSourceInfo*'s are stored after Info, one for each type argument.
-  TypeSourceInfo **getTypeArgLocArray() const {
-    return (TypeSourceInfo**)this->getExtraLocalData();
-  }
-
-  // SourceLocations are stored after the type argument information, one for 
-  // each Protocol.
+                                                 ObjCProtocolListLocInfo> {
+  // SourceLocations are stored after Info, one for each Protocol.
   SourceLocation *getProtocolLocArray() const {
-    return (SourceLocation*)(getTypeArgLocArray() + getNumTypeArgs());
+    return (SourceLocation*) this->getExtraLocalData();
   }
 
 public:
-  SourceLocation getTypeArgsLAngleLoc() const {
-    return this->getLocalData()->TypeArgsLAngleLoc;
+  SourceLocation getLAngleLoc() const {
+    return this->getLocalData()->LAngleLoc;
   }
-  void setTypeArgsLAngleLoc(SourceLocation Loc) {
-    this->getLocalData()->TypeArgsLAngleLoc = Loc;
-  }
-
-  SourceLocation getTypeArgsRAngleLoc() const {
-    return this->getLocalData()->TypeArgsRAngleLoc;
-  }
-  void setTypeArgsRAngleLoc(SourceLocation Loc) {
-    this->getLocalData()->TypeArgsRAngleLoc = Loc;
+  void setLAngleLoc(SourceLocation Loc) {
+    this->getLocalData()->LAngleLoc = Loc;
   }
 
-  unsigned getNumTypeArgs() const {
-    return this->getTypePtr()->getTypeArgsAsWritten().size();
+  SourceLocation getRAngleLoc() const {
+    return this->getLocalData()->RAngleLoc;
   }
-
-  TypeSourceInfo *getTypeArgTInfo(unsigned i) const {
-    assert(i < getNumTypeArgs() && "Index is out of bounds!");
-    return getTypeArgLocArray()[i];
-  }
-
-  void setTypeArgTInfo(unsigned i, TypeSourceInfo *TInfo) {
-    assert(i < getNumTypeArgs() && "Index is out of bounds!");
-    getTypeArgLocArray()[i] = TInfo;
-  }
-
-  SourceLocation getProtocolLAngleLoc() const {
-    return this->getLocalData()->ProtocolLAngleLoc;
-  }
-  void setProtocolLAngleLoc(SourceLocation Loc) {
-    this->getLocalData()->ProtocolLAngleLoc = Loc;
-  }
-
-  SourceLocation getProtocolRAngleLoc() const {
-    return this->getLocalData()->ProtocolRAngleLoc;
-  }
-  void setProtocolRAngleLoc(SourceLocation Loc) {
-    this->getLocalData()->ProtocolRAngleLoc = Loc;
+  void setRAngleLoc(SourceLocation Loc) {
+    this->getLocalData()->RAngleLoc = Loc;
   }
 
   unsigned getNumProtocols() const {
@@ -913,11 +852,6 @@ public:
     return *(this->getTypePtr()->qual_begin() + i);
   }
 
-
-  ArrayRef<SourceLocation> getProtocolLocs() const {
-    return llvm::makeArrayRef(getProtocolLocArray(), getNumProtocols());
-  }
-
   bool hasBaseTypeAsWritten() const {
     return getLocalData()->HasBaseTypeAsWritten;
   }
@@ -931,27 +865,23 @@ public:
   }
 
   SourceRange getLocalSourceRange() const {
-    SourceLocation start = getTypeArgsLAngleLoc();
-    if (start.isInvalid())
-      start = getProtocolLAngleLoc();
-    SourceLocation end = getProtocolRAngleLoc();
-    if (end.isInvalid())
-      end = getTypeArgsRAngleLoc();
-    return SourceRange(start, end);
+    return SourceRange(getLAngleLoc(), getRAngleLoc());
   }
 
-  void initializeLocal(ASTContext &Context, SourceLocation Loc);
+  void initializeLocal(ASTContext &Context, SourceLocation Loc) {
+    setHasBaseTypeAsWritten(true);
+    setLAngleLoc(Loc);
+    setRAngleLoc(Loc);
+    for (unsigned i = 0, e = getNumProtocols(); i != e; ++i)
+      setProtocolLoc(i, Loc);
+  }
 
   unsigned getExtraLocalDataSize() const {
-    return this->getNumTypeArgs() * sizeof(TypeSourceInfo *)
-         + this->getNumProtocols() * sizeof(SourceLocation);
+    return this->getNumProtocols() * sizeof(SourceLocation);
   }
 
   unsigned getExtraLocalDataAlignment() const {
-    assert(llvm::alignOf<ObjCObjectTypeLoc>()
-	     >= llvm::alignOf<TypeSourceInfo *>() &&
-	   "not enough alignment for tail-allocated data");
-    return llvm::alignOf<TypeSourceInfo *>();
+    return llvm::alignOf<SourceLocation>();
   }
 
   QualType getInnerType() const {

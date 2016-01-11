@@ -26,10 +26,12 @@ NamedDecl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
                                       AttributeList *AccessAttrs,
                                       ParsingDeclarator &D,
                                       const ParsedTemplateInfo &TemplateInfo,
-                                      const VirtSpecifiers& VS,
-                                      SourceLocation PureSpecLoc) {
+                                      const VirtSpecifiers& VS, 
+                                      FunctionDefinitionKind DefinitionKind,
+                                      ExprResult& Init) {
   assert(D.isFunctionDeclarator() && "This isn't a function declarator!");
-  assert(Tok.isOneOf(tok::l_brace, tok::colon, tok::kw_try, tok::equal) &&
+  assert((Tok.is(tok::l_brace) || Tok.is(tok::colon) || Tok.is(tok::kw_try) ||
+          Tok.is(tok::equal)) &&
          "Current token not a '{', ':', '=', or 'try'!");
 
   MultiTemplateParamsArg TemplateParams(
@@ -38,6 +40,7 @@ NamedDecl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
       TemplateInfo.TemplateParams ? TemplateInfo.TemplateParams->size() : 0);
 
   NamedDecl *FnD;
+  D.setFunctionDefinitionKind(DefinitionKind);
   if (D.getDeclSpec().isFriendSpecified())
     FnD = Actions.ActOnFriendFunctionDecl(getCurScope(), D,
                                           TemplateParams);
@@ -47,8 +50,12 @@ NamedDecl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
                                            VS, ICIS_NoInit);
     if (FnD) {
       Actions.ProcessDeclAttributeList(getCurScope(), FnD, AccessAttrs);
-      if (PureSpecLoc.isValid())
-        Actions.ActOnPureSpecifier(FnD, PureSpecLoc);
+      bool TypeSpecContainsAuto = D.getDeclSpec().containsPlaceholderType();
+      if (Init.isUsable())
+        Actions.AddInitializerToDecl(FnD, Init.get(), false,
+                                     TypeSpecContainsAuto);
+      else
+        Actions.ActOnUninitializedDecl(FnD, TypeSpecContainsAuto);
     }
   }
 
@@ -64,24 +71,17 @@ NamedDecl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
 
     bool Delete = false;
     SourceLocation KWLoc;
-    SourceLocation KWEndLoc = Tok.getEndLoc().getLocWithOffset(-1);
     if (TryConsumeToken(tok::kw_delete, KWLoc)) {
       Diag(KWLoc, getLangOpts().CPlusPlus11
                       ? diag::warn_cxx98_compat_deleted_function
                       : diag::ext_deleted_function);
       Actions.SetDeclDeleted(FnD, KWLoc);
       Delete = true;
-      if (auto *DeclAsFunction = dyn_cast<FunctionDecl>(FnD)) {
-        DeclAsFunction->setRangeEnd(KWEndLoc);
-      }
     } else if (TryConsumeToken(tok::kw_default, KWLoc)) {
       Diag(KWLoc, getLangOpts().CPlusPlus11
                       ? diag::warn_cxx98_compat_defaulted_function
                       : diag::ext_defaulted_function);
       Actions.SetDeclDefaulted(FnD, KWLoc);
-      if (auto *DeclAsFunction = dyn_cast<FunctionDecl>(FnD)) {
-        DeclAsFunction->setRangeEnd(KWEndLoc);
-      }
     } else {
       llvm_unreachable("function definition after = not 'delete' or 'default'");
     }
@@ -97,12 +97,12 @@ NamedDecl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
 
     return FnD;
   }
-
+  
   // In delayed template parsing mode, if we are within a class template
   // or if we are about to parse function member template then consume
   // the tokens and store them for parsing at the end of the translation unit.
   if (getLangOpts().DelayedTemplateParsing &&
-      D.getFunctionDefinitionKind() == FDK_Definition &&
+      DefinitionKind == FDK_Definition &&
       !D.getDeclSpec().isConstexprSpecified() &&
       !(FnD && FnD->getAsFunction() &&
         FnD->getAsFunction()->getReturnType()->getContainedAutoType()) &&
@@ -186,7 +186,7 @@ NamedDecl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
 /// declaration. Now lex its initializer and store its tokens for parsing
 /// after the class is complete.
 void Parser::ParseCXXNonStaticMemberInitializer(Decl *VarD) {
-  assert(Tok.isOneOf(tok::l_brace, tok::equal) &&
+  assert((Tok.is(tok::l_brace) || Tok.is(tok::equal)) &&
          "Current token not a '{' or '='!");
 
   LateParsedMemberInitializer *MI =
@@ -317,7 +317,8 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
       Token DefArgEnd;
       DefArgEnd.startToken();
       DefArgEnd.setKind(tok::eof);
-      DefArgEnd.setLocation(LastDefaultArgToken.getEndLoc());
+      DefArgEnd.setLocation(LastDefaultArgToken.getLocation().getLocWithOffset(
+          LastDefaultArgToken.getLength()));
       DefArgEnd.setEofData(Param);
       Toks->push_back(DefArgEnd);
 
@@ -391,7 +392,9 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
     Token ExceptionSpecEnd;
     ExceptionSpecEnd.startToken();
     ExceptionSpecEnd.setKind(tok::eof);
-    ExceptionSpecEnd.setLocation(LastExceptionSpecToken.getEndLoc());
+    ExceptionSpecEnd.setLocation(
+        LastExceptionSpecToken.getLocation().getLocWithOffset(
+            LastExceptionSpecToken.getLength()));
     ExceptionSpecEnd.setEofData(LM.Method);
     Toks->push_back(ExceptionSpecEnd);
 
@@ -496,7 +499,8 @@ void Parser::ParseLexedMethodDef(LexedMethod &LM) {
   Token BodyEnd;
   BodyEnd.startToken();
   BodyEnd.setKind(tok::eof);
-  BodyEnd.setLocation(LastBodyToken.getEndLoc());
+  BodyEnd.setLocation(
+      LastBodyToken.getLocation().getLocWithOffset(LastBodyToken.getLength()));
   BodyEnd.setEofData(LM.D);
   LM.Toks.push_back(BodyEnd);
   // Append the current token at the end of the new token stream so that it
@@ -506,7 +510,7 @@ void Parser::ParseLexedMethodDef(LexedMethod &LM) {
 
   // Consume the previously pushed token.
   ConsumeAnyToken(/*ConsumeCodeCompletionTok=*/true);
-  assert(Tok.isOneOf(tok::l_brace, tok::colon, tok::kw_try)
+  assert((Tok.is(tok::l_brace) || Tok.is(tok::colon) || Tok.is(tok::kw_try))
          && "Inline method not starting with '{', ':' or 'try'");
 
   // Parse the method body. Function body parsing code is similar enough
@@ -821,7 +825,7 @@ bool Parser::ConsumeAndStoreFunctionPrologue(CachedTokens &Toks) {
         }
       }
 
-      if (Tok.isOneOf(tok::identifier, tok::kw_template)) {
+      if (Tok.is(tok::identifier) || Tok.is(tok::kw_template)) {
         Toks.push_back(Tok);
         ConsumeToken();
       } else if (Tok.is(tok::code_completion)) {

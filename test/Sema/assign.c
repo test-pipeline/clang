@@ -3,10 +3,7 @@
 void *test1(void) { return 0; }
 
 void test2 (const struct {int a;} *x) {
-  // expected-note@-1 {{variable 'x' declared const here}}
-
-  x->a = 10;
-  // expected-error-re@-1 {{cannot assign to variable 'x' with const-qualified type 'const struct (anonymous struct at {{.*}}assign.c:5:19) *'}}
+  x->a = 10; // expected-error {{read-only variable is not assignable}}
 }
 
 typedef int arr[10];

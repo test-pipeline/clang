@@ -19,7 +19,6 @@ typedef struct {
 } CFArrayCallBacks;
 typedef const struct __CFArray * CFArrayRef;
 CFArrayRef CFArrayCreate(CFAllocatorRef allocator, const void **values, CFIndex numValues, const CFArrayCallBacks *callBacks);
-typedef struct __CFArray * CFMutableArrayRef;
 typedef const struct __CFString * CFStringRef;
 enum {
     kCFNumberSInt8Type = 1,
@@ -202,25 +201,4 @@ void TestConst(CFArrayRef A, CFIndex sIndex, void* x[]) {
 
 void TestNullArray() {
   CFArrayGetValueAtIndex(0, 0);
-}
-
-void ArrayRefMutableEscape(CFMutableArrayRef a);
-void ArrayRefEscape(CFArrayRef a);
-
-void TestCFMutableArrayRefEscapeViaMutableArgument(CFMutableArrayRef a) {
-  CFIndex aLen = CFArrayGetCount(a);
-  ArrayRefMutableEscape(a);
-
-  // ArrayRefMutableEscape could mutate a to make it have
-  // at least aLen + 1 elements, so do not report an error here.
-  CFArrayGetValueAtIndex(a, aLen);
-}
-
-void TestCFMutableArrayRefEscapeViaImmutableArgument(CFMutableArrayRef a) {
-  CFIndex aLen = CFArrayGetCount(a);
-  ArrayRefEscape(a);
-
-  // ArrayRefEscape is declared to take a CFArrayRef (i.e, an immutable array)
-  // so we assume it does not change the length of a.
-  CFArrayGetValueAtIndex(a, aLen); // expected-warning {{Index is out of bounds}}
 }

@@ -55,8 +55,8 @@ public:
                   AnalyzerOptions &Options,
                   CodeInjector* injector = nullptr);
 
-  ~AnalysisManager() override;
-
+  ~AnalysisManager();
+  
   void ClearContexts() {
     AnaCtxMgr.clear();
   }

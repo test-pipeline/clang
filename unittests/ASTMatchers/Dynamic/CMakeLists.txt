@@ -10,7 +10,6 @@ add_clang_unittest(DynamicASTMatchersTests
 target_link_libraries(DynamicASTMatchersTests
   clangAST
   clangASTMatchers
-  clangBasic
   clangDynamicASTMatchers
   clangFrontend
   clangTooling

@@ -13,6 +13,7 @@
 // RUN: test ! -f %t.s
 // RUN: test -f %t.d
 
+// REQUIRES: shell
 // REQUIRES: crash-recovery
 
 #ifdef CRASH

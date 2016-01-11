@@ -11,7 +11,6 @@
 //  modules for the ASTReader.
 //
 //===----------------------------------------------------------------------===//
-#include "clang/Frontend/PCHContainerOperations.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/ModuleMap.h"
 #include "clang/Serialization/GlobalModuleIndex.h"
@@ -59,7 +58,8 @@ ModuleManager::addModule(StringRef FileName, ModuleKind Type,
                          unsigned Generation,
                          off_t ExpectedSize, time_t ExpectedModTime,
                          ASTFileSignature ExpectedSignature,
-                         ASTFileSignatureReader ReadSignature,
+                         std::function<ASTFileSignature(llvm::BitstreamReader &)>
+                             ReadSignature,
                          ModuleFile *&Module,
                          std::string &ErrorStr) {
   Module = nullptr;
@@ -95,8 +95,6 @@ ModuleManager::addModule(StringRef FileName, ModuleKind Type,
     New->File = Entry;
     New->ImportLoc = ImportLoc;
     Chain.push_back(New);
-    if (!ImportedBy)
-      Roots.push_back(New);
     NewModule = true;
     ModuleEntry = New;
 
@@ -137,9 +135,10 @@ ModuleManager::addModule(StringRef FileName, ModuleKind Type,
 
       New->Buffer = std::move(*Buf);
     }
-
-    // Initialize the stream.
-    PCHContainerRdr.ExtractPCH(New->Buffer->getMemBufferRef(), New->StreamFile);
+    
+    // Initialize the stream
+    New->StreamFile.init((const unsigned char *)New->Buffer->getBufferStart(),
+                         (const unsigned char *)New->Buffer->getBufferEnd());
   }
 
   if (ExpectedSignature) {
@@ -157,12 +156,7 @@ ModuleManager::addModule(StringRef FileName, ModuleKind Type,
         // invalidate the file cache for Entry, and that is not safe if this
         // module is *itself* up to date, but has an out-of-date importer.
         Modules.erase(Entry);
-        assert(Chain.back() == ModuleEntry);
         Chain.pop_back();
-        if (Roots.back() == ModuleEntry)
-          Roots.pop_back();
-        else
-          assert(ImportedBy);
         delete ModuleEntry;
       }
       return OutOfDate;
@@ -193,15 +187,12 @@ void ModuleManager::removeModules(
   // Collect the set of module file pointers that we'll be removing.
   llvm::SmallPtrSet<ModuleFile *, 4> victimSet(first, last);
 
-  auto IsVictim = [&](ModuleFile *MF) {
-    return victimSet.count(MF);
-  };
   // Remove any references to the now-destroyed modules.
   for (unsigned i = 0, n = Chain.size(); i != n; ++i) {
-    Chain[i]->ImportedBy.remove_if(IsVictim);
+    Chain[i]->ImportedBy.remove_if([&](ModuleFile *MF) {
+      return victimSet.count(MF);
+    });
   }
-  Roots.erase(std::remove_if(Roots.begin(), Roots.end(), IsVictim),
-              Roots.end());
 
   // Delete the modules and erase them from the various structures.
   for (ModuleIterator victim = first; victim != last; ++victim) {
@@ -234,15 +225,6 @@ ModuleManager::addInMemoryBuffer(StringRef FileName,
   const FileEntry *Entry =
       FileMgr.getVirtualFile(FileName, Buffer->getBufferSize(), 0);
   InMemoryBuffers[Entry] = std::move(Buffer);
-}
-
-bool ModuleManager::addKnownModuleFile(StringRef FileName) {
-  const FileEntry *File;
-  if (lookupModuleFile(FileName, 0, 0, File))
-    return true;
-  if (!Modules.count(File))
-    AdditionalKnownModuleFiles.insert(File);
-  return false;
 }
 
 ModuleManager::VisitState *ModuleManager::allocateVisitState() {
@@ -281,18 +263,14 @@ void ModuleManager::setGlobalIndex(GlobalModuleIndex *Index) {
 }
 
 void ModuleManager::moduleFileAccepted(ModuleFile *MF) {
-  AdditionalKnownModuleFiles.remove(MF->File);
-
   if (!GlobalIndex || GlobalIndex->loadedModuleFile(MF))
     return;
 
   ModulesInCommonWithGlobalIndex.push_back(MF);
 }
 
-ModuleManager::ModuleManager(FileManager &FileMgr,
-                             const PCHContainerReader &PCHContainerRdr)
-    : FileMgr(FileMgr), PCHContainerRdr(PCHContainerRdr), GlobalIndex(),
-      FirstVisitState(nullptr) {}
+ModuleManager::ModuleManager(FileManager &FileMgr)
+  : FileMgr(FileMgr), GlobalIndex(), FirstVisitState(nullptr) {}
 
 ModuleManager::~ModuleManager() {
   for (unsigned i = 0, e = Chain.size(); i != e; ++i)
@@ -410,38 +388,16 @@ ModuleManager::visit(bool (*Visitor)(ModuleFile &M, void *UserData),
   returnVisitState(State);
 }
 
-static void markVisitedDepthFirst(ModuleFile &M,
-                                  SmallVectorImpl<bool> &Visited) {
-  for (llvm::SetVector<ModuleFile *>::iterator IM = M.Imports.begin(),
-                                               IMEnd = M.Imports.end();
-       IM != IMEnd; ++IM) {
-    if (Visited[(*IM)->Index])
-      continue;
-    Visited[(*IM)->Index] = true;
-    if (!M.DirectlyImported)
-      markVisitedDepthFirst(**IM, Visited);
-  }
-}
-
 /// \brief Perform a depth-first visit of the current module.
-static bool visitDepthFirst(
-    ModuleFile &M,
-    ModuleManager::DFSPreorderControl (*PreorderVisitor)(ModuleFile &M,
-                                                         void *UserData),
-    bool (*PostorderVisitor)(ModuleFile &M, void *UserData), void *UserData,
-    SmallVectorImpl<bool> &Visited) {
-  if (PreorderVisitor) {
-    switch (PreorderVisitor(M, UserData)) {
-    case ModuleManager::Abort:
-      return true;
-    case ModuleManager::SkipImports:
-      markVisitedDepthFirst(M, Visited);
-      return false;
-    case ModuleManager::Continue:
-      break;
-    }
-  }
-
+static bool visitDepthFirst(ModuleFile &M, 
+                            bool (*Visitor)(ModuleFile &M, bool Preorder, 
+                                            void *UserData), 
+                            void *UserData,
+                            SmallVectorImpl<bool> &Visited) {
+  // Preorder visitation
+  if (Visitor(M, /*Preorder=*/true, UserData))
+    return true;
+  
   // Visit children
   for (llvm::SetVector<ModuleFile *>::iterator IM = M.Imports.begin(),
                                             IMEnd = M.Imports.end();
@@ -450,27 +406,24 @@ static bool visitDepthFirst(
       continue;
     Visited[(*IM)->Index] = true;
 
-    if (visitDepthFirst(**IM, PreorderVisitor, PostorderVisitor, UserData, Visited))
+    if (visitDepthFirst(**IM, Visitor, UserData, Visited))
       return true;
   }  
   
-  if (PostorderVisitor)
-    return PostorderVisitor(M, UserData);
-
-  return false;
+  // Postorder visitation
+  return Visitor(M, /*Preorder=*/false, UserData);
 }
 
-void ModuleManager::visitDepthFirst(
-    ModuleManager::DFSPreorderControl (*PreorderVisitor)(ModuleFile &M,
-                                                         void *UserData),
-    bool (*PostorderVisitor)(ModuleFile &M, void *UserData), void *UserData) {
+void ModuleManager::visitDepthFirst(bool (*Visitor)(ModuleFile &M, bool Preorder, 
+                                                    void *UserData), 
+                                    void *UserData) {
   SmallVector<bool, 16> Visited(size(), false);
-  for (unsigned I = 0, N = Roots.size(); I != N; ++I) {
-    if (Visited[Roots[I]->Index])
+  for (unsigned I = 0, N = Chain.size(); I != N; ++I) {
+    if (Visited[Chain[I]->Index])
       continue;
-    Visited[Roots[I]->Index] = true;
+    Visited[Chain[I]->Index] = true;
 
-    if (::visitDepthFirst(*Roots[I], PreorderVisitor, PostorderVisitor, UserData, Visited))
+    if (::visitDepthFirst(*Chain[I], Visitor, UserData, Visited))
       return;
   }
 }

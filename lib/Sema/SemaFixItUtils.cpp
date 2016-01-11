@@ -161,8 +161,11 @@ bool ConversionFixItGenerator::tryToFixConversion(const Expr *FullExpr,
 }
 
 static bool isMacroDefined(const Sema &S, SourceLocation Loc, StringRef Name) {
-  return (bool)S.PP.getMacroDefinitionAtLoc(&S.getASTContext().Idents.get(Name),
-                                            Loc);
+  const IdentifierInfo *II = &S.getASTContext().Idents.get(Name);
+  if (!II->hadMacroDefinition()) return false;
+
+  MacroDirective *Macro = S.PP.getMacroDirectiveHistory(II);
+  return Macro && Macro->findDirectiveAtLoc(Loc, S.getSourceManager());
 }
 
 static std::string getScalarZeroExpressionForType(

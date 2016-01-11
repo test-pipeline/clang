@@ -27,6 +27,7 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/MC/SubtargetFeature.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/Timer.h"
@@ -70,6 +71,7 @@ private:
   legacy::PassManager *getCodeGenPasses() const {
     if (!CodeGenPasses) {
       CodeGenPasses = new legacy::PassManager();
+      CodeGenPasses->add(new DataLayoutPass());
       CodeGenPasses->add(
           createTargetTransformInfoWrapperPass(getTargetIRAnalysis()));
     }
@@ -79,6 +81,7 @@ private:
   legacy::PassManager *getPerModulePasses() const {
     if (!PerModulePasses) {
       PerModulePasses = new legacy::PassManager();
+      PerModulePasses->add(new DataLayoutPass());
       PerModulePasses->add(
           createTargetTransformInfoWrapperPass(getTargetIRAnalysis()));
     }
@@ -88,6 +91,7 @@ private:
   legacy::FunctionPassManager *getPerFunctionPasses() const {
     if (!PerFunctionPasses) {
       PerFunctionPasses = new legacy::FunctionPassManager(TheModule);
+      PerFunctionPasses->add(new DataLayoutPass());
       PerFunctionPasses->add(
           createTargetTransformInfoWrapperPass(getTargetIRAnalysis()));
     }
@@ -96,7 +100,7 @@ private:
 
   void CreatePasses();
 
-  /// Generates the TargetMachine.
+  /// CreateTargetMachine - Generates the TargetMachine.
   /// Returns Null if it is unable to create the target machine.
   /// Some of our clang tests specify triples which are not built
   /// into clang. This is okay because these tests check the generated
@@ -106,10 +110,10 @@ private:
   /// the requested target.
   TargetMachine *CreateTargetMachine(bool MustCreateTM);
 
-  /// Add passes necessary to emit assembly or LLVM IR.
+  /// AddEmitPasses - Add passes necessary to emit assembly or LLVM IR.
   ///
   /// \return True on success.
-  bool AddEmitPasses(BackendAction Action, raw_pwrite_stream &OS);
+  bool AddEmitPasses(BackendAction Action, formatted_raw_ostream &OS);
 
 public:
   EmitAssemblyHelper(DiagnosticsEngine &_Diags,
@@ -132,7 +136,7 @@ public:
 
   std::unique_ptr<TargetMachine> TM;
 
-  void EmitAssembly(BackendAction Action, raw_pwrite_stream *OS);
+  void EmitAssembly(BackendAction Action, raw_ostream *OS);
 };
 
 // We need this wrapper to access LangOpts and CGOpts from extension functions
@@ -189,26 +193,13 @@ static void addSanitizerCoveragePass(const PassManagerBuilder &Builder,
   const PassManagerBuilderWrapper &BuilderWrapper =
       static_cast<const PassManagerBuilderWrapper&>(Builder);
   const CodeGenOptions &CGOpts = BuilderWrapper.getCGOpts();
-  SanitizerCoverageOptions Opts;
-  Opts.CoverageType =
-      static_cast<SanitizerCoverageOptions::Type>(CGOpts.SanitizeCoverageType);
-  Opts.IndirectCalls = CGOpts.SanitizeCoverageIndirectCalls;
-  Opts.TraceBB = CGOpts.SanitizeCoverageTraceBB;
-  Opts.TraceCmp = CGOpts.SanitizeCoverageTraceCmp;
-  Opts.Use8bitCounters = CGOpts.SanitizeCoverage8bitCounters;
-  PM.add(createSanitizerCoverageModulePass(Opts));
+  PM.add(createSanitizerCoverageModulePass(CGOpts.SanitizeCoverage));
 }
 
 static void addAddressSanitizerPasses(const PassManagerBuilder &Builder,
                                       legacy::PassManagerBase &PM) {
-  PM.add(createAddressSanitizerFunctionPass(/*CompileKernel*/false));
-  PM.add(createAddressSanitizerModulePass(/*CompileKernel*/false));
-}
-
-static void addKernelAddressSanitizerPasses(const PassManagerBuilder &Builder,
-                                            legacy::PassManagerBase &PM) {
-  PM.add(createAddressSanitizerFunctionPass(/*CompileKernel*/true));
-  PM.add(createAddressSanitizerModulePass(/*CompileKernel*/true));
+  PM.add(createAddressSanitizerFunctionPass());
+  PM.add(createAddressSanitizerModulePass());
 }
 
 static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
@@ -249,14 +240,6 @@ static TargetLibraryInfoImpl *createTLII(llvm::Triple &TargetTriple,
   TargetLibraryInfoImpl *TLII = new TargetLibraryInfoImpl(TargetTriple);
   if (!CodeGenOpts.SimplifyLibCalls)
     TLII->disableAllFunctions();
-
-  switch (CodeGenOpts.getVecLib()) {
-  case CodeGenOptions::Accelerate:
-    TLII->addVectorizableFunctionsFromVecLib(TargetLibraryInfoImpl::Accelerate);
-    break;
-  default:
-    break;
-  }
   return TLII;
 }
 
@@ -289,10 +272,10 @@ void EmitAssemblyHelper::CreatePasses() {
   PMBuilder.SLPVectorize = CodeGenOpts.VectorizeSLP;
   PMBuilder.LoopVectorize = CodeGenOpts.VectorizeLoop;
 
+  PMBuilder.DisableTailCalls = CodeGenOpts.DisableTailCalls;
   PMBuilder.DisableUnitAtATime = !CodeGenOpts.UnitAtATime;
   PMBuilder.DisableUnrollLoops = !CodeGenOpts.UnrollLoops;
   PMBuilder.MergeFunctions = CodeGenOpts.MergeFunctions;
-  PMBuilder.PrepareForLTO = CodeGenOpts.PrepareForLTO;
   PMBuilder.RerollLoops = CodeGenOpts.RerollLoops;
 
   PMBuilder.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
@@ -319,9 +302,7 @@ void EmitAssemblyHelper::CreatePasses() {
                            addBoundsCheckingPass);
   }
 
-  if (CodeGenOpts.SanitizeCoverageType ||
-      CodeGenOpts.SanitizeCoverageIndirectCalls ||
-      CodeGenOpts.SanitizeCoverageTraceCmp) {
+  if (CodeGenOpts.SanitizeCoverage) {
     PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
                            addSanitizerCoveragePass);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
@@ -333,13 +314,6 @@ void EmitAssemblyHelper::CreatePasses() {
                            addAddressSanitizerPasses);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
                            addAddressSanitizerPasses);
-  }
-
-  if (LangOpts.Sanitize.has(SanitizerKind::KernelAddress)) {
-    PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
-                           addKernelAddressSanitizerPasses);
-    PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
-                           addKernelAddressSanitizerPasses);
   }
 
   if (LangOpts.Sanitize.has(SanitizerKind::Memory)) {
@@ -394,6 +368,8 @@ void EmitAssemblyHelper::CreatePasses() {
   legacy::PassManager *MPM = getPerModulePasses();
   if (!CodeGenOpts.RewriteMapFiles.empty())
     addSymbolRewriterPass(CodeGenOpts, MPM);
+  if (CodeGenOpts.VerifyModule)
+    MPM->add(createDebugInfoVerifierPass());
 
   if (!CodeGenOpts.DisableGCov &&
       (CodeGenOpts.EmitGcovArcs || CodeGenOpts.EmitGcovNotes)) {
@@ -407,7 +383,6 @@ void EmitAssemblyHelper::CreatePasses() {
     Options.NoRedZone = CodeGenOpts.DisableRedZone;
     Options.FunctionNamesInData =
         !CodeGenOpts.CoverageNoFunctionNamesInData;
-    Options.ExitBlockBeforeBody = CodeGenOpts.CoverageExitBlockBeforeBody;
     MPM->add(createGCOVProfilerPass(Options));
     if (CodeGenOpts.getDebugInfo() == CodeGenOptions::NoDebugInfo)
       MPM->add(createStripSymbolsPass(true));
@@ -416,7 +391,6 @@ void EmitAssemblyHelper::CreatePasses() {
   if (CodeGenOpts.ProfileInstrGenerate) {
     InstrProfOptions Options;
     Options.NoRedZone = CodeGenOpts.DisableRedZone;
-    Options.InstrProfileOutput = CodeGenOpts.InstrProfileOutput;
     MPM->add(createInstrProfilingPass(Options));
   }
 
@@ -455,8 +429,12 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
     BackendArgs.push_back("-limit-float-precision");
     BackendArgs.push_back(CodeGenOpts.LimitFloatPrecision.c_str());
   }
+  if (llvm::TimePassesIsEnabled)
+    BackendArgs.push_back("-time-passes");
   for (unsigned i = 0, e = CodeGenOpts.BackendOptions.size(); i != e; ++i)
     BackendArgs.push_back(CodeGenOpts.BackendOptions[i].c_str());
+  if (CodeGenOpts.NoGlobalMerge)
+    BackendArgs.push_back("-enable-global-merge=false");
   BackendArgs.push_back(nullptr);
   llvm::cl::ParseCommandLineOptions(BackendArgs.size() - 1,
                                     BackendArgs.data());
@@ -464,8 +442,10 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
   std::string FeaturesStr;
   if (!TargetOpts.Features.empty()) {
     SubtargetFeatures Features;
-    for (const std::string &Feature : TargetOpts.Features)
-      Features.AddFeature(Feature);
+    for (std::vector<std::string>::const_iterator
+           it = TargetOpts.Features.begin(),
+           ie = TargetOpts.Features.end(); it != ie; ++it)
+      Features.AddFeature(*it);
     FeaturesStr = Features.getString();
   }
 
@@ -489,9 +469,6 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
 
   llvm::TargetOptions Options;
 
-  if (!TargetOpts.Reciprocals.empty())
-    Options.Reciprocals = TargetRecip(TargetOpts.Reciprocals);
-
   Options.ThreadModel =
     llvm::StringSwitch<llvm::ThreadModel::Model>(CodeGenOpts.ThreadModel)
       .Case("posix", llvm::ThreadModel::POSIX)
@@ -502,6 +479,15 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
 
   if (CodeGenOpts.CompressDebugSections)
     Options.CompressDebugSections = true;
+
+  // Set frame pointer elimination mode.
+  if (!CodeGenOpts.DisableFPElim) {
+    Options.NoFramePointerElim = false;
+  } else if (CodeGenOpts.OmitLeafFramePointer) {
+    Options.NoFramePointerElim = false;
+  } else {
+    Options.NoFramePointerElim = true;
+  }
 
   if (CodeGenOpts.UseInitArray)
     Options.UseInitArray = true;
@@ -534,7 +520,10 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
   Options.NoNaNsFPMath = CodeGenOpts.NoNaNsFPMath;
   Options.NoZerosInBSS = CodeGenOpts.NoZeroInitializedInBSS;
   Options.UnsafeFPMath = CodeGenOpts.UnsafeFPMath;
+  Options.UseSoftFloat = CodeGenOpts.SoftFloat;
   Options.StackAlignmentOverride = CodeGenOpts.StackAlignment;
+  Options.DisableTailCalls = CodeGenOpts.DisableTailCalls;
+  Options.TrapFuncName = CodeGenOpts.TrapFuncName;
   Options.PositionIndependentExecutable = LangOpts.PIELevel != 0;
   Options.FunctionSections = CodeGenOpts.FunctionSections;
   Options.DataSections = CodeGenOpts.DataSections;
@@ -556,7 +545,7 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
 }
 
 bool EmitAssemblyHelper::AddEmitPasses(BackendAction Action,
-                                       raw_pwrite_stream &OS) {
+                                       formatted_raw_ostream &OS) {
 
   // Create the code generator passes.
   legacy::PassManager *PM = getCodeGenPasses();
@@ -580,7 +569,8 @@ bool EmitAssemblyHelper::AddEmitPasses(BackendAction Action,
   // Add ObjC ARC final-cleanup optimizations. This is done as part of the
   // "codegen" passes so that it isn't run multiple times when there is
   // inlining happening.
-  if (CodeGenOpts.OptimizationLevel > 0)
+  if (LangOpts.ObjCAutoRefCount &&
+      CodeGenOpts.OptimizationLevel > 0)
     PM->add(createObjCARCContractPass());
 
   if (TM->addPassesToEmitFile(*PM, OS, CGFT,
@@ -592,9 +582,9 @@ bool EmitAssemblyHelper::AddEmitPasses(BackendAction Action,
   return true;
 }
 
-void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
-                                      raw_pwrite_stream *OS) {
+void EmitAssemblyHelper::EmitAssembly(BackendAction Action, raw_ostream *OS) {
   TimeRegion Region(llvm::TimePassesIsEnabled ? &CodeGenerationTime : nullptr);
+  llvm::formatted_raw_ostream FormattedOS;
 
   bool UsesCodeGen = (Action != Backend_EmitNothing &&
                       Action != Backend_EmitBC &&
@@ -602,10 +592,7 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
   if (!TM)
     TM.reset(CreateTargetMachine(UsesCodeGen));
 
-  if (UsesCodeGen && !TM)
-    return;
-  if (TM)
-    TheModule->setDataLayout(*TM->getDataLayout());
+  if (UsesCodeGen && !TM) return;
   CreatePasses();
 
   switch (Action) {
@@ -613,17 +600,17 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
     break;
 
   case Backend_EmitBC:
-    getPerModulePasses()->add(
-        createBitcodeWriterPass(*OS, CodeGenOpts.EmitLLVMUseLists));
+    getPerModulePasses()->add(createBitcodeWriterPass(*OS));
     break;
 
   case Backend_EmitLL:
-    getPerModulePasses()->add(
-        createPrintModulePass(*OS, "", CodeGenOpts.EmitLLVMUseLists));
+    FormattedOS.setStream(*OS, formatted_raw_ostream::PRESERVE_STREAM);
+    getPerModulePasses()->add(createPrintModulePass(FormattedOS));
     break;
 
   default:
-    if (!AddEmitPasses(Action, *OS))
+    FormattedOS.setStream(*OS, formatted_raw_ostream::PRESERVE_STREAM);
+    if (!AddEmitPasses(Action, FormattedOS))
       return;
   }
 
@@ -637,9 +624,10 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
     PrettyStackTraceString CrashInfo("Per-function optimization");
 
     PerFunctionPasses->doInitialization();
-    for (Function &F : *TheModule)
-      if (!F.isDeclaration())
-        PerFunctionPasses->run(F);
+    for (Module::iterator I = TheModule->begin(),
+           E = TheModule->end(); I != E; ++I)
+      if (!I->isDeclaration())
+        PerFunctionPasses->run(*I);
     PerFunctionPasses->doFinalization();
   }
 
@@ -659,7 +647,7 @@ void clang::EmitBackendOutput(DiagnosticsEngine &Diags,
                               const clang::TargetOptions &TOpts,
                               const LangOptions &LOpts, StringRef TDesc,
                               Module *M, BackendAction Action,
-                              raw_pwrite_stream *OS) {
+                              raw_ostream *OS) {
   EmitAssemblyHelper AsmHelper(Diags, CGOpts, TOpts, LOpts, M);
 
   AsmHelper.EmitAssembly(Action, OS);

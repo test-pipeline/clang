@@ -35,10 +35,8 @@
 // RUN:   | FileCheck --check-prefix=CHECK-UBSAN %s
 
 // CHECK-UBSAN: "{{.*}}ld{{(.exe)?}}"
+// CHECK-UBSAN: libclang_rt.ubsan_osx.a"
 // CHECK-UBSAN: stdc++
-// CHECK-UBSAN: libclang_rt.ubsan_osx_dynamic.dylib"
-// CHECK-UBSAN: "-rpath" "@executable_path"
-// CHECK-UBSAN: "-rpath" "{{.*}}lib{{.*}}darwin"
 
 // RUN: %clang -no-canonical-prefixes -### -target x86_64-darwin \
 // RUN:   -fsanitize=bounds -fsanitize-undefined-trap-on-error \
@@ -54,9 +52,7 @@
 
 // CHECK-DYN-UBSAN: "{{.*}}ld{{(.exe)?}}"
 // CHECK-DYN-UBSAN: "-dylib"
-// CHECK-DYN-UBSAN: libclang_rt.ubsan_osx_dynamic.dylib"
-// CHECK-DYN-UBSAN: "-rpath" "@executable_path"
-// CHECK-DYN-UBSAN: "-rpath" "{{.*}}lib{{.*}}darwin"
+// CHECK-DYN-UBSAN: libclang_rt.ubsan_osx.a
 
 // RUN: %clang -no-canonical-prefixes -### -target x86_64-darwin \
 // RUN:   -fsanitize=bounds -fsanitize-undefined-trap-on-error \
@@ -64,4 +60,4 @@
 // RUN:   | FileCheck --check-prefix=CHECK-DYN-BOUNDS %s
 
 // CHECK-DYN-BOUNDS: "{{.*}}ld{{(.exe)?}}"
-// CHECK-DYN-BOUNDS-NOT: ubsan_osx
+// CHECK-DYN-BOUNDS-NOT: libclang_rt.ubsan_osx.a

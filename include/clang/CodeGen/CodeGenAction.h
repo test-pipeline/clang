@@ -45,7 +45,7 @@ protected:
   void EndSourceFileAction() override;
 
 public:
-  ~CodeGenAction() override;
+  ~CodeGenAction();
 
   /// setLinkModule - Set the link module to be used by this action.  If a link
   /// module is not provided, and CodeGenOptions::LinkBitcodeFile is non-empty,

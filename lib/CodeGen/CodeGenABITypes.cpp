@@ -20,8 +20,6 @@
 #include "CodeGenModule.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
-#include "clang/Lex/HeaderSearchOptions.h"
-#include "clang/Lex/PreprocessorOptions.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -31,10 +29,7 @@ CodeGenABITypes::CodeGenABITypes(ASTContext &C,
                                  const llvm::DataLayout &TD,
                                  CoverageSourceInfo *CoverageInfo)
   : CGO(new CodeGenOptions),
-    HSO(new HeaderSearchOptions),
-    PPO(new PreprocessorOptions),
-    CGM(new CodeGen::CodeGenModule(C, *HSO, *PPO, *CGO,
-                                   M, TD, C.getDiagnostics(),
+    CGM(new CodeGen::CodeGenModule(C, *CGO, M, TD, C.getDiagnostics(),
                                    CoverageInfo)) {
 }
 

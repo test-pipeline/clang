@@ -39,9 +39,9 @@ void DivZeroChecker::reportBug(const char *Msg,
     if (!BT)
       BT.reset(new BuiltinBug(this, "Division by zero"));
 
-    auto R = llvm::make_unique<BugReport>(*BT, Msg, N);
+    BugReport *R = new BugReport(*BT, Msg, N);
     bugreporter::trackNullOrUndefValue(N, bugreporter::GetDenomExpr(N), *R);
-    C.emitReport(std::move(R));
+    C.emitReport(R);
   }
 }
 

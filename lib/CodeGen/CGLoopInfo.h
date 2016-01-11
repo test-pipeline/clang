@@ -15,7 +15,6 @@
 #ifndef LLVM_CLANG_LIB_CODEGEN_CGLOOPINFO_H
 #define LLVM_CLANG_LIB_CODEGEN_CGLOOPINFO_H
 
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Value.h"
@@ -28,7 +27,6 @@ class MDNode;
 } // end namespace llvm
 
 namespace clang {
-class Attr;
 namespace CodeGen {
 
 /// \brief Attributes that may be specified on loops.
@@ -88,8 +86,7 @@ public:
 
   /// \brief Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header,
-            llvm::ArrayRef<const Attr *> Attrs = llvm::None);
+  void push(llvm::BasicBlock *Header);
 
   /// \brief End the current loop.
   void pop();

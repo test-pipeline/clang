@@ -47,10 +47,10 @@ void ObjCAtSyncChecker::checkPreStmt(const ObjCAtSynchronizedStmt *S,
       if (!BT_undef)
         BT_undef.reset(new BuiltinBug(this, "Uninitialized value used as mutex "
                                             "for @synchronized"));
-      auto report =
-          llvm::make_unique<BugReport>(*BT_undef, BT_undef->getDescription(), N);
+      BugReport *report =
+        new BugReport(*BT_undef, BT_undef->getDescription(), N);
       bugreporter::trackNullOrUndefValue(N, Ex, *report);
-      C.emitReport(std::move(report));
+      C.emitReport(report);
     }
     return;
   }
@@ -71,11 +71,11 @@ void ObjCAtSyncChecker::checkPreStmt(const ObjCAtSynchronizedStmt *S,
           BT_null.reset(new BuiltinBug(
               this, "Nil value used as mutex for @synchronized() "
                     "(no synchronization will occur)"));
-        auto report =
-            llvm::make_unique<BugReport>(*BT_null, BT_null->getDescription(), N);
+        BugReport *report =
+          new BugReport(*BT_null, BT_null->getDescription(), N);
         bugreporter::trackNullOrUndefValue(N, Ex, *report);
 
-        C.emitReport(std::move(report));
+        C.emitReport(report);
         return;
       }
     }

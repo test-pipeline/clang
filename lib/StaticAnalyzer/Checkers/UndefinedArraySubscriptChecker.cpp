@@ -53,10 +53,10 @@ UndefinedArraySubscriptChecker::checkPreStmt(const ArraySubscriptExpr *A,
     BT.reset(new BuiltinBug(this, "Array subscript is undefined"));
 
   // Generate a report for this bug.
-  auto R = llvm::make_unique<BugReport>(*BT, BT->getName(), N);
+  BugReport *R = new BugReport(*BT, BT->getName(), N);
   R->addRange(A->getIdx()->getSourceRange());
   bugreporter::trackNullOrUndefValue(N, A->getIdx(), *R);
-  C.emitReport(std::move(R));
+  C.emitReport(R);
 }
 
 void ento::registerUndefinedArraySubscriptChecker(CheckerManager &mgr) {

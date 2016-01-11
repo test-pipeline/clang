@@ -1,28 +1,12 @@
 // RUN: %clang_cc1 -verify -fsyntax-only -Wstring-conversion %s
 
-void do_nothing();
-void assert_error();
-
-#define assert1(expr) \
-  if (expr)           \
-    do_nothing();     \
-  else                \
-  assert_error()
-
-#define assert2(expr) \
-  ((expr) ? do_nothing() : assert_error())
+#define assert(EXPR) (void)(EXPR);
 
 // Expection for common assert form.
 void test1() {
-  assert1(0 && "foo");
-  assert1("foo" && 0);
-  assert1(0 || "foo"); // expected-warning {{string literal}}
-  assert1("foo"); // expected-warning {{string literal}}
-
-  assert2(0 && "foo");
-  assert2("foo" && 0);
-  assert2(0 || "foo"); // expected-warning {{string literal}}
-  assert2("foo"); // expected-warning {{string literal}}
+  assert(0 && "foo");
+  assert("foo" && 0);
+  assert(0 || "foo"); // expected-warning {{string literal}}
 }
 
 void test2() {
@@ -30,5 +14,4 @@ void test2() {
   while ("hello") {}     // expected-warning {{string literal}}
   for (;"howdy";) {}     // expected-warning {{string literal}}
   do { } while ("hey");  // expected-warning {{string literal}}
-  int x = "hey" ? 1 : 2; // expected-warning {{string literal}}
 }

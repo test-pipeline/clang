@@ -116,9 +116,9 @@ struct CXStoredDiagnostic : public CXDiagnosticImpl {
                      const LangOptions &LangOpts)
     : CXDiagnosticImpl(StoredDiagnosticKind),
       Diag(Diag), LangOpts(LangOpts) { }
-
-  ~CXStoredDiagnostic() override {}
-
+  
+  virtual ~CXStoredDiagnostic() {}
+  
   /// \brief Return the severity of the diagnostic.
   CXDiagnosticSeverity getSeverity() const override;
 

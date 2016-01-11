@@ -37,7 +37,7 @@ namespace {
                      const LangOptions &LangOpts,
                      bool supportsMultipleFiles);
 
-    ~PlistDiagnostics() override {}
+    virtual ~PlistDiagnostics() {}
 
     void FlushDiagnosticsImpl(std::vector<const PathDiagnostic *> &Diags,
                               FilesMade *filesMade) override;

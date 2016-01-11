@@ -48,7 +48,7 @@ static ToolChain::RTTIMode CalculateRTTIMode(const ArgList &Args,
 
   // On the PS4, turning on c++ exceptions turns on rtti.
   // We're assuming that, if we see -fexceptions, rtti gets turned on.
-  Arg *Exceptions = Args.getLastArgNoClaim(
+  Arg *Exceptions = Args.getLastArg(
       options::OPT_fcxx_exceptions, options::OPT_fno_cxx_exceptions,
       options::OPT_fexceptions, options::OPT_fno_exceptions);
   if (Exceptions &&
@@ -151,8 +151,6 @@ Tool *ToolChain::getTool(Action::ActionClass AC) const {
 
   case Action::InputClass:
   case Action::BindArchClass:
-  case Action::CudaDeviceClass:
-  case Action::CudaHostClass:
   case Action::LipoJobClass:
   case Action::DsymutilJobClass:
   case Action::VerifyDebugInfoJobClass:
@@ -299,23 +297,18 @@ std::string ToolChain::ComputeLLVMTriple(const ArgList &Args,
     // '-mbig-endian'/'-EB'.
     if (Arg *A = Args.getLastArg(options::OPT_mlittle_endian,
                                  options::OPT_mbig_endian)) {
-      IsBigEndian = !A->getOption().matches(options::OPT_mlittle_endian);
+      if (A->getOption().matches(options::OPT_mlittle_endian))
+        IsBigEndian = false;
+      else
+        IsBigEndian = true;
     }
 
     // Thumb2 is the default for V7 on Darwin.
     //
     // FIXME: Thumb should just be another -target-feaure, not in the triple.
-    StringRef MCPU, MArch;
-    if (const Arg *A = Args.getLastArg(options::OPT_mcpu_EQ))
-      MCPU = A->getValue();
-    if (const Arg *A = Args.getLastArg(options::OPT_march_EQ))
-      MArch = A->getValue();
-    std::string CPU = Triple.isOSBinFormatMachO()
-      ? tools::arm::getARMCPUForMArch(MArch, Triple)
-      : tools::arm::getARMTargetCPU(MCPU, MArch, Triple);
-    StringRef Suffix = 
-      tools::arm::getLLVMArchSuffixForARM(CPU,
-                                          tools::arm::getARMArch(MArch, Triple));
+    StringRef Suffix = Triple.isOSBinFormatMachO()
+      ? tools::arm::getLLVMArchSuffixForARM(tools::arm::getARMCPUForMArch(Args, Triple))
+      : tools::arm::getLLVMArchSuffixForARM(tools::arm::getARMTargetCPU(Args, Triple));
     bool ThumbDefault = Suffix.startswith("v6m") || Suffix.startswith("v7m") ||
       Suffix.startswith("v7em") ||
       (Suffix.startswith("v7") && getTriple().isOSBinFormatMachO());
@@ -488,12 +481,3 @@ bool ToolChain::AddFastMathRuntimeIfAvailable(const ArgList &Args,
   CmdArgs.push_back(Args.MakeArgString(Path));
   return true;
 }
-
-SanitizerMask ToolChain::getSupportedSanitizers() const {
-  // Return sanitizers which don't require runtime support and are not
-  // platform or architecture-dependent.
-  using namespace SanitizerKind;
-  return (Undefined & ~Vptr & ~Function) | CFI | CFICastStrict |
-         UnsignedIntegerOverflow | LocalBounds;
-}
-

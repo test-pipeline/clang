@@ -3,15 +3,8 @@
 // RUN: c-arcmt-test -mt-migrate-directory %t | arcmt-test -verify-transformed-files %s.result
 // RUN: %clang_cc1 -fblocks -triple x86_64-apple-darwin10 -fsyntax-only -x objective-c -fobjc-runtime-has-weak -fobjc-arc %s.result
 
-@class NSString;
-
-// rdar://19140267
-@protocol NSObject
-@property (readonly, copy) NSString *description;
-@end
-
 // rdar://18498572
-@interface NSObject <NSObject> @end
+@interface NSObject @end
 
 @interface P : NSObject
 {
@@ -43,8 +36,6 @@ P* fun();
 }
 
 - (P*) MethodReturnsPObj { return 0; }
-
-- (NSString *)description { return [super description]; }
 @end
 
 // rdar://19140267

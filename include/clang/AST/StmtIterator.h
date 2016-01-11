@@ -32,10 +32,8 @@ protected:
   enum { StmtMode = 0x0, SizeOfTypeVAMode = 0x1, DeclGroupMode = 0x2,
          Flags = 0x3 };
   
-  union {
-    Stmt **stmt;
-    Decl **DGI;
-  };
+  Stmt **stmt;
+  Decl **DGI;
   uintptr_t RawVAPtr;
   Decl **DGE;
   
@@ -66,10 +64,10 @@ protected:
 
   Stmt*& GetDeclExpr() const;
 
-  StmtIteratorBase(Stmt **s) : stmt(s), RawVAPtr(0) {}
+  StmtIteratorBase(Stmt **s) : stmt(s), DGI(nullptr), RawVAPtr(0) {}
   StmtIteratorBase(const VariableArrayType *t);
   StmtIteratorBase(Decl **dgi, Decl **dge);
-  StmtIteratorBase() : stmt(nullptr), RawVAPtr(0) {}
+  StmtIteratorBase() : stmt(nullptr), DGI(nullptr), RawVAPtr(0) {}
 };
 
 

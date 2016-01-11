@@ -16,8 +16,6 @@
 #define LLVM_CLANG_TOOLS_LIBCLANG_CINDEXER_H
 
 #include "clang-c/Index.h"
-#include "clang/Frontend/PCHContainerOperations.h"
-#include "clang/Lex/ModuleLoader.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Path.h"
 #include <vector>
@@ -27,12 +25,12 @@ namespace llvm {
 }
 
 namespace clang {
-class ASTUnit;
-class MacroInfo;
-class MacroDefinitionRecord;
-class SourceLocation;
-class Token;
-class IdentifierInfo;
+  class ASTUnit;
+  class MacroInfo;
+  class MacroDefinition;
+  class SourceLocation;
+  class Token;
+  class IdentifierInfo;
 
 class CIndexer {
   bool OnlyLocalDecls;
@@ -40,14 +38,11 @@ class CIndexer {
   unsigned Options; // CXGlobalOptFlags.
 
   std::string ResourcesPath;
-  std::shared_ptr<PCHContainerOperations> PCHContainerOps;
 
 public:
-  CIndexer(std::shared_ptr<PCHContainerOperations> PCHContainerOps =
-               std::make_shared<PCHContainerOperations>())
-      : OnlyLocalDecls(false), DisplayDiagnostics(false),
-        Options(CXGlobalOpt_None), PCHContainerOps(PCHContainerOps) {}
-
+ CIndexer() : OnlyLocalDecls(false), DisplayDiagnostics(false),
+              Options(CXGlobalOpt_None) { }
+  
   /// \brief Whether we only want to see "local" declarations (that did not
   /// come from a previous precompiled header). If false, we want to see all
   /// declarations.
@@ -57,10 +52,6 @@ public:
   bool getDisplayDiagnostics() const { return DisplayDiagnostics; }
   void setDisplayDiagnostics(bool Display = true) {
     DisplayDiagnostics = Display;
-  }
-
-  std::shared_ptr<PCHContainerOperations> getPCHContainerOperations() const {
-    return PCHContainerOps;
   }
 
   unsigned getCXGlobalOptFlags() const { return Options; }
@@ -101,26 +92,27 @@ public:
     /// \brief If \c MacroDefLoc points at a macro definition with \c II as
     /// its name, this retrieves its MacroInfo.
     MacroInfo *getMacroInfo(const IdentifierInfo &II,
-                            SourceLocation MacroDefLoc, CXTranslationUnit TU);
+                            SourceLocation MacroDefLoc,
+                            CXTranslationUnit TU);
 
-    /// \brief Retrieves the corresponding MacroInfo of a MacroDefinitionRecord.
-    const MacroInfo *getMacroInfo(const MacroDefinitionRecord *MacroDef,
+    /// \brief Retrieves the corresponding MacroInfo of a MacroDefinition.
+    const MacroInfo *getMacroInfo(const MacroDefinition *MacroDef,
                                   CXTranslationUnit TU);
 
     /// \brief If \c Loc resides inside the definition of \c MI and it points at
     /// an identifier that has ever been a macro name, this returns the latest
-    /// MacroDefinitionRecord for that name, otherwise it returns NULL.
-    MacroDefinitionRecord *checkForMacroInMacroDefinition(const MacroInfo *MI,
-                                                          SourceLocation Loc,
-                                                          CXTranslationUnit TU);
+    /// MacroDefinition for that name, otherwise it returns NULL.
+    MacroDefinition *checkForMacroInMacroDefinition(const MacroInfo *MI,
+                                                    SourceLocation Loc,
+                                                    CXTranslationUnit TU);
 
     /// \brief If \c Tok resides inside the definition of \c MI and it points at
     /// an identifier that has ever been a macro name, this returns the latest
-    /// MacroDefinitionRecord for that name, otherwise it returns NULL.
-    MacroDefinitionRecord *checkForMacroInMacroDefinition(const MacroInfo *MI,
-                                                          const Token &Tok,
-                                                          CXTranslationUnit TU);
-    }
-    }
+    /// MacroDefinition for that name, otherwise it returns NULL.
+    MacroDefinition *checkForMacroInMacroDefinition(const MacroInfo *MI,
+                                                    const Token &Tok,
+                                                    CXTranslationUnit TU);
+  }
+}
 
 #endif

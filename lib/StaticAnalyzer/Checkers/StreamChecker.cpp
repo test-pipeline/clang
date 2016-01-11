@@ -277,8 +277,9 @@ void StreamChecker::Fseek(CheckerContext &C, const CallExpr *CE) const {
           new BuiltinBug(this, "Illegal whence argument",
                          "The whence argument to fseek() should be "
                          "SEEK_SET, SEEK_END, or SEEK_CUR."));
-    C.emitReport(llvm::make_unique<BugReport>(
-        *BT_illegalwhence, BT_illegalwhence->getDescription(), N));
+    BugReport *R = new BugReport(*BT_illegalwhence, 
+				 BT_illegalwhence->getDescription(), N);
+    C.emitReport(R);
   }
 }
 
@@ -353,8 +354,8 @@ ProgramStateRef StreamChecker::CheckNullStream(SVal SV, ProgramStateRef state,
       if (!BT_nullfp)
         BT_nullfp.reset(new BuiltinBug(this, "NULL stream pointer",
                                        "Stream pointer might be NULL."));
-      C.emitReport(llvm::make_unique<BugReport>(
-          *BT_nullfp, BT_nullfp->getDescription(), N));
+      BugReport *R =new BugReport(*BT_nullfp, BT_nullfp->getDescription(), N);
+      C.emitReport(R);
     }
     return nullptr;
   }
@@ -384,8 +385,9 @@ ProgramStateRef StreamChecker::CheckDoubleClose(const CallExpr *CE,
         BT_doubleclose.reset(new BuiltinBug(
             this, "Double fclose", "Try to close a file Descriptor already"
                                    " closed. Cause undefined behaviour."));
-      C.emitReport(llvm::make_unique<BugReport>(
-          *BT_doubleclose, BT_doubleclose->getDescription(), N));
+      BugReport *R = new BugReport(*BT_doubleclose,
+                                   BT_doubleclose->getDescription(), N);
+      C.emitReport(R);
     }
     return nullptr;
   }
@@ -412,8 +414,9 @@ void StreamChecker::checkDeadSymbols(SymbolReaper &SymReaper,
           BT_ResourceLeak.reset(new BuiltinBug(
               this, "Resource Leak",
               "Opened File never closed. Potential Resource leak."));
-        C.emitReport(llvm::make_unique<BugReport>(
-            *BT_ResourceLeak, BT_ResourceLeak->getDescription(), N));
+        BugReport *R = new BugReport(*BT_ResourceLeak, 
+                                     BT_ResourceLeak->getDescription(), N);
+        C.emitReport(R);
       }
     }
   }

@@ -95,7 +95,7 @@ public:
       Pass.TA.clearDiagnostic(diag::err_unavailable,
                               diag::err_unavailable_message,
                               E->getSelectorLoc(0));
-      Pass.TA.replace(E->getSourceRange(), getNilString(Pass));
+      Pass.TA.replace(E->getSourceRange(), getNilString(Pass.Ctx));
     }
     return true;
   }

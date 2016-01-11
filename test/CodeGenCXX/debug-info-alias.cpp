@@ -13,27 +13,25 @@ bar
 = foo<T*>;
 }
 
-// CHECK: !DIGlobalVariable(name: "bi",{{.*}} type: [[BINT:![0-9]+]]
-// CHECK: [[BINT]] = !DIDerivedType(tag: DW_TAG_typedef, name: "bar<int>"
-// CHECK-SAME:                      line: 42,
+// CHECK: [[BINT:![0-9]*]], {{[^,]+, [^,]+}}} ; [ DW_TAG_variable ] [bi]
+// CHECK: [[BINT]] = {{.*}} ; [ DW_TAG_typedef ] [bar<int>] [line 42
 x::bar<int> bi;
-// CHECK: !DIGlobalVariable(name: "bf",{{.*}} type: [[BFLOAT:![0-9]+]]
-// CHECK: [[BFLOAT]] = !DIDerivedType(tag: DW_TAG_typedef, name: "bar<float>"
+// CHECK: [[BFLOAT:![0-9]*]], {{[^,]+, [^,]+}}} ; [ DW_TAG_variable ] [bf]
+// CHECK: [[BFLOAT]] = {{.*}} ; [ DW_TAG_typedef ] [bar<float>] [line 42
 x::bar<float> bf;
 
 using
-// CHECK: !DIGlobalVariable(name: "n",{{.*}} type: [[NARF:![0-9]+]]
+// CHECK: [[NARF:![0-9]*]], {{[^,]+, [^,]+}}} ; [ DW_TAG_variable ] [n]
 # 142
-narf // CHECK: [[NARF]] = !DIDerivedType(tag: DW_TAG_typedef, name: "narf"
-// CHECK-SAME:                           line: 142
+narf // CHECK: [[NARF]] = {{.*}} ; [ DW_TAG_typedef ] [narf] [line 142
 = int;
 narf n;
 
 template <typename T>
 using tv = void;
-// CHECK: !DIDerivedType(tag: DW_TAG_typedef, name: "tv<int>"
+// CHECK: null} ; [ DW_TAG_typedef ] [tv<int>] {{.*}} [from ]
 tv<int> *tvp;
 
 using v = void;
-// CHECK: !DIDerivedType(tag: DW_TAG_typedef, name: "v"
+// CHECK: null} ; [ DW_TAG_typedef ] [v] {{.*}} [from ]
 v *vp;

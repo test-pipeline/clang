@@ -432,15 +432,11 @@ void PathDiagnosticConsumer::FlushDiagnostics(
 
   // Sort the diagnostics so that they are always emitted in a deterministic
   // order.
-  int (*Comp)(const PathDiagnostic *const *, const PathDiagnostic *const *) =
-      [](const PathDiagnostic *const *X, const PathDiagnostic *const *Y) {
-        assert(*X != *Y && "PathDiagnostics not uniqued!");
-        if (compare(**X, **Y))
-          return -1;
-        assert(compare(**Y, **X) && "Not a total order!");
-        return 1;
-      };
-  array_pod_sort(BatchDiags.begin(), BatchDiags.end(), Comp);
+  if (!BatchDiags.empty())
+    std::sort(BatchDiags.begin(), BatchDiags.end(),
+              [](const PathDiagnostic *X, const PathDiagnostic *Y) {
+      return X != Y && compare(*X, *Y);
+    });
 
   FlushDiagnosticsImpl(BatchDiags, Files);
 
@@ -456,7 +452,7 @@ void PathDiagnosticConsumer::FlushDiagnostics(
 }
 
 PathDiagnosticConsumer::FilesMade::~FilesMade() {
-  for (PDFileEntry &Entry : Set)
+  for (PDFileEntry &Entry : *this)
     Entry.~PDFileEntry();
 }
 
@@ -466,11 +462,11 @@ void PathDiagnosticConsumer::FilesMade::addDiagnostic(const PathDiagnostic &PD,
   llvm::FoldingSetNodeID NodeID;
   NodeID.Add(PD);
   void *InsertPos;
-  PDFileEntry *Entry = Set.FindNodeOrInsertPos(NodeID, InsertPos);
+  PDFileEntry *Entry = FindNodeOrInsertPos(NodeID, InsertPos);
   if (!Entry) {
     Entry = Alloc.Allocate<PDFileEntry>();
     Entry = new (Entry) PDFileEntry(NodeID);
-    Set.InsertNode(Entry, InsertPos);
+    InsertNode(Entry, InsertPos);
   }
   
   // Allocate persistent storage for the file name.
@@ -487,7 +483,7 @@ PathDiagnosticConsumer::FilesMade::getFiles(const PathDiagnostic &PD) {
   llvm::FoldingSetNodeID NodeID;
   NodeID.Add(PD);
   void *InsertPos;
-  PDFileEntry *Entry = Set.FindNodeOrInsertPos(NodeID, InsertPos);
+  PDFileEntry *Entry = FindNodeOrInsertPos(NodeID, InsertPos);
   if (!Entry)
     return nullptr;
   return &Entry->files;

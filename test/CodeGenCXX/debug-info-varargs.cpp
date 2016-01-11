@@ -2,27 +2,21 @@
 
 struct A
 {
-  // CHECK: !DISubprogram(name: "a", linkageName: "_ZN1A1aEiz"
-  // CHECK-SAME:          line: [[@LINE+2]]
-  // CHECK-SAME:          type: ![[ATY:[0-9]+]]
+  // CHECK-DAG:  !"0x2e\00a\00a\00_ZN1A1aEiz\00[[@LINE+1]]\00{{[^,]*}}"{{, [^,]+, [^,]+}}, ![[ATY:[0-9]+]]{{.*}}[ DW_TAG_subprogram ]{{.*}}[a]
   void a(int c, ...) {}
-  // CHECK: ![[ATY]] = !DISubroutineType(types: ![[AARGS:[0-9]+]])
+  // CHECK: ![[ATY]] ={{.*}} ![[AARGS:[0-9]+]], null, null, null} ; [ DW_TAG_subroutine_type ]
   // We no longer use an explicit unspecified parameter. Instead we use a trailing null to mean the function is variadic.
   // CHECK: ![[AARGS]] = !{null, !{{[0-9]+}}, !{{[0-9]+}}, null}
 };
 
-  // CHECK: !DISubprogram(name: "b", linkageName: "_Z1biz"
-  // CHECK-SAME:          line: [[@LINE+2]]
-  // CHECK-SAME:          type: ![[BTY:[0-9]+]]
+  // CHECK:  !"0x2e\00b\00b\00_Z1biz\00[[@LINE+1]]\00{{[^,]*}}"{{, [^,]+, [^,]+}}, ![[BTY:[0-9]+]]{{.*}}[ DW_TAG_subprogram ]{{.*}}[b]
 void b(int c, ...) {
-  // CHECK: ![[BTY]] = !DISubroutineType(types: ![[BARGS:[0-9]+]])
+  // CHECK: ![[BTY]] ={{.*}} ![[BARGS:[0-9]+]], null, null, null} ; [ DW_TAG_subroutine_type ]
   // CHECK: ![[BARGS]] = !{null, !{{[0-9]+}}, null}
 
   A a;
 
-  // CHECK: !DILocalVariable(tag: DW_TAG_auto_variable, name: "fptr"
-  // CHECK-SAME:             line: [[@LINE+2]]
-  // CHECK-SAME:             type: ![[PST:[0-9]+]]
+  // CHECK:  !"0x100\00fptr\00[[@LINE+1]]\000"{{, [^,]+, [^,]+}}, ![[PST:[0-9]+]]} ; [ DW_TAG_auto_variable ] [fptr] [line [[@LINE+1]]]
   void (*fptr)(int, ...) = b;
-  // CHECK: ![[PST]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: ![[BTY]],
+  // CHECK: ![[PST]] ={{.*}} ![[BTY]]} ; [ DW_TAG_pointer_type ]
 }

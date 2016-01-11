@@ -60,7 +60,7 @@ AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
   if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
     SmallString<128> ResourceDir(D.ResourceDir);
     llvm::sys::path::append(ResourceDir, "include");
-    addSystemInclude(DriverArgs, CC1Args, ResourceDir);
+    addSystemInclude(DriverArgs, CC1Args, ResourceDir.str());
   }
   addExternCSystemInclude(DriverArgs, CC1Args, SysRoot + "/usr/include");
 }
@@ -108,9 +108,10 @@ AddCXXStdlibLibArgs(const llvm::opt::ArgList &DriverArgs,
 }
 
 Tool *CrossWindowsToolChain::buildLinker() const {
-  return new tools::CrossWindows::Linker(*this);
+  return new tools::CrossWindows::Link(*this);
 }
 
 Tool *CrossWindowsToolChain::buildAssembler() const {
-  return new tools::CrossWindows::Assembler(*this);
+  return new tools::CrossWindows::Assemble(*this);
 }
+

@@ -17,4 +17,3 @@ int (INTEGER);
 extern int __MODULE__;
 #endif
 
-#include "macros-indirect.h"

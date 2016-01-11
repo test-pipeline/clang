@@ -69,7 +69,8 @@ namespace p2 {
   template<typename T>
   struct Boom {
     Boom(const Boom&) { 
-      T* x = 1; // expected-error{{cannot initialize a variable of type 'float *' with an rvalue of type 'int'}}
+      T* x = 1; // expected-error{{cannot initialize a variable of type 'int *' with an rvalue of type 'int'}} \
+      // expected-error{{cannot initialize a variable of type 'float *' with an rvalue of type 'int'}}
     }
     void tickle() const;
   };
@@ -78,7 +79,7 @@ namespace p2 {
   void odr_used(R &r, Boom<T> boom) {
     const std::type_info &ti
       = typeid([=,&r] () -> R& { // expected-error{{lambda expression in an unevaluated operand}}
-          boom.tickle();
+          boom.tickle(); // expected-note{{in instantiation of member function}}
           return r; 
         }()); 
   }

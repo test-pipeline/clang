@@ -127,8 +127,8 @@ static CompileCommand findCompileArgsInJsonDatabase(StringRef FileName,
 }
 
 struct FakeComparator : public PathComparator {
-  ~FakeComparator() override {}
-  bool equivalent(StringRef FileA, StringRef FileB) const override {
+  virtual ~FakeComparator() {}
+  virtual bool equivalent(StringRef FileA, StringRef FileB) const {
     return FileA.equals_lower(FileB);
   }
 };

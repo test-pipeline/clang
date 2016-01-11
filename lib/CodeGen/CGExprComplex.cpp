@@ -317,14 +317,14 @@ ComplexPairTy ComplexExprEmitter::EmitLoadOfLValue(LValue lvalue,
   llvm::Value *Real=nullptr, *Imag=nullptr;
 
   if (!IgnoreReal || isVolatile) {
-    llvm::Value *RealP = Builder.CreateStructGEP(nullptr, SrcPtr, 0,
+    llvm::Value *RealP = Builder.CreateStructGEP(SrcPtr, 0,
                                                  SrcPtr->getName() + ".realp");
     Real = Builder.CreateAlignedLoad(RealP, AlignR, isVolatile,
                                      SrcPtr->getName() + ".real");
   }
 
   if (!IgnoreImag || isVolatile) {
-    llvm::Value *ImagP = Builder.CreateStructGEP(nullptr, SrcPtr, 1,
+    llvm::Value *ImagP = Builder.CreateStructGEP(SrcPtr, 1,
                                                  SrcPtr->getName() + ".imagp");
     Imag = Builder.CreateAlignedLoad(ImagP, AlignI, isVolatile,
                                      SrcPtr->getName() + ".imag");
@@ -341,8 +341,8 @@ void ComplexExprEmitter::EmitStoreOfComplex(ComplexPairTy Val, LValue lvalue,
     return CGF.EmitAtomicStore(RValue::getComplex(Val), lvalue, isInit);
 
   llvm::Value *Ptr = lvalue.getAddress();
-  llvm::Value *RealPtr = Builder.CreateStructGEP(nullptr, Ptr, 0, "real");
-  llvm::Value *ImagPtr = Builder.CreateStructGEP(nullptr, Ptr, 1, "imag");
+  llvm::Value *RealPtr = Builder.CreateStructGEP(Ptr, 0, "real");
+  llvm::Value *ImagPtr = Builder.CreateStructGEP(Ptr, 1, "imag");
   unsigned AlignR = lvalue.getAlignment().getQuantity();
   ASTContext &C = CGF.getContext();
   QualType ComplexTy = lvalue.getType();
@@ -377,7 +377,7 @@ VisitImaginaryLiteral(const ImaginaryLiteral *IL) {
 
 
 ComplexPairTy ComplexExprEmitter::VisitCallExpr(const CallExpr *E) {
-  if (E->getCallReturnType(CGF.getContext())->isReferenceType())
+  if (E->getCallReturnType()->isReferenceType())
     return EmitLoadOfLValue(E);
 
   return CGF.EmitCallExpr(E).getComplexVal();
@@ -949,14 +949,13 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
   // Bind the common expression if necessary.
   CodeGenFunction::OpaqueValueMapping binding(CGF, E);
 
-
+  RegionCounter Cnt = CGF.getPGORegionCounter(E);
   CodeGenFunction::ConditionalEvaluation eval(CGF);
-  CGF.EmitBranchOnBoolExpr(E->getCond(), LHSBlock, RHSBlock,
-                           CGF.getProfileCount(E));
+  CGF.EmitBranchOnBoolExpr(E->getCond(), LHSBlock, RHSBlock, Cnt.getCount());
 
   eval.begin(CGF);
   CGF.EmitBlock(LHSBlock);
-  CGF.incrementProfileCounter(E);
+  Cnt.beginRegion(Builder);
   ComplexPairTy LHS = Visit(E->getTrueExpr());
   LHSBlock = Builder.GetInsertBlock();
   CGF.EmitBranch(ContBlock);

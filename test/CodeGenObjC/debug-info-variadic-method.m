@@ -10,7 +10,7 @@
 @implementation Foo
 - (void) Bar: (int) n, ...
 {
-  // CHECK: !DISubroutineType(types: ![[NUM:[0-9]+]])
-  // CHECK: ![[NUM]] = {{!{null, ![^,]*, ![^,]*, ![^,]*, null}}}
+  // CHECK: ![[NUM:[^,]*]], null, null, null} ; [ DW_TAG_subroutine_type ]
+  // CHECK: ![[NUM]] = {{!{null, ![^,]*, ![^,]*, ![^,]*, null}}}    
 }
 @end

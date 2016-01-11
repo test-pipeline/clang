@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify -Wmissing-prototypes -std=c++11 %s
+// RUN: %clang_cc1 -fsyntax-only -verify -Wmissing-prototypes %s
 
 void f() { } // expected-warning {{no previous prototype for function 'f'}}
 
@@ -30,5 +30,3 @@ class I {
   friend void I_friend() {}
 };
 
-// Don't warn on explicitly deleted functions.
-void j() = delete;

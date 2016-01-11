@@ -241,7 +241,7 @@ static void groupDiagnostics(const std::vector<Record*> &Diags,
           Replacement += (*I)->ExplicitDef->getName();
           Replacement += ">";
         }
-        SMFixIt FixIt(InGroupRange, Replacement);
+        SMFixIt FixIt(InGroupRange, Replacement.str());
 
         SrcMgr.PrintMessage(NextDiagGroup->getLoc().front(),
                             SourceMgr::DK_Error,

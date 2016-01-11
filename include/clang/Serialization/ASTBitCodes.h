@@ -149,11 +149,7 @@ namespace clang {
     /// \brief An ID number that refers to a set of CXXBaseSpecifiers in an 
     /// AST file.
     typedef uint32_t CXXBaseSpecifiersID;
-
-    /// \brief An ID number that refers to a list of CXXCtorInitializers in an
-    /// AST file.
-    typedef uint32_t CXXCtorInitializersID;
-
+    
     /// \brief An ID number that refers to an entity in the detailed
     /// preprocessing record.
     typedef uint32_t PreprocessedEntityID;
@@ -299,10 +295,6 @@ namespace clang {
 
       /// \brief Record code for the module build directory.
       MODULE_DIRECTORY = 16,
-
-      /// \brief Record code for the list of other AST files made available by
-      /// this AST file but not actually used by it.
-      KNOWN_MODULE_FILES = 17,
     };
 
     /// \brief Record types that occur within the input-files block
@@ -393,7 +385,9 @@ namespace clang {
       /// \brief Record code for the array of tentative definitions.
       TENTATIVE_DEFINITIONS = 9,
 
-      // ID 10 used to be for a list of extern "C" declarations.
+      /// \brief Record code for the array of locally-scoped extern "C"
+      /// declarations.
+      LOCALLY_SCOPED_EXTERN_C_DECLS = 10,
 
       /// \brief Record code for the table of offsets into the
       /// Objective-C method pool.
@@ -431,7 +425,8 @@ namespace clang {
       /// \brief Record code for the array of VTable uses.
       VTABLE_USES = 19,
 
-      // ID 20 used to be for a list of dynamic classes.
+      /// \brief Record code for the array of dynamic classes.
+      DYNAMIC_CLASSES = 20,
 
       /// \brief Record code for referenced selector pool.
       REFERENCED_SELECTOR_POOL = 21,
@@ -521,7 +516,8 @@ namespace clang {
       /// imported by the AST file.
       IMPORTED_MODULES = 43,
       
-      // ID 40 used to be a table of merged canonical declarations.
+      /// \brief Record code for the set of merged declarations in an AST file.
+      MERGED_DECLARATIONS = 44,
       
       /// \brief Record code for the array of redeclaration chains.
       ///
@@ -543,7 +539,9 @@ namespace clang {
       /// macro definition.
       MACRO_OFFSET = 47,
 
-      // ID 48 used to be a table of macros.
+      /// \brief Mapping table from the identifier ID to the offset of the
+      /// macro directive history for the identifier.
+      MACRO_TABLE = 48,
 
       /// \brief Record code for undefined but used functions and variables that
       /// need a definition in this TU.
@@ -557,13 +555,6 @@ namespace clang {
 
       /// \brief Record code for potentially unused local typedef names.
       UNUSED_LOCAL_TYPEDEF_NAME_CANDIDATES = 52,
-
-      /// \brief Record code for the table of offsets to CXXCtorInitializers
-      /// lists.
-      CXX_CTOR_INITIALIZERS_OFFSETS = 53,
-
-      /// \brief Delete expressions that will be analyzed later.
-      DELETE_EXPRS_TO_ANALYZE = 54
     };
 
     /// \brief Record types used within a source manager block.
@@ -603,11 +594,7 @@ namespace clang {
       PP_TOKEN = 3,
 
       /// \brief The macro directives history for a particular identifier.
-      PP_MACRO_DIRECTIVE_HISTORY = 4,
-
-      /// \brief A macro directive exported by a module.
-      /// [PP_MODULE_MACRO, SubmoduleID, MacroID, (Overridden SubmoduleID)*]
-      PP_MODULE_MACRO = 5,
+      PP_MACRO_DIRECTIVE_HISTORY = 4
     };
 
     /// \brief Record types used within a preprocessor detail block.
@@ -940,17 +927,14 @@ namespace clang {
       PREDEF_DECL_OBJC_INSTANCETYPE_ID = 8,
 
       /// \brief The internal '__builtin_va_list' typedef.
-      PREDEF_DECL_BUILTIN_VA_LIST_ID = 9,
-
-      /// \brief The extern "C" context.
-      PREDEF_DECL_EXTERN_C_CONTEXT_ID = 10,
+      PREDEF_DECL_BUILTIN_VA_LIST_ID = 9
     };
 
     /// \brief The number of declaration IDs that are predefined.
     ///
     /// For more information about predefined declarations, see the
     /// \c PredefinedDeclIDs type and the PREDEF_DECL_*_ID constants.
-    const unsigned int NUM_PREDEF_DECL_IDS = 11;
+    const unsigned int NUM_PREDEF_DECL_IDS = 10;
     
     /// \brief Record codes for each kind of declaration.
     ///
@@ -1087,8 +1071,6 @@ namespace clang {
       DECL_STATIC_ASSERT,
       /// \brief A record containing CXXBaseSpecifiers.
       DECL_CXX_BASE_SPECIFIERS,
-      /// \brief A record containing CXXCtorInitializers.
-      DECL_CXX_CTOR_INITIALIZERS,
       /// \brief A IndirectFieldDecl record.
       DECL_INDIRECTFIELD,
       /// \brief A NonTypeTemplateParmDecl record that stores an expanded
@@ -1105,9 +1087,7 @@ namespace clang {
       /// \brief An OMPThreadPrivateDecl record.
       DECL_OMP_THREADPRIVATE,
       /// \brief An EmptyDecl record.
-      DECL_EMPTY,
-      /// \brief An ObjCTypeParamDecl record.
-      DECL_OBJC_TYPE_PARAM,
+      DECL_EMPTY
     };
 
     /// \brief Record codes for each kind of statement or expression.
@@ -1213,12 +1193,8 @@ namespace clang {
       EXPR_INIT_LIST,
       /// \brief A DesignatedInitExpr record.
       EXPR_DESIGNATED_INIT,
-      /// \brief A DesignatedInitUpdateExpr record.
-      EXPR_DESIGNATED_INIT_UPDATE,
       /// \brief An ImplicitValueInitExpr record.
       EXPR_IMPLICIT_VALUE_INIT,
-      /// \brief An NoInitExpr record.
-      EXPR_NO_INIT,
       /// \brief A VAArgExpr record.
       EXPR_VA_ARG,
       /// \brief An AddrLabelExpr record.
@@ -1398,9 +1374,6 @@ namespace clang {
       STMT_OMP_ATOMIC_DIRECTIVE,
       STMT_OMP_TARGET_DIRECTIVE,
       STMT_OMP_TEAMS_DIRECTIVE,
-      STMT_OMP_TASKGROUP_DIRECTIVE,
-      STMT_OMP_CANCELLATION_POINT_DIRECTIVE,
-      STMT_OMP_CANCEL_DIRECTIVE,
 
       // ARC
       EXPR_OBJC_BRIDGED_CAST,     // ObjCBridgedCastExpr

@@ -68,11 +68,10 @@ void NSAutoreleasePoolChecker::checkPreObjCMessage(const ObjCMethodCall &msg,
     return;
   }
 
-  auto Report = llvm::make_unique<BugReport>(
-      *BT, "Use -drain instead of -release when using NSAutoreleasePool and "
-           "garbage collection", N);
+  BugReport *Report = new BugReport(*BT, "Use -drain instead of -release when "
+    "using NSAutoreleasePool and garbage collection", N);
   Report->addRange(msg.getSourceRange());
-  C.emitReport(std::move(Report));
+  C.emitReport(Report);
 }
 
 void ento::registerNSAutoreleasePoolChecker(CheckerManager &mgr) {

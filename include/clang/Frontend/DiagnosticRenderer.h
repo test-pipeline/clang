@@ -155,8 +155,8 @@ public:
   DiagnosticNoteRenderer(const LangOptions &LangOpts,
                          DiagnosticOptions *DiagOpts)
     : DiagnosticRenderer(LangOpts, DiagOpts) {}
-
-  ~DiagnosticNoteRenderer() override;
+  
+  virtual ~DiagnosticNoteRenderer();
 
   void emitIncludeLocation(SourceLocation Loc, PresumedLoc PLoc,
                            const SourceManager &SM) override;

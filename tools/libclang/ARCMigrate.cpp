@@ -101,7 +101,9 @@ CXRemapping clang_getRemappingsFromFileList(const char **filePaths,
   }
 
   TextDiagnosticBuffer diagBuffer;
-  SmallVector<StringRef, 32> Files(filePaths, filePaths + numFiles);
+  SmallVector<StringRef, 32> Files;
+  for (unsigned i = 0; i != numFiles; ++i)
+    Files.push_back(filePaths[i]);
 
   bool err = arcmt::getFileRemappingsFromFileList(remap->Vec, Files,
                                                   &diagBuffer);

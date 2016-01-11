@@ -1,11 +1,12 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
 
 namespace A {
-  class String; // expected-note {{target of using declaration}}
+  class String;
 };
 
-using A::String; // expected-note {{using declaration}}
-class String; // expected-error {{conflicts with target of using declaration}}
+using A::String;
+class String;
 
 // rdar://8603569
 union value {

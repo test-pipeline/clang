@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -triple x86_64-windows -fsyntax-only -verify -fblocks -fcxx-exceptions -fms-extensions %s -Wno-unreachable-code
-// RUN: %clang_cc1 -triple x86_64-windows -fsyntax-only -verify -fblocks -fcxx-exceptions -fms-extensions -std=gnu++11 %s -Wno-unreachable-code
+// RUN: %clang_cc1 -fsyntax-only -verify -fblocks -fcxx-exceptions -fms-extensions %s -Wno-unreachable-code
+// RUN: %clang_cc1 -fsyntax-only -verify -fblocks -fcxx-exceptions -fms-extensions -std=gnu++11 %s -Wno-unreachable-code
 
 namespace testInvalid {
 Invalid inv; // expected-error {{unknown type name}}
@@ -507,12 +507,12 @@ out_of_finally_try:
 
   __try {
   } __finally {
-    goto out_of_finally_finally; // expected-warning {{jump out of __finally block has undefined behavior}}
-  }
-
-  __try {
-  } __finally {
-    goto *&&out_of_finally_finally; // expected-warning {{jump out of __finally block has undefined behavior}}
+    // FIXME: This should warn that jumping out of __finally has undefined
+    // behavior.
+    // FIXME: Once that warns, check that
+    //   __try { __try {} __finally { __leave; } } __except (0) {}
+    // warns in the same way.
+    goto out_of_finally_finally;
   }
 out_of_finally_finally:
   ;
@@ -548,7 +548,7 @@ void jump_try_finally() {
   from_finally_to_try:
     ;
   } __finally {
-    goto from_finally_to_try; // expected-error {{cannot jump from this goto statement to its label}} expected-warning {{jump out of __finally block has undefined behavior}}
+    goto from_finally_to_try; // expected-error {{cannot jump from this goto statement to its label}}
   }
 }
 
@@ -578,7 +578,9 @@ void nested() {
   __try {
     __try {
     } __finally {
-      goto after_outer_except; // expected-warning {{jump out of __finally block has undefined behavior}}
+      // FIXME: This should warn that jumping out of __finally has undefined
+      // behavior.
+      goto after_outer_except;
     }
   } __except(0) {
   }

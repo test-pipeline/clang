@@ -64,9 +64,6 @@
 #endif
 
 namespace clang {
-class DiagnosticsEngine;
-class AnalyzerOptions;
-
 namespace ento {
 
 class CheckerOptInfo;
@@ -120,10 +117,6 @@ public:
   /// This can be used to exclude certain checkers in an included package.
   void initializeManager(CheckerManager &mgr,
                          SmallVectorImpl<CheckerOptInfo> &opts) const;
-
-  /// Check if every option corresponds to a specific checker or package.
-  void validateCheckerOptions(const AnalyzerOptions &opts,
-                              DiagnosticsEngine &diags) const;
 
   /// Prints the name and description of all checkers in this registry.
   /// This output is not intended to be machine-parseable.

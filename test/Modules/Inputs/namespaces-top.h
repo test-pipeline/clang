@@ -21,5 +21,3 @@ namespace N13 {
 namespace AddAndReexportBeforeImport {
   int S;
 }
-
-namespace Empty {}

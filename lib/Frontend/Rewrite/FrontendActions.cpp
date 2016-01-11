@@ -48,10 +48,9 @@ FixItAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
 namespace {
 class FixItRewriteInPlace : public FixItOptions {
 public:
-  FixItRewriteInPlace() { InPlace = true; }
-
   std::string RewriteFilename(const std::string &Filename, int &fd) override {
-    llvm_unreachable("don't call RewriteFilename for inplace rewrites");
+    fd = -1;
+    return Filename;
   }
 };
 

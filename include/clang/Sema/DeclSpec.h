@@ -31,7 +31,6 @@
 #include "clang/Lex/Token.h"
 #include "clang/Sema/AttributeList.h"
 #include "clang/Sema/Ownership.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -358,9 +357,6 @@ private:
   // constexpr-specifier
   unsigned Constexpr_specified : 1;
 
-  // concept-specifier
-  unsigned Concept_specified : 1;
-
   union {
     UnionParsedType TypeRep;
     Decl *DeclRep;
@@ -372,6 +368,14 @@ private:
 
   // Scope specifier for the type spec, if applicable.
   CXXScopeSpec TypeScope;
+
+  // List of protocol qualifiers for objective-c classes.  Used for
+  // protocol-qualified interfaces "NString<foo>" and protocol-qualified id
+  // "id<foo>".
+  Decl * const *ProtocolQualifiers;
+  unsigned NumProtocolQualifiers;
+  SourceLocation ProtocolLAngleLoc;
+  SourceLocation *ProtocolLocs;
 
   // SourceLocation info.  These are null if the item wasn't specified or if
   // the setting was synthesized.
@@ -388,7 +392,7 @@ private:
   SourceLocation TQ_constLoc, TQ_restrictLoc, TQ_volatileLoc, TQ_atomicLoc;
   SourceLocation FS_inlineLoc, FS_virtualLoc, FS_explicitLoc, FS_noreturnLoc;
   SourceLocation FS_forceinlineLoc;
-  SourceLocation FriendLoc, ModulePrivateLoc, ConstexprLoc, ConceptLoc;
+  SourceLocation FriendLoc, ModulePrivateLoc, ConstexprLoc;
 
   WrittenBuiltinSpecs writtenBS;
   void SaveWrittenBuiltinSpecs();
@@ -432,12 +436,17 @@ public:
       FS_noreturn_specified(false),
       Friend_specified(false),
       Constexpr_specified(false),
-      Concept_specified(false),
       Attrs(attrFactory),
+      ProtocolQualifiers(nullptr),
+      NumProtocolQualifiers(0),
+      ProtocolLocs(nullptr),
       writtenBS(),
       ObjCQualifiers(nullptr) {
   }
-
+  ~DeclSpec() {
+    delete [] ProtocolQualifiers;
+    delete [] ProtocolLocs;
+  }
   // storage-class-specifier
   SCS getStorageClassSpec() const { return (SCS)StorageClassSpec; }
   TSCS getThreadStorageClassSpec() const {
@@ -476,8 +485,6 @@ public:
   bool isTypeAltiVecPixel() const { return TypeAltiVecPixel; }
   bool isTypeAltiVecBool() const { return TypeAltiVecBool; }
   bool isTypeSpecOwned() const { return TypeSpecOwned; }
-  bool isTypeRep() const { return isTypeRep((TST) TypeSpecType); }
-
   ParsedType getRepAsType() const {
     assert(isTypeRep((TST) TypeSpecType) && "DeclSpec does not store a type");
     return TypeRep;
@@ -680,8 +687,6 @@ public:
                             unsigned &DiagID);
   bool SetConstexprSpec(SourceLocation Loc, const char *&PrevSpec,
                         unsigned &DiagID);
-  bool SetConceptSpec(SourceLocation Loc, const char *&PrevSpec,
-                      unsigned &DiagID);
 
   bool isFriendSpecified() const { return Friend_specified; }
   SourceLocation getFriendSpecLoc() const { return FriendLoc; }
@@ -692,17 +697,9 @@ public:
   bool isConstexprSpecified() const { return Constexpr_specified; }
   SourceLocation getConstexprSpecLoc() const { return ConstexprLoc; }
 
-  bool isConceptSpecified() const { return Concept_specified; }
-  SourceLocation getConceptSpecLoc() const { return ConceptLoc; }
-
   void ClearConstexprSpec() {
     Constexpr_specified = false;
     ConstexprLoc = SourceLocation();
-  }
-
-  void ClearConceptSpec() {
-    Concept_specified = false;
-    ConceptLoc = SourceLocation();
   }
 
   AttributePool &getAttributePool() const {
@@ -738,6 +735,19 @@ public:
   void takeAttributesFrom(ParsedAttributes &attrs) {
     Attrs.takeAllFrom(attrs);
   }
+
+  typedef Decl * const *ProtocolQualifierListTy;
+  ProtocolQualifierListTy getProtocolQualifiers() const {
+    return ProtocolQualifiers;
+  }
+  SourceLocation *getProtocolLocs() const { return ProtocolLocs; }
+  unsigned getNumProtocolQualifiers() const {
+    return NumProtocolQualifiers;
+  }
+  SourceLocation getProtocolLAngleLoc() const { return ProtocolLAngleLoc; }
+  void setProtocolQualifiers(Decl * const *Protos, unsigned NP,
+                             SourceLocation *ProtoLocs,
+                             SourceLocation LAngleLoc);
 
   /// Finish - This does final analysis of the declspec, issuing diagnostics for
   /// things like "_Imaginary" (lacking an FP type).  After calling this method,
@@ -775,8 +785,7 @@ public:
     DQ_Out = 0x4,
     DQ_Bycopy = 0x8,
     DQ_Byref = 0x10,
-    DQ_Oneway = 0x20,
-    DQ_CSNullability = 0x40
+    DQ_Oneway = 0x20
   };
 
   /// PropertyAttributeKind - list of property attributes.
@@ -793,21 +802,16 @@ public:
     DQ_PR_atomic = 0x100,
     DQ_PR_weak =   0x200,
     DQ_PR_strong = 0x400,
-    DQ_PR_unsafe_unretained = 0x800,
-    DQ_PR_nullability = 0x1000,
-    DQ_PR_null_resettable = 0x2000
+    DQ_PR_unsafe_unretained = 0x800
   };
+
 
   ObjCDeclSpec()
     : objcDeclQualifier(DQ_None), PropertyAttributes(DQ_PR_noattr),
-      Nullability(0), GetterName(nullptr), SetterName(nullptr) { }
-
+      GetterName(nullptr), SetterName(nullptr) { }
   ObjCDeclQualifier getObjCDeclQualifier() const { return objcDeclQualifier; }
   void setObjCDeclQualifier(ObjCDeclQualifier DQVal) {
     objcDeclQualifier = (ObjCDeclQualifier) (objcDeclQualifier | DQVal);
-  }
-  void clearObjCDeclQualifier(ObjCDeclQualifier DQVal) {
-    objcDeclQualifier = (ObjCDeclQualifier) (objcDeclQualifier & ~DQVal);
   }
 
   ObjCPropertyAttributeKind getPropertyAttributes() const {
@@ -816,28 +820,6 @@ public:
   void setPropertyAttributes(ObjCPropertyAttributeKind PRVal) {
     PropertyAttributes =
       (ObjCPropertyAttributeKind)(PropertyAttributes | PRVal);
-  }
-
-  NullabilityKind getNullability() const {
-    assert(((getObjCDeclQualifier() & DQ_CSNullability) ||
-            (getPropertyAttributes() & DQ_PR_nullability)) &&
-           "Objective-C declspec doesn't have nullability");
-    return static_cast<NullabilityKind>(Nullability);
-  }
-
-  SourceLocation getNullabilityLoc() const {
-    assert(((getObjCDeclQualifier() & DQ_CSNullability) ||
-            (getPropertyAttributes() & DQ_PR_nullability)) &&
-           "Objective-C declspec doesn't have nullability");
-    return NullabilityLoc;
-  }
-
-  void setNullability(SourceLocation loc, NullabilityKind kind) {
-    assert(((getObjCDeclQualifier() & DQ_CSNullability) ||
-            (getPropertyAttributes() & DQ_PR_nullability)) &&
-           "Set the nullability declspec or property attribute first");
-    Nullability = static_cast<unsigned>(kind);
-    NullabilityLoc = loc;
   }
 
   const IdentifierInfo *getGetterName() const { return GetterName; }
@@ -852,15 +834,10 @@ private:
   // FIXME: These two are unrelated and mutually exclusive. So perhaps
   // we can put them in a union to reflect their mutual exclusivity
   // (space saving is negligible).
-  ObjCDeclQualifier objcDeclQualifier : 7;
+  ObjCDeclQualifier objcDeclQualifier : 6;
 
   // NOTE: VC++ treats enums as signed, avoid using ObjCPropertyAttributeKind
-  unsigned PropertyAttributes : 14;
-
-  unsigned Nullability : 2;
-
-  SourceLocation NullabilityLoc;
-
+  unsigned PropertyAttributes : 12;
   IdentifierInfo *GetterName;    // getter name or NULL if no getter
   IdentifierInfo *SetterName;    // setter name or NULL if no setter
 };
@@ -1438,8 +1415,7 @@ struct DeclaratorChunk {
   static DeclaratorChunk getPointer(unsigned TypeQuals, SourceLocation Loc,
                                     SourceLocation ConstQualLoc,
                                     SourceLocation VolatileQualLoc,
-                                    SourceLocation RestrictQualLoc,
-                                    SourceLocation AtomicQualLoc) {
+                                    SourceLocation RestrictQualLoc) {
     DeclaratorChunk I;
     I.Kind                = Pointer;
     I.Loc                 = Loc;
@@ -1447,7 +1423,6 @@ struct DeclaratorChunk {
     I.Ptr.ConstQualLoc    = ConstQualLoc.getRawEncoding();
     I.Ptr.VolatileQualLoc = VolatileQualLoc.getRawEncoding();
     I.Ptr.RestrictQualLoc = RestrictQualLoc.getRawEncoding();
-    I.Ptr.AtomicQualLoc   = AtomicQualLoc.getRawEncoding();
     I.Ptr.AttrList        = nullptr;
     return I;
   }
@@ -1639,13 +1614,7 @@ private:
   bool InlineParamsUsed;
 
   /// \brief true if the declaration is preceded by \c __extension__.
-  unsigned Extension : 1;
-
-  /// Indicates whether this is an Objective-C instance variable.
-  unsigned ObjCIvar : 1;
-    
-  /// Indicates whether this is an Objective-C 'weak' property.
-  unsigned ObjCWeakProperty : 1;
+  bool Extension : 1;
 
   /// \brief If this is the second or subsequent declarator in this declaration,
   /// the location of the comma before this declarator.
@@ -1664,8 +1633,7 @@ public:
       GroupingParens(false), FunctionDefinition(FDK_Declaration), 
       Redeclaration(false),
       Attrs(ds.getAttributePool().getFactory()), AsmLabel(nullptr),
-      InlineParamsUsed(false), Extension(false), ObjCIvar(false),
-      ObjCWeakProperty(false) {
+      InlineParamsUsed(false), Extension(false) {
   }
 
   ~Declarator() {
@@ -1743,8 +1711,6 @@ public:
     Attrs.clear();
     AsmLabel = nullptr;
     InlineParamsUsed = false;
-    ObjCIvar = false;
-    ObjCWeakProperty = false;
     CommaLoc = SourceLocation();
     EllipsisLoc = SourceLocation();
   }
@@ -2153,12 +2119,6 @@ public:
   void setExtension(bool Val = true) { Extension = Val; }
   bool getExtension() const { return Extension; }
 
-  void setObjCIvar(bool Val = true) { ObjCIvar = Val; }
-  bool isObjCIvar() const { return ObjCIvar; }
-    
-  void setObjCWeakProperty(bool Val = true) { ObjCWeakProperty = Val; }
-  bool isObjCWeakProperty() const { return ObjCWeakProperty; }
-
   void setInvalidType(bool Val = true) { InvalidType = Val; }
   bool isInvalidType() const {
     return InvalidType || DS.getTypeSpecType() == DeclSpec::TST_error;
@@ -2220,7 +2180,7 @@ public:
     VS_Sealed = 4
   };
 
-  VirtSpecifiers() : Specifiers(0), LastSpecifier(VS_None) { }
+  VirtSpecifiers() : Specifiers(0) { }
 
   bool SetSpecifier(Specifier VS, SourceLocation Loc,
                     const char *&PrevSpec);
@@ -2238,16 +2198,12 @@ public:
 
   static const char *getSpecifierName(Specifier VS);
 
-  SourceLocation getFirstLocation() const { return FirstLocation; }
   SourceLocation getLastLocation() const { return LastLocation; }
-  Specifier getLastSpecifier() const { return LastSpecifier; }
   
 private:
   unsigned Specifiers;
-  Specifier LastSpecifier;
 
   SourceLocation VS_overrideLoc, VS_finalLoc;
-  SourceLocation FirstLocation;
   SourceLocation LastLocation;
 };
 

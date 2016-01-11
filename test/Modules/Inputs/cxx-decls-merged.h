@@ -25,6 +25,3 @@ typedef decltype(name_for_linkage2_inner_b) NameForLinkage2Inner;
 
 namespace Aliased { extern int b; }
 namespace Alias = Aliased;
-
-struct InhCtorA { InhCtorA(int); };
-struct InhCtorB : InhCtorA { using InhCtorA::InhCtorA; };

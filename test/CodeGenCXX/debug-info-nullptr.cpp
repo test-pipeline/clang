@@ -4,4 +4,4 @@ void foo() {
   decltype(nullptr) t = 0;
 }
 
-// CHECK: !DIBasicType(tag: DW_TAG_unspecified_type, name: "decltype(nullptr)")
+// CHECK: [ DW_TAG_unspecified_type ] [decltype(nullptr)]

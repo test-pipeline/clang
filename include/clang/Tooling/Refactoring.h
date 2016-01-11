@@ -38,9 +38,7 @@ class RefactoringTool : public ClangTool {
 public:
   /// \see ClangTool::ClangTool.
   RefactoringTool(const CompilationDatabase &Compilations,
-                  ArrayRef<std::string> SourcePaths,
-                  std::shared_ptr<PCHContainerOperations> PCHContainerOps =
-                      std::make_shared<PCHContainerOperations>());
+                  ArrayRef<std::string> SourcePaths);
 
   /// \brief Returns the set of replacements to which replacements should
   /// be added during the run of the tool.

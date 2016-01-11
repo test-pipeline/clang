@@ -14,10 +14,6 @@
 #ifndef LLVM_CLANG_BASIC_LINKAGE_H
 #define LLVM_CLANG_BASIC_LINKAGE_H
 
-#include <assert.h>
-#include <stdint.h>
-#include <utility>
-
 namespace clang {
 
 /// \brief Describes the different kinds of linkage 

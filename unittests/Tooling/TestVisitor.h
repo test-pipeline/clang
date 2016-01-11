@@ -82,7 +82,7 @@ protected:
   public:
     FindConsumer(TestVisitor *Visitor) : Visitor(Visitor) {}
 
-    void HandleTranslationUnit(clang::ASTContext &Context) override {
+    virtual void HandleTranslationUnit(clang::ASTContext &Context) {
       Visitor->Context = &Context;
       Visitor->TraverseDecl(Context.getTranslationUnitDecl());
     }
@@ -95,8 +95,8 @@ protected:
   public:
     TestAction(TestVisitor *Visitor) : Visitor(Visitor) {}
 
-    std::unique_ptr<clang::ASTConsumer>
-    CreateASTConsumer(CompilerInstance &, llvm::StringRef dummy) override {
+    virtual std::unique_ptr<clang::ASTConsumer>
+    CreateASTConsumer(CompilerInstance &, llvm::StringRef dummy) {
       /// TestConsumer will be deleted by the framework calling us.
       return llvm::make_unique<FindConsumer>(Visitor);
     }
@@ -133,7 +133,7 @@ public:
   }
 
   /// \brief Checks that all expected matches have been found.
-  ~ExpectedLocationVisitor() override {
+  virtual ~ExpectedLocationVisitor() {
     for (typename std::vector<ExpectedMatch>::const_iterator
              It = ExpectedMatches.begin(), End = ExpectedMatches.end();
          It != End; ++It) {

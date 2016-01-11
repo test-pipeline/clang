@@ -92,8 +92,7 @@ namespace clang {
   enum UnaryExprOrTypeTrait {
     UETT_SizeOf,
     UETT_AlignOf,
-    UETT_VecStep,
-    UETT_OpenMPRequiredSimdAlign,
+    UETT_VecStep
   };
 }
 

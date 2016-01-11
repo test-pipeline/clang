@@ -61,7 +61,6 @@ add_clang_library(clangBasic
   CharInfo.cpp
   Diagnostic.cpp
   DiagnosticIDs.cpp
-  DiagnosticOptions.cpp
   FileManager.cpp
   FileSystemStatCache.cpp
   IdentifierTable.cpp

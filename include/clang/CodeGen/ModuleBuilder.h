@@ -26,8 +26,6 @@ namespace clang {
   class DiagnosticsEngine;
   class CoverageSourceInfo;
   class LangOptions;
-  class HeaderSearchOptions;
-  class PreprocessorOptions;
   class CodeGenOptions;
   class Decl;
 
@@ -44,8 +42,6 @@ namespace clang {
   /// the allocated CodeGenerator instance.
   CodeGenerator *CreateLLVMCodeGen(DiagnosticsEngine &Diags,
                                    const std::string &ModuleName,
-                                   const HeaderSearchOptions &HeaderSearchOpts,
-                                   const PreprocessorOptions &PreprocessorOpts,
                                    const CodeGenOptions &CGO,
                                    llvm::LLVMContext& C,
                                    CoverageSourceInfo *CoverageInfo = nullptr);

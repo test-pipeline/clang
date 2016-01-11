@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify -fopenmp %s
+// RUN: %clang_cc1 -verify -fopenmp=libiomp5 %s
 
 void foo() {
 }
@@ -132,14 +132,6 @@ int foomain(int argc, char **argv) {
   return 0;
 }
 
-namespace A {
-double x;
-#pragma omp threadprivate(x) // expected-note {{defined as threadprivate or thread local}}
-}
-namespace B {
-using A::x;
-}
-
 int main(int argc, char **argv) {
   const int d = 5;
   const int da[5] = {0};
@@ -211,7 +203,7 @@ int main(int argc, char **argv) {
 #pragma omp single firstprivate(m) // OK
   foo();
 #pragma omp parallel
-#pragma omp single firstprivate(h, B::x) // expected-error 2 {{threadprivate or thread local variable cannot be firstprivate}}
+#pragma omp single firstprivate(h) // expected-error {{threadprivate or thread local variable cannot be firstprivate}}
   foo();
 #pragma omp parallel
 #pragma omp single private(xa), firstprivate(xa) // expected-error {{private variable cannot be firstprivate}} expected-note {{defined as private}}

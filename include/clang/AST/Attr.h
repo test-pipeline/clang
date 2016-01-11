@@ -20,7 +20,6 @@
 #include "clang/AST/Type.h"
 #include "clang/Basic/AttrKinds.h"
 #include "clang/Basic/LLVM.h"
-#include "clang/Basic/Sanitizers.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/VersionTuple.h"
 #include "llvm/ADT/SmallVector.h"
@@ -53,8 +52,8 @@ protected:
   bool Inherited : 1;
   bool IsPackExpansion : 1;
   bool Implicit : 1;
-  bool IsLateParsed : 1;
-  bool DuplicatesAllowed : 1;
+
+  virtual ~Attr();
 
   void* operator new(size_t bytes) throw() {
     llvm_unreachable("Attrs cannot be allocated with regular 'new'.");
@@ -66,7 +65,7 @@ protected:
 public:
   // Forward so that the regular new and delete do not hide global ones.
   void* operator new(size_t Bytes, ASTContext &C,
-                     size_t Alignment = 8) throw() {
+                     size_t Alignment = 16) throw() {
     return ::operator new(Bytes, C, Alignment);
   }
   void operator delete(void *Ptr, ASTContext &C,
@@ -75,11 +74,9 @@ public:
   }
 
 protected:
-  Attr(attr::Kind AK, SourceRange R, unsigned SpellingListIndex,
-       bool IsLateParsed, bool DuplicatesAllowed)
+  Attr(attr::Kind AK, SourceRange R, unsigned SpellingListIndex = 0)
     : Range(R), AttrKind(AK), SpellingListIndex(SpellingListIndex),
-      Inherited(false), IsPackExpansion(false), Implicit(false),
-      IsLateParsed(IsLateParsed), DuplicatesAllowed(DuplicatesAllowed) {}
+      Inherited(false), IsPackExpansion(false), Implicit(false) {}
 
 public:
 
@@ -88,7 +85,7 @@ public:
   }
   
   unsigned getSpellingListIndex() const { return SpellingListIndex; }
-  const char *getSpelling() const;
+  virtual const char *getSpelling() const = 0;
 
   SourceLocation getLocation() const { return Range.getBegin(); }
   SourceRange getRange() const { return Range; }
@@ -105,24 +102,25 @@ public:
   bool isPackExpansion() const { return IsPackExpansion; }
 
   // Clone this attribute.
-  Attr *clone(ASTContext &C) const;
+  virtual Attr *clone(ASTContext &C) const = 0;
 
-  bool isLateParsed() const { return IsLateParsed; }
+  virtual bool isLateParsed() const { return false; }
 
   // Pretty print this attribute.
-  void printPretty(raw_ostream &OS, const PrintingPolicy &Policy) const;
+  virtual void printPretty(raw_ostream &OS,
+                           const PrintingPolicy &Policy) const = 0;
 
   /// \brief By default, attributes cannot be duplicated when being merged;
   /// however, an attribute can override this. Returns true if the attribute
   /// can be duplicated when merging.
-  bool duplicatesAllowed() const { return DuplicatesAllowed; }
+  virtual bool duplicatesAllowed() const { return false; }
 };
 
 class InheritableAttr : public Attr {
+  virtual void anchor();
 protected:
-  InheritableAttr(attr::Kind AK, SourceRange R, unsigned SpellingListIndex,
-                  bool IsLateParsed, bool DuplicatesAllowed)
-      : Attr(AK, R, SpellingListIndex, IsLateParsed, DuplicatesAllowed) {}
+  InheritableAttr(attr::Kind AK, SourceRange R, unsigned SpellingListIndex = 0)
+    : Attr(AK, R, SpellingListIndex) {}
 
 public:
   void setInherited(bool I) { Inherited = I; }
@@ -134,11 +132,11 @@ public:
 };
 
 class InheritableParamAttr : public InheritableAttr {
+  void anchor() override;
 protected:
-  InheritableParamAttr(attr::Kind AK, SourceRange R, unsigned SpellingListIndex,
-                       bool IsLateParsed, bool DuplicatesAllowed)
-      : InheritableAttr(AK, R, SpellingListIndex, IsLateParsed,
-                        DuplicatesAllowed) {}
+  InheritableParamAttr(attr::Kind AK, SourceRange R,
+                       unsigned SpellingListIndex = 0)
+    : InheritableAttr(AK, R, SpellingListIndex) {}
 
 public:
   // Implement isa/cast/dyncast/etc.

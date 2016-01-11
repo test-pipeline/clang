@@ -60,9 +60,3 @@ namespace ForwardDecls {
     typename xt::foo *t;
   };
 }
-
-namespace ConflictingRedecl {
-  template<typename> struct Nested {
-    template<typename> struct Nested; // expected-error {{member 'Nested' has the same name as its class}}
-  };
-}

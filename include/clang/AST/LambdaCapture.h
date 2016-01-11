@@ -85,6 +85,11 @@ public:
            (DeclAndBits.getInt() & Capture_ByCopy);
   }
 
+  /// \brief Determine whether this is an init-capture.
+  bool isInitCapture() const {
+    return capturesVariable() && getCapturedVar()->isInitCapture();
+  }
+
   /// \brief Retrieve the declaration of the local variable being
   /// captured.
   ///

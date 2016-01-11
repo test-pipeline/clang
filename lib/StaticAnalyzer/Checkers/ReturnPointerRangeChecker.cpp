@@ -80,10 +80,11 @@ void ReturnPointerRangeChecker::checkPreStmt(const ReturnStmt *RS,
     // reference is outside the range.
 
     // Generate a report for this bug.
-    auto report = llvm::make_unique<BugReport>(*BT, BT->getDescription(), N);
+    BugReport *report = 
+      new BugReport(*BT, BT->getDescription(), N);
 
     report->addRange(RetE->getSourceRange());
-    C.emitReport(std::move(report));
+    C.emitReport(report);
   }
 }
 

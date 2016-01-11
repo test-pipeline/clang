@@ -24,27 +24,6 @@
 
 using namespace clang;
 
-const DiagnosticBuilder &clang::operator<<(const DiagnosticBuilder &DB,
-                                           DiagNullabilityKind nullability) {
-  StringRef string;
-  switch (nullability.first) {
-  case NullabilityKind::NonNull:
-    string = nullability.second ? "'nonnull'" : "'_Nonnull'";
-    break;
-
-  case NullabilityKind::Nullable:
-    string = nullability.second ? "'nullable'" : "'_Nullable'";
-    break;
-
-  case NullabilityKind::Unspecified:
-    string = nullability.second ? "'null_unspecified'" : "'_Null_unspecified'";
-    break;
-  }
-
-  DB.AddString(string);
-  return DB;
-}
-
 static void DummyArgToStringFn(DiagnosticsEngine::ArgumentKind AK, intptr_t QT,
                             StringRef Modifier, StringRef Argument,
                             ArrayRef<DiagnosticsEngine::ArgumentValue> PrevArgs,
@@ -133,7 +112,7 @@ void DiagnosticsEngine::Reset() {
 
   // Create a DiagState and DiagStatePoint representing diagnostic changes
   // through command-line.
-  DiagStates.emplace_back();
+  DiagStates.push_back(DiagState());
   DiagStatePoints.push_back(DiagStatePoint(&DiagStates.back(), FullSourceLoc()));
 }
 
@@ -342,10 +321,18 @@ void DiagnosticsEngine::Report(const StoredDiagnostic &storedDiag) {
   NumDiagArgs = 0;
 
   DiagRanges.clear();
-  DiagRanges.append(storedDiag.range_begin(), storedDiag.range_end());
+  DiagRanges.reserve(storedDiag.range_size());
+  for (StoredDiagnostic::range_iterator
+         RI = storedDiag.range_begin(),
+         RE = storedDiag.range_end(); RI != RE; ++RI)
+    DiagRanges.push_back(*RI);
 
   DiagFixItHints.clear();
-  DiagFixItHints.append(storedDiag.fixit_begin(), storedDiag.fixit_end());
+  DiagFixItHints.reserve(storedDiag.fixit_size());
+  for (StoredDiagnostic::fixit_iterator
+         FI = storedDiag.fixit_begin(),
+         FE = storedDiag.fixit_end(); FI != FE; ++FI)
+    DiagFixItHints.push_back(*FI);
 
   assert(Client && "DiagnosticConsumer not set!");
   Level DiagLevel = storedDiag.getLevel();

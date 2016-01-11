@@ -77,12 +77,6 @@
 // RUN: %clang -target powerpc64-unknown-linux-gnu %s -mno-mfcrf -mmfcrf -### -o %t.o 2>&1 | FileCheck -check-prefix=CHECK-MFCRF %s
 // CHECK-MFCRF: "-target-feature" "+mfocrf"
 
-// RUN: %clang -target powerpc64-unknown-linux-gnu %s -mno-isel -### -o %t.o 2>&1 | FileCheck -check-prefix=CHECK-NOISEL %s
-// CHECK-NOISEL: "-target-feature" "-isel"
-
-// RUN: %clang -target powerpc64-unknown-linux-gnu %s -mno-isel -misel -### -o %t.o 2>&1 | FileCheck -check-prefix=CHECK-ISEL %s
-// CHECK-ISEL: "-target-feature" "+isel"
-
 // RUN: %clang -target powerpc64-unknown-linux-gnu %s -mno-popcntd -### -o %t.o 2>&1 | FileCheck -check-prefix=CHECK-NOPOPCNTD %s
 // CHECK-NOPOPCNTD: "-target-feature" "-popcntd"
 
@@ -142,8 +136,4 @@
 // RUN: %clang -target powerpc64le-unknown-linux-gnu %s -### -o %t.o 2>&1 | FileCheck -check-prefix=CHECK_LE_LD_ARGS %s
 // CHECK_LE_LD_ARGS: "elf64lppc"
 
-// OpenMP features
-// RUN: %clang -target powerpc-unknown-linux-gnu %s -### -fopenmp=libomp -o %t.o 2>&1 | FileCheck -check-prefix=CHECK_OPENMP_TLS %s
-// RUN: %clang -target powerpc64-unknown-linux-gnu %s -### -fopenmp=libomp -o %t.o 2>&1 | FileCheck -check-prefix=CHECK_OPENMP_TLS %s
-// RUN: %clang -target powerpc64le-unknown-linux-gnu %s -### -fopenmp=libomp -o %t.o 2>&1 | FileCheck -check-prefix=CHECK_OPENMP_TLS %s
-// CHECK_OPENMP_TLS-NOT: "-fnoopenmp-use-tls"
+

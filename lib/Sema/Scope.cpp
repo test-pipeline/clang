@@ -38,8 +38,7 @@ void Scope::Init(Scope *parent, unsigned flags) {
     FnParent       = parent->FnParent;
     BlockParent    = parent->BlockParent;
     TemplateParamParent = parent->TemplateParamParent;
-    MSLastManglingParent = parent->MSLastManglingParent;
-    MSCurManglingNumber = getMSLastManglingNumber();
+    MSLocalManglingParent = parent->MSLocalManglingParent;
     if ((Flags & (FnScope | ClassScope | BlockScope | TemplateParamScope |
                   FunctionPrototypeScope | AtCatchScope | ObjCMethodScope)) ==
         0)
@@ -48,10 +47,9 @@ void Scope::Init(Scope *parent, unsigned flags) {
     Depth = 0;
     PrototypeDepth = 0;
     PrototypeIndex = 0;
-    MSLastManglingParent = FnParent = BlockParent = nullptr;
+    MSLocalManglingParent = FnParent = BlockParent = nullptr;
     TemplateParamParent = nullptr;
-    MSLastManglingNumber = 1;
-    MSCurManglingNumber = 1;
+    MSLocalManglingNumber = 1;
   }
 
   // If this scope is a function or contains breaks/continues, remember it.
@@ -59,9 +57,8 @@ void Scope::Init(Scope *parent, unsigned flags) {
   // The MS mangler uses the number of scopes that can hold declarations as
   // part of an external name.
   if (Flags & (ClassScope | FnScope)) {
-    MSLastManglingNumber = getMSLastManglingNumber();
-    MSLastManglingParent = this;
-    MSCurManglingNumber = 1;
+    MSLocalManglingNumber = getMSLocalManglingNumber();
+    MSLocalManglingParent = this;
   }
   if (flags & BreakScope)         BreakParent = this;
   if (flags & ContinueScope)      ContinueParent = this;
@@ -81,7 +78,7 @@ void Scope::Init(Scope *parent, unsigned flags) {
     else if ((flags & EnumScope))
       ; // Don't increment for enum scopes.
     else
-      incrementMSManglingNumber();
+      incrementMSLocalManglingNumber();
   }
 
   DeclsInScope.clear();
@@ -212,13 +209,12 @@ void Scope::dumpImpl(raw_ostream &OS) const {
     OS << "Parent: (clang::Scope*)" << Parent << '\n';
 
   OS << "Depth: " << Depth << '\n';
-  OS << "MSLastManglingNumber: " << getMSLastManglingNumber() << '\n';
-  OS << "MSCurManglingNumber: " << getMSCurManglingNumber() << '\n';
+  OS << "MSLocalManglingNumber: " << getMSLocalManglingNumber() << '\n';
   if (const DeclContext *DC = getEntity())
     OS << "Entity : (clang::DeclContext*)" << DC << '\n';
 
   if (NRVO.getInt())
-    OS << "NRVO not allowed\n";
+    OS << "NRVO not allowed";
   else if (NRVO.getPointer())
     OS << "NRVO candidate : (clang::VarDecl*)" << NRVO.getPointer() << '\n';
 }

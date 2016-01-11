@@ -533,7 +533,7 @@ namespace {
       : CodeCompleteConsumer(Opts, false), 
         AllocatedResults(Results), CCTUInfo(Results.CodeCompletionAllocator),
         TU(TranslationUnit) { }
-    ~CaptureCompletionResults() override { Finish(); }
+    ~CaptureCompletionResults() { Finish(); }
 
     void ProcessCodeCompleteResults(Sema &S, 
                                     CodeCompletionContext Context,
@@ -542,7 +542,7 @@ namespace {
       StoredResults.reserve(StoredResults.size() + NumResults);
       for (unsigned I = 0; I != NumResults; ++I) {
         CodeCompletionString *StoredCompletion        
-          = Results[I].CreateCodeCompletionString(S, Context, getAllocator(),
+          = Results[I].CreateCodeCompletionString(S, getAllocator(),
                                                   getCodeCompletionTUInfo(),
                                                   includeBriefComments());
         
@@ -656,7 +656,7 @@ struct CodeCompleteAtInfo {
   unsigned options;
   CXCodeCompleteResults *result;
 };
-static void clang_codeCompleteAt_Impl(void *UserData) {
+void clang_codeCompleteAt_Impl(void *UserData) {
   CodeCompleteAtInfo *CCAI = static_cast<CodeCompleteAtInfo*>(UserData);
   CXTranslationUnit TU = CCAI->TU;
   const char *complete_filename = CCAI->complete_filename;
@@ -715,12 +715,14 @@ static void clang_codeCompleteAt_Impl(void *UserData) {
 
   // Perform completion.
   AST->CodeComplete(complete_filename, complete_line, complete_column,
-                    RemappedFiles, (options & CXCodeComplete_IncludeMacros),
+                    RemappedFiles,
+                    (options & CXCodeComplete_IncludeMacros),
                     (options & CXCodeComplete_IncludeCodePatterns),
-                    IncludeBriefComments, Capture,
-                    CXXIdx->getPCHContainerOperations(), *Results->Diag,
-                    Results->LangOpts, *Results->SourceMgr, *Results->FileMgr,
-                    Results->Diagnostics, Results->TemporaryBuffers);
+                    IncludeBriefComments,
+                    Capture,
+                    *Results->Diag, Results->LangOpts, *Results->SourceMgr,
+                    *Results->FileMgr, Results->Diagnostics,
+                    Results->TemporaryBuffers);
 
   Results->DiagnosticsWrappers.resize(Results->Diagnostics.size());
 

@@ -19,7 +19,6 @@
 #include "clang/Frontend/SerializedDiagnosticReader.h"
 #include "clang/Frontend/SerializedDiagnostics.h"
 #include "llvm/ADT/Optional.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Bitcode/BitstreamReader.h"
@@ -37,7 +36,7 @@ namespace {
 class CXLoadedDiagnosticSetImpl : public CXDiagnosticSetImpl {
 public:
   CXLoadedDiagnosticSetImpl() : CXDiagnosticSetImpl(true), FakeFiles(FO) {}
-  ~CXLoadedDiagnosticSetImpl() override {}
+  virtual ~CXLoadedDiagnosticSetImpl() {}  
 
   llvm::BumpPtrAllocator Alloc;
   Strings Categories;

@@ -44,7 +44,9 @@ public:
     DT = new llvm::DominatorTreeBase<CFGBlock>(false);
   }
 
-  ~DominatorTree() override { delete DT; }
+  ~DominatorTree() {
+    delete DT;
+  }
 
   llvm::DominatorTreeBase<CFGBlock>& getBase() { return *DT; }
 

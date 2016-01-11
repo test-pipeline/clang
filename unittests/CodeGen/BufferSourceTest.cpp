@@ -62,8 +62,6 @@ TEST(BufferSourceTest, EmitCXXGlobalInitFunc) {
         CreateLLVMCodeGen(
             compiler.getDiagnostics(),
             "EmitCXXGlobalInitFuncTest",
-            compiler.getHeaderSearchOpts(),
-            compiler.getPreprocessorOpts(),
             compiler.getCodeGenOpts(),
             llvm::getGlobalContext())));
 

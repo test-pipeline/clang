@@ -125,23 +125,12 @@ break; \
   if (const PointerType *Ty = QT->getAs<PointerType>()) {
     QT = Context.getPointerType(Desugar(Context, Ty->getPointeeType(),
                                         ShouldAKA));
-  } else if (const auto *Ty = QT->getAs<ObjCObjectPointerType>()) {
-    QT = Context.getObjCObjectPointerType(Desugar(Context, Ty->getPointeeType(),
-                                                  ShouldAKA));
   } else if (const LValueReferenceType *Ty = QT->getAs<LValueReferenceType>()) {
     QT = Context.getLValueReferenceType(Desugar(Context, Ty->getPointeeType(),
                                                 ShouldAKA));
   } else if (const RValueReferenceType *Ty = QT->getAs<RValueReferenceType>()) {
     QT = Context.getRValueReferenceType(Desugar(Context, Ty->getPointeeType(),
                                                 ShouldAKA));
-  } else if (const auto *Ty = QT->getAs<ObjCObjectType>()) {
-    if (Ty->getBaseType().getTypePtr() != Ty && !ShouldAKA) {
-      QualType BaseType = Desugar(Context, Ty->getBaseType(), ShouldAKA);
-      QT = Context.getObjCObjectType(BaseType, Ty->getTypeArgsAsWritten(),
-                                     llvm::makeArrayRef(Ty->qual_begin(),
-                                                        Ty->getNumProtocols()),
-                                     Ty->isKindOfTypeAsWritten());
-    }
   }
 
   return QC.apply(Context, QT);
@@ -192,8 +181,8 @@ ConvertTypeToDiagnosticString(ASTContext &Context, QualType Ty,
     if (CompareCanTy == CanTy)
       continue;  // Same canonical types
     std::string CompareS = CompareTy.getAsString(Context.getPrintingPolicy());
-    bool ShouldAKA = false;
-    QualType CompareDesugar = Desugar(Context, CompareTy, ShouldAKA);
+    bool aka;
+    QualType CompareDesugar = Desugar(Context, CompareTy, aka);
     std::string CompareDesugarStr =
         CompareDesugar.getAsString(Context.getPrintingPolicy());
     if (CompareS != S && CompareDesugarStr != S)
@@ -1014,11 +1003,9 @@ class TemplateDiff {
       Tree.SetDefault(FromIter.isEnd() && FromExpr, ToIter.isEnd() && ToExpr);
       if (FromDefaultNonTypeDecl->getType()->isIntegralOrEnumerationType()) {
         if (FromExpr)
-          HasFromInt = GetInt(Context, FromIter, FromExpr, FromInt,
-                              FromDefaultNonTypeDecl->getType());
+          HasFromInt = GetInt(Context, FromIter, FromExpr, FromInt);
         if (ToExpr)
-          HasToInt = GetInt(Context, ToIter, ToExpr, ToInt,
-                            ToDefaultNonTypeDecl->getType());
+          HasToInt = GetInt(Context, ToIter, ToExpr, ToInt);
       }
       if (HasFromInt && HasToInt) {
         Tree.SetNode(FromInt, ToInt, HasFromInt, HasToInt);
@@ -1039,11 +1026,9 @@ class TemplateDiff {
 
     if (HasFromInt || HasToInt) {
       if (!HasFromInt && FromExpr)
-        HasFromInt = GetInt(Context, FromIter, FromExpr, FromInt,
-                            FromDefaultNonTypeDecl->getType());
+        HasFromInt = GetInt(Context, FromIter, FromExpr, FromInt);
       if (!HasToInt && ToExpr)
-        HasToInt = GetInt(Context, ToIter, ToExpr, ToInt,
-                          ToDefaultNonTypeDecl->getType());
+        HasToInt = GetInt(Context, ToIter, ToExpr, ToInt);
       Tree.SetNode(FromInt, ToInt, HasFromInt, HasToInt);
       if (HasFromInt && HasToInt) {
         Tree.SetSame(FromInt == ToInt);
@@ -1225,11 +1210,9 @@ class TemplateDiff {
   }
 
   /// GetInt - Retrieves the template integer argument, including evaluating
-  /// default arguments.  If the value comes from an expression, extend the
-  /// APSInt to size of IntegerType to match the behavior in
-  /// Sema::CheckTemplateArgument
+  /// default arguments.
   static bool GetInt(ASTContext &Context, const TSTiterator &Iter,
-                     Expr *ArgExpr, llvm::APSInt &Int, QualType IntegerType) {
+                     Expr *ArgExpr, llvm::APSInt &Int) {
     // Default, value-depenedent expressions require fetching
     // from the desugared TemplateArgument, otherwise expression needs to
     // be evaluatable.
@@ -1241,14 +1224,12 @@ class TemplateDiff {
         case TemplateArgument::Expression:
           ArgExpr = Iter.getDesugar().getAsExpr();
           Int = ArgExpr->EvaluateKnownConstInt(Context);
-          Int = Int.extOrTrunc(Context.getTypeSize(IntegerType));
           return true;
         default:
           llvm_unreachable("Unexpected template argument kind");
       }
     } else if (ArgExpr->isEvaluatable(Context)) {
       Int = ArgExpr->EvaluateKnownConstInt(Context);
-      Int = Int.extOrTrunc(Context.getTypeSize(IntegerType));
       return true;
     }
 

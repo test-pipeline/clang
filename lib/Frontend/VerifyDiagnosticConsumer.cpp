@@ -58,9 +58,9 @@ public:
 
   /// \brief Hook into the preprocessor and update the list of parsed
   /// files when the preprocessor indicates a new file is entered.
-  void FileChanged(SourceLocation Loc, FileChangeReason Reason,
-                   SrcMgr::CharacteristicKind FileType,
-                   FileID PrevFID) override {
+  virtual void FileChanged(SourceLocation Loc, FileChangeReason Reason,
+                           SrcMgr::CharacteristicKind FileType,
+                           FileID PrevFID) {
     Verify.UpdateParsedFileStatus(SM, SM.getFileID(Loc),
                                   VerifyDiagnosticConsumer::IsParsed);
   }
@@ -691,8 +691,7 @@ static unsigned CheckLists(DiagnosticsEngine &Diags, SourceManager &SourceMgr,
                            const char *Label,
                            DirectiveList &Left,
                            const_diag_iterator d2_begin,
-                           const_diag_iterator d2_end,
-                           bool IgnoreUnexpected) {
+                           const_diag_iterator d2_end) {
   std::vector<Directive *> LeftOnly;
   DiagList Right(d2_begin, d2_end);
 
@@ -728,8 +727,7 @@ static unsigned CheckLists(DiagnosticsEngine &Diags, SourceManager &SourceMgr,
   }
   // Now all that's left in Right are those that were not matched.
   unsigned num = PrintExpected(Diags, SourceMgr, LeftOnly, Label);
-  if (!IgnoreUnexpected)
-    num += PrintUnexpected(Diags, &SourceMgr, Right.begin(), Right.end(), Label);
+  num += PrintUnexpected(Diags, &SourceMgr, Right.begin(), Right.end(), Label);
   return num;
 }
 
@@ -747,28 +745,21 @@ static unsigned CheckResults(DiagnosticsEngine &Diags, SourceManager &SourceMgr,
   //   Seen \ Expected - set seen but not expected
   unsigned NumProblems = 0;
 
-  const DiagnosticLevelMask DiagMask =
-    Diags.getDiagnosticOptions().getVerifyIgnoreUnexpected();
-
   // See if there are error mismatches.
   NumProblems += CheckLists(Diags, SourceMgr, "error", ED.Errors,
-                            Buffer.err_begin(), Buffer.err_end(),
-                            bool(DiagnosticLevelMask::Error & DiagMask));
+                            Buffer.err_begin(), Buffer.err_end());
 
   // See if there are warning mismatches.
   NumProblems += CheckLists(Diags, SourceMgr, "warning", ED.Warnings,
-                            Buffer.warn_begin(), Buffer.warn_end(),
-                            bool(DiagnosticLevelMask::Warning & DiagMask));
+                            Buffer.warn_begin(), Buffer.warn_end());
 
   // See if there are remark mismatches.
   NumProblems += CheckLists(Diags, SourceMgr, "remark", ED.Remarks,
-                            Buffer.remark_begin(), Buffer.remark_end(),
-                            bool(DiagnosticLevelMask::Remark & DiagMask));
+                            Buffer.remark_begin(), Buffer.remark_end());
 
   // See if there are note mismatches.
   NumProblems += CheckLists(Diags, SourceMgr, "note", ED.Notes,
-                            Buffer.note_begin(), Buffer.note_end(),
-                            bool(DiagnosticLevelMask::Note & DiagMask));
+                            Buffer.note_begin(), Buffer.note_end());
 
   return NumProblems;
 }
@@ -863,20 +854,12 @@ void VerifyDiagnosticConsumer::CheckDiagnostics() {
     // Check that the expected diagnostics occurred.
     NumErrors += CheckResults(Diags, *SrcManager, *Buffer, ED);
   } else {
-    const DiagnosticLevelMask DiagMask =
-        ~Diags.getDiagnosticOptions().getVerifyIgnoreUnexpected();
-    if (bool(DiagnosticLevelMask::Error & DiagMask))
-      NumErrors += PrintUnexpected(Diags, nullptr, Buffer->err_begin(),
-                                   Buffer->err_end(), "error");
-    if (bool(DiagnosticLevelMask::Warning & DiagMask))
-      NumErrors += PrintUnexpected(Diags, nullptr, Buffer->warn_begin(),
-                                   Buffer->warn_end(), "warn");
-    if (bool(DiagnosticLevelMask::Remark & DiagMask))
-      NumErrors += PrintUnexpected(Diags, nullptr, Buffer->remark_begin(),
-                                   Buffer->remark_end(), "remark");
-    if (bool(DiagnosticLevelMask::Note & DiagMask))
-      NumErrors += PrintUnexpected(Diags, nullptr, Buffer->note_begin(),
-                                   Buffer->note_end(), "note");
+    NumErrors += (PrintUnexpected(Diags, nullptr, Buffer->err_begin(),
+                                  Buffer->err_end(), "error") +
+                  PrintUnexpected(Diags, nullptr, Buffer->warn_begin(),
+                                  Buffer->warn_end(), "warn") +
+                  PrintUnexpected(Diags, nullptr, Buffer->note_begin(),
+                                  Buffer->note_end(), "note"));
   }
 
   Diags.setClient(CurClient, Owner.release() != nullptr);

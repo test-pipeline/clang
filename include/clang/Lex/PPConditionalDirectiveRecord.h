@@ -91,9 +91,9 @@ private:
   void Elif(SourceLocation Loc, SourceRange ConditionRange,
             ConditionValueKind ConditionValue, SourceLocation IfLoc) override;
   void Ifdef(SourceLocation Loc, const Token &MacroNameTok,
-             const MacroDefinition &MD) override;
+             const MacroDirective *MD) override;
   void Ifndef(SourceLocation Loc, const Token &MacroNameTok,
-              const MacroDefinition &MD) override;
+              const MacroDirective *MD) override;
   void Else(SourceLocation Loc, SourceLocation IfLoc) override;
   void Endif(SourceLocation Loc, SourceLocation IfLoc) override;
 };

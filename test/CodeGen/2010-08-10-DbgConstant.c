@@ -1,5 +1,4 @@
-// RUN: %clang_cc1 -S -emit-llvm -g  %s -o - | FileCheck %s
-// CHECK: !DIGlobalVariable(
+// RUN: %clang_cc1 -S -emit-llvm -g  %s -o - | grep DW_TAG_variable
 
 static const unsigned int ro = 201;
 void bar(int);

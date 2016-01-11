@@ -97,11 +97,10 @@ static void AddImplicitIncludePTH(MacroBuilder &Builder, Preprocessor &PP,
 /// \brief Add an implicit \#include using the original file used to generate
 /// a PCH file.
 static void AddImplicitIncludePCH(MacroBuilder &Builder, Preprocessor &PP,
-                                  const PCHContainerReader &PCHContainerRdr,
                                   StringRef ImplicitIncludePCH) {
   std::string OriginalFile =
-      ASTReader::getOriginalSourceFile(ImplicitIncludePCH, PP.getFileManager(),
-                                       PCHContainerRdr, PP.getDiagnostics());
+    ASTReader::getOriginalSourceFile(ImplicitIncludePCH, PP.getFileManager(),
+                                     PP.getDiagnostics());
   if (OriginalFile.empty())
     return;
 
@@ -134,7 +133,6 @@ static void DefineFloatMacros(MacroBuilder &Builder, StringRef Prefix,
                      "4.94065645841246544176568792868221e-324",
                      "6.47517511943802511092443895822764655e-4966");
   int Digits = PickFP(Sem, 6, 15, 18, 31, 33);
-  int DecimalDigits = PickFP(Sem, 9, 17, 21, 33, 36);
   Epsilon = PickFP(Sem, "1.19209290e-7", "2.2204460492503131e-16",
                    "1.08420217248550443401e-19",
                    "4.94065645841246544176568792868221e-324",
@@ -161,7 +159,6 @@ static void DefineFloatMacros(MacroBuilder &Builder, StringRef Prefix,
   Builder.defineMacro(DefPrefix + "DENORM_MIN__", Twine(DenormMin)+Ext);
   Builder.defineMacro(DefPrefix + "HAS_DENORM__");
   Builder.defineMacro(DefPrefix + "DIG__", Twine(Digits));
-  Builder.defineMacro(DefPrefix + "DECIMAL_DIG__", Twine(DecimalDigits));
   Builder.defineMacro(DefPrefix + "EPSILON__", Twine(Epsilon)+Ext);
   Builder.defineMacro(DefPrefix + "HAS_INFINITY__");
   Builder.defineMacro(DefPrefix + "HAS_QUIET_NAN__");
@@ -454,8 +451,6 @@ static void InitializeCPlusPlusFeatureTestMacros(const LangOptions &LangOpts,
   }
   if (LangOpts.SizedDeallocation)
     Builder.defineMacro("__cpp_sized_deallocation", "201309");
-  if (LangOpts.ConceptsTS)
-    Builder.defineMacro("__cpp_experimental_concepts", "1");
 }
 
 static void InitializePredefinedMacros(const TargetInfo &TI,
@@ -793,7 +788,7 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
     Builder.defineMacro("__FINITE_MATH_ONLY__", "0");
 
   if (!LangOpts.MSVCCompat) {
-    if (LangOpts.GNUInline || LangOpts.CPlusPlus)
+    if (LangOpts.GNUInline)
       Builder.defineMacro("__GNUC_GNU_INLINE__");
     else
       Builder.defineMacro("__GNUC_STDC_INLINE__");
@@ -840,7 +835,8 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   // Macros to control C99 numerics and <float.h>
   Builder.defineMacro("__FLT_EVAL_METHOD__", Twine(TI.getFloatEvalMethod()));
   Builder.defineMacro("__FLT_RADIX__", "2");
-  Builder.defineMacro("__DECIMAL_DIG__", "__LDBL_DECIMAL_DIG__");
+  int Dig = PickFP(&TI.getLongDoubleFormat(), -1/*FIXME*/, 17, 21, 33, 36);
+  Builder.defineMacro("__DECIMAL_DIG__", Twine(Dig));
 
   if (LangOpts.getStackProtector() == LangOptions::SSPOn)
     Builder.defineMacro("__SSP__");
@@ -868,14 +864,6 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
                         "__attribute__((objc_ownership(none)))");
   }
 
-  // On Darwin, there are __double_underscored variants of the type
-  // nullability qualifiers.
-  if (TI.getTriple().isOSDarwin()) {
-    Builder.defineMacro("__nonnull", "_Nonnull");
-    Builder.defineMacro("__null_unspecified", "_Null_unspecified");
-    Builder.defineMacro("__nullable", "_Nullable");
-  }
-
   // OpenMP definition
   if (LangOpts.OpenMP) {
     // OpenMP 2.2:
@@ -900,10 +888,9 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
 /// InitializePreprocessor - Initialize the preprocessor getting it and the
 /// environment ready to process a single file. This returns true on error.
 ///
-void clang::InitializePreprocessor(
-    Preprocessor &PP, const PreprocessorOptions &InitOpts,
-    const PCHContainerReader &PCHContainerRdr,
-    const FrontendOptions &FEOpts) {
+void clang::InitializePreprocessor(Preprocessor &PP,
+                                   const PreprocessorOptions &InitOpts,
+                                   const FrontendOptions &FEOpts) {
   const LangOptions &LangOpts = PP.getLangOpts();
   std::string PredefineBuffer;
   PredefineBuffer.reserve(4080);
@@ -962,8 +949,7 @@ void clang::InitializePreprocessor(
 
   // Process -include-pch/-include-pth directives.
   if (!InitOpts.ImplicitPCHInclude.empty())
-    AddImplicitIncludePCH(Builder, PP, PCHContainerRdr,
-                          InitOpts.ImplicitPCHInclude);
+    AddImplicitIncludePCH(Builder, PP, InitOpts.ImplicitPCHInclude);
   if (!InitOpts.ImplicitPTHInclude.empty())
     AddImplicitIncludePTH(Builder, PP, InitOpts.ImplicitPTHInclude);
 

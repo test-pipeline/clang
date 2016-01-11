@@ -26,8 +26,8 @@ public:
   CXLoadedDiagnostic() : CXDiagnosticImpl(LoadedDiagnosticKind),
     severity(0), category(0) {}
 
-  ~CXLoadedDiagnostic() override;
-
+  virtual ~CXLoadedDiagnostic();
+  
   /// \brief Return the severity of the diagnostic.
   CXDiagnosticSeverity getSeverity() const override;
 

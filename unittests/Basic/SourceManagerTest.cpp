@@ -61,7 +61,8 @@ class VoidModuleLoader : public ModuleLoader {
 
   void makeModuleVisible(Module *Mod,
                          Module::NameVisibilityKind Visibility,
-                         SourceLocation ImportLoc) override { }
+                         SourceLocation ImportLoc,
+                         bool Complain) override { }
 
   GlobalModuleIndex *loadGlobalModuleIndex(SourceLocation TriggerLoc) override
     { return nullptr; }
@@ -256,15 +257,15 @@ class MacroTracker : public PPCallbacks {
 
 public:
   explicit MacroTracker(std::vector<MacroAction> &Macros) : Macros(Macros) { }
-
-  void MacroDefined(const Token &MacroNameTok,
-                    const MacroDirective *MD) override {
+  
+  virtual void MacroDefined(const Token &MacroNameTok,
+                            const MacroDirective *MD) {
     Macros.push_back(MacroAction(MD->getLocation(),
                                  MacroNameTok.getIdentifierInfo()->getName(),
                                  true));
   }
-  void MacroExpands(const Token &MacroNameTok, const MacroDefinition &MD,
-                    SourceRange Range, const MacroArgs *Args) override {
+  virtual void MacroExpands(const Token &MacroNameTok, const MacroDirective *MD,
+                            SourceRange Range, const MacroArgs *Args) {
     Macros.push_back(MacroAction(MacroNameTok.getLocation(),
                                  MacroNameTok.getIdentifierInfo()->getName(),
                                  false));

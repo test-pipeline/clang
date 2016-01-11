@@ -84,10 +84,6 @@ clang_VirtualFileOverlay_writeToBuffer(CXVirtualFileOverlay VFO, unsigned,
   return CXError_Success;
 }
 
-void clang_free(void *buffer) {
-  free(buffer);
-}
-
 void clang_VirtualFileOverlay_dispose(CXVirtualFileOverlay VFO) {
   delete unwrap(VFO);
 }

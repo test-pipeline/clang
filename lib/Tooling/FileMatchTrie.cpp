@@ -17,20 +17,18 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include <sstream>
-using namespace clang;
-using namespace tooling;
 
-namespace {
+namespace clang {
+namespace tooling {
+
 /// \brief Default \c PathComparator using \c llvm::sys::fs::equivalent().
 struct DefaultPathComparator : public PathComparator {
+  virtual ~DefaultPathComparator() {}
   bool equivalent(StringRef FileA, StringRef FileB) const override {
     return FileA == FileB || llvm::sys::fs::equivalent(FileA, FileB);
   }
 };
-}
 
-namespace clang {
-namespace tooling {
 /// \brief A node of the \c FileMatchTrie.
 ///
 /// Each node has storage for up to one path and a map mapping a path segment to
@@ -158,8 +156,6 @@ private:
   // The children of this node stored in a map based on the next path segment.
   llvm::StringMap<FileMatchTrieNode> Children;
 };
-} // end namespace tooling
-} // end namespace clang
 
 FileMatchTrie::FileMatchTrie()
   : Root(new FileMatchTrieNode), Comparator(new DefaultPathComparator()) {}
@@ -187,3 +183,6 @@ StringRef FileMatchTrie::findEquivalent(StringRef FileName,
     Error << "Path is ambiguous";
   return Result;
 }
+
+} // end namespace tooling
+} // end namespace clang

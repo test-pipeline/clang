@@ -1,6 +1,6 @@
 // RUN: %clang_cc1 -emit-llvm -g %s -o - | FileCheck %s
-// CHECK: !DILexicalBlock(
-// CHECK: !DILexicalBlock(
+// CHECK: DW_TAG_lexical_block
+// CHECK: DW_TAG_lexical_block
 int foo(int i) {
 	if (i) {
 		int j = 2;

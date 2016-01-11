@@ -44,7 +44,7 @@ class PrintMatch : public MatchFinder::MatchCallback {
 public:
   PrintMatch() : NumFoundStmts(0) {}
 
-  void run(const MatchFinder::MatchResult &Result) override {
+  virtual void run(const MatchFinder::MatchResult &Result) {
     const Stmt *S = Result.Nodes.getStmtAs<Stmt>("id");
     if (!S)
       return;

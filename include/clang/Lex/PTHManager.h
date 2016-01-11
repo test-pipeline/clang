@@ -19,7 +19,6 @@
 #include "clang/Basic/LangOptions.h"
 #include "clang/Lex/PTHLexer.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/OnDiskHashTable.h"
 #include <string>
@@ -113,7 +112,7 @@ public:
   // The current PTH version.
   enum { Version = 10 };
 
-  ~PTHManager() override;
+  ~PTHManager();
 
   /// getOriginalSourceFile - Return the full path to the original header
   ///  file name that was used to generate the PTH cache.
@@ -129,7 +128,7 @@ public:
 
   /// Create - This method creates PTHManager objects.  The 'file' argument
   ///  is the name of the PTH file.  This method returns NULL upon failure.
-  static PTHManager *Create(StringRef file, DiagnosticsEngine &Diags);
+  static PTHManager *Create(const std::string& file, DiagnosticsEngine &Diags);
 
   void setPreprocessor(Preprocessor *pp) { PP = pp; }
 

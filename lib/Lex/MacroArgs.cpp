@@ -133,11 +133,12 @@ bool MacroArgs::ArgNeedsPreexpansion(const Token *ArgTok,
   // If there are no identifiers in the argument list, or if the identifiers are
   // known to not be macros, pre-expansion won't modify it.
   for (; ArgTok->isNot(tok::eof); ++ArgTok)
-    if (IdentifierInfo *II = ArgTok->getIdentifierInfo())
-      if (II->hasMacroDefinition())
+    if (IdentifierInfo *II = ArgTok->getIdentifierInfo()) {
+      if (II->hasMacroDefinition() && PP.getMacroInfo(II)->isEnabled())
         // Return true even though the macro could be a function-like macro
-        // without a following '(' token, or could be disabled, or not visible.
+        // without a following '(' token.
         return true;
+    }
   return false;
 }
 

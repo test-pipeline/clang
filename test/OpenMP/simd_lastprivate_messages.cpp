@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify -fopenmp %s
+// RUN: %clang_cc1 -verify -fopenmp=libiomp5 %s
 
 void foo() {
 }
@@ -15,16 +15,15 @@ class S2 {
 public:
   S2() : a(0) {}
   S2(S2 &s2) : a(s2.a) {}
-  const S2 &operator=(const S2 &) const;
   static float S2s; // expected-note {{static data member is predetermined as shared}}
   static const float S2sc;
 };
 const float S2::S2sc = 0; // expected-note {{static data member is predetermined as shared}}
 const S2 b;
 const S2 ba[5];
-class S3 {
+class S3 { // expected-note {{'S3' declared here}}
   int a;
-  S3 &operator=(const S3 &s3); // expected-note {{implicitly declared private here}}
+  S3 &operator=(const S3 &s3);
 
 public:
   S3() : a(0) {}
@@ -33,17 +32,17 @@ public:
 const S3 c;         // expected-note {{global variable is predetermined as shared}}
 const S3 ca[5];     // expected-note {{global variable is predetermined as shared}}
 extern const int f; // expected-note {{global variable is predetermined as shared}}
-class S4 {
+class S4 {          // expected-note {{'S4' declared here}}
   int a;
-  S4();          // expected-note {{implicitly declared private here}}
+  S4();
   S4(const S4 &s4);
 
 public:
   S4(int v) : a(v) {}
 };
-class S5 {
+class S5 { // expected-note {{'S5' declared here}}
   int a;
-  S5() : a(0) {} // expected-note {{implicitly declared private here}}
+  S5() : a(0) {}
 
 public:
   S5(const S5 &s5) : a(s5.a) {}
@@ -52,14 +51,6 @@ public:
 
 S3 h;
 #pragma omp threadprivate(h) // expected-note 2 {{defined as threadprivate or thread local}}
-
-namespace A {
-double x;
-#pragma omp threadprivate(x) // expected-note {{defined as threadprivate or thread local}}
-}
-namespace B {
-using A::x;
-}
 
 template <class I, class C>
 int foomain(I argc, C **argv) {
@@ -100,7 +91,7 @@ int foomain(I argc, C **argv) {
 #pragma omp simd lastprivate(e, g)
   for (int k = 0; k < argc; ++k)
     ++k;
-#pragma omp simd lastprivate(h, B::x) // expected-error 2 {{threadprivate or thread local variable cannot be lastprivate}}
+#pragma omp simd lastprivate(h) // expected-error {{threadprivate or thread local variable cannot be lastprivate}}
   for (int k = 0; k < argc; ++k)
     ++k;
 #pragma omp simd firstprivate(i) // expected-error {{unexpected OpenMP clause 'firstprivate' in directive '#pragma omp simd'}}
@@ -130,9 +121,9 @@ int foomain(I argc, C **argv) {
 int main(int argc, char **argv) {
   const int d = 5;       // expected-note {{constant variable is predetermined as shared}}
   const int da[5] = {0}; // expected-note {{constant variable is predetermined as shared}}
-  S4 e(4);
-  S5 g(5);
-  S3 m;
+  S4 e(4);               // expected-note {{'e' defined here}}
+  S5 g(5);               // expected-note {{'g' defined here}}
+  S3 m;                  // expected-note {{'m' defined here}}
   int i;
   int &j = i;                // expected-note {{'j' defined here}}
 #pragma omp simd lastprivate // expected-error {{expected '(' after 'lastprivate'}}
@@ -190,10 +181,10 @@ int main(int argc, char **argv) {
 #pragma omp simd firstprivate(g) // expected-error {{unexpected OpenMP clause 'firstprivate' in directive '#pragma omp simd'}}
   for (i = 0; i < argc; ++i)
     foo();
-#pragma omp simd lastprivate(e, g) // expected-error {{calling a private constructor of class 'S4'}} expected-error {{calling a private constructor of class 'S5'}}
+#pragma omp simd lastprivate(e, g) // expected-error 2 {{lastprivate variable must have an accessible, unambiguous default constructor}}
   for (i = 0; i < argc; ++i)
     foo();
-#pragma omp simd lastprivate(m) // expected-error {{'operator=' is a private member of 'S3'}}
+#pragma omp simd lastprivate(m) // expected-error {{lastprivate variable must have an accessible, unambiguous copy assignment operator}}
   for (i = 0; i < argc; ++i)
     foo();
 #pragma omp simd lastprivate(h) // expected-error {{threadprivate or thread local variable cannot be lastprivate}}

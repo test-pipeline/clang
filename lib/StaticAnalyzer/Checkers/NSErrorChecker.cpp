@@ -275,7 +275,8 @@ void NSOrCFErrorDerefChecker::checkEvent(ImplicitNullDerefEvent event) const {
       CFBT.reset(new CFErrorDerefBug(this));
     bug = CFBT.get();
   }
-  BR.emitReport(llvm::make_unique<BugReport>(*bug, os.str(), event.SinkNode));
+  BugReport *report = new BugReport(*bug, os.str(), event.SinkNode);
+  BR.emitReport(report);
 }
 
 static bool IsNSError(QualType T, IdentifierInfo *II) {

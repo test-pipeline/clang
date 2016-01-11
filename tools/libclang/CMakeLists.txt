@@ -91,7 +91,6 @@ add_clang_library(libclang ${ENABLE_SHARED} ${ENABLE_STATIC}
   ${LIBS}
 
   LINK_COMPONENTS
-  ${LLVM_TARGETS_TO_BUILD}
   Core
   Support
   )

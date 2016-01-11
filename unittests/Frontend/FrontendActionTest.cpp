@@ -35,16 +35,15 @@ public:
   bool ActOnEndOfTranslationUnit;
   std::vector<std::string> decl_names;
 
-  bool BeginSourceFileAction(CompilerInstance &ci,
-                             StringRef filename) override {
+  virtual bool BeginSourceFileAction(CompilerInstance &ci, StringRef filename) {
     if (EnableIncrementalProcessing)
       ci.getPreprocessor().enableIncrementalProcessing();
 
     return ASTFrontendAction::BeginSourceFileAction(ci, filename);
   }
 
-  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
-                                                 StringRef InFile) override {
+  virtual std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
+                                                         StringRef InFile) {
     return llvm::make_unique<Visitor>(CI, ActOnEndOfTranslationUnit,
                                       decl_names);
   }
@@ -57,7 +56,7 @@ private:
       CI(CI), ActOnEndOfTranslationUnit(ActOnEndOfTranslationUnit),
       decl_names_(decl_names) {}
 
-    void HandleTranslationUnit(ASTContext &context) override {
+    virtual void HandleTranslationUnit(ASTContext &context) {
       if (ActOnEndOfTranslationUnit) {
         CI.getSema().ActOnEndOfTranslationUnit();
       }

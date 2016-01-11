@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify -fopenmp %s
+// RUN: %clang_cc1 -verify -fopenmp=libiomp5 %s
 
 void foo() {
 }
@@ -26,8 +26,8 @@ class S3 {
   S3 &operator=(const S3 &s3);
 
 public:
-  S3() : a(0) {} // expected-note 2 {{candidate constructor not viable: requires 0 arguments, but 1 was provided}}
-  S3(S3 &s3) : a(s3.a) {} // expected-note 2 {{candidate constructor not viable: 1st argument ('const S3') would lose const qualifier}}
+  S3() : a(0) {} // expected-note {{candidate constructor not viable: requires 0 arguments, but 1 was provided}}
+  S3(S3 &s3) : a(s3.a) {} // expected-note {{candidate constructor not viable: 1st argument ('const S3') would lose const qualifier}}
 };
 const S3 c;
 const S3 ca[5];
@@ -152,21 +152,6 @@ int foomain(int argc, char **argv) {
   return 0;
 }
 
-void bar(S4 a[2]) {
-#pragma omp parallel
-#pragma omp for firstprivate(a)
-  for (int i = 0; i < 2; ++i)
-    foo();
-}
-
-namespace A {
-double x;
-#pragma omp threadprivate(x) // expected-note {{defined as threadprivate or thread local}}
-}
-namespace B {
-using A::x;
-}
-
 int main(int argc, char **argv) {
   const int d = 5;
   const int da[5] = {0};
@@ -209,7 +194,7 @@ int main(int argc, char **argv) {
   for (i = 0; i < argc; ++i)
     foo();
 #pragma omp parallel
-#pragma omp for firstprivate(a, b, c, d, f) // expected-error {{firstprivate variable with incomplete type 'S1'}} expected-error {{no matching constructor for initialization of 'S3'}}
+#pragma omp for firstprivate(a, b, c, d, f) // expected-error {{firstprivate variable with incomplete type 'S1'}} expected-error {{no matching constructor for initialization of 'const S3'}}
   for (i = 0; i < argc; ++i)
     foo();
 #pragma omp parallel
@@ -225,7 +210,7 @@ int main(int argc, char **argv) {
   for (i = 0; i < argc; ++i)
     foo();
 #pragma omp parallel
-#pragma omp for firstprivate(ca) // expected-error {{no matching constructor for initialization of 'S3'}}
+#pragma omp for firstprivate(ca) // OK
   for (i = 0; i < argc; ++i)
     foo();
 #pragma omp parallel
@@ -301,10 +286,6 @@ int main(int argc, char **argv) {
     foo();
 #pragma omp parallel reduction(+ : i) // expected-note {{defined as reduction}}
 #pragma omp for firstprivate(i)       // expected-error {{firstprivate variable must be shared}}
-  for (i = 0; i < argc; ++i)
-    foo();
-#pragma omp parallel
-#pragma omp for firstprivate(B::x) // expected-error {{threadprivate or thread local variable cannot be firstprivate}}
   for (i = 0; i < argc; ++i)
     foo();
 

@@ -92,7 +92,7 @@ class RealFile : public File {
   }
 
 public:
-  ~RealFile() override;
+  ~RealFile();
   ErrorOr<Status> status() override;
   ErrorOr<std::unique_ptr<MemoryBuffer>>
   getBuffer(const Twine &Name, int64_t FileSize = -1,
@@ -324,6 +324,20 @@ directory_iterator OverlayFileSystem::dir_begin(const Twine &Dir,
 // VFSFromYAML implementation
 //===-----------------------------------------------------------------------===/
 
+// Allow DenseMap<StringRef, ...>.  This is useful below because we know all the
+// strings are literals and will outlive the map, and there is no reason to
+// store them.
+namespace llvm {
+  template<>
+  struct DenseMapInfo<StringRef> {
+    // This assumes that "" will never be a valid key.
+    static inline StringRef getEmptyKey() { return StringRef(""); }
+    static inline StringRef getTombstoneKey() { return StringRef(); }
+    static unsigned getHashValue(StringRef Val) { return HashString(Val); }
+    static bool isEqual(StringRef LHS, StringRef RHS) { return LHS == RHS; }
+  };
+}
+
 namespace {
 
 enum EntryKind {
@@ -348,7 +362,7 @@ class DirectoryEntry : public Entry {
   Status S;
 
 public:
-  ~DirectoryEntry() override;
+  virtual ~DirectoryEntry();
   DirectoryEntry(StringRef Name, std::vector<Entry *> Contents, Status S)
       : Entry(EK_Directory, Name), Contents(std::move(Contents)),
         S(std::move(S)) {}
@@ -484,7 +498,7 @@ private:
   ErrorOr<Status> status(const Twine &Path, Entry *E);
 
 public:
-  ~VFSFromYAML() override;
+  ~VFSFromYAML();
 
   /// \brief Parses \p Buffer, which is expected to be in YAML format and
   /// returns a virtual file system representing its contents.
@@ -1120,7 +1134,7 @@ VFSFromYamlDirIterImpl::VFSFromYamlDirIterImpl(const Twine &_Path,
   if (Current != End) {
     SmallString<128> PathStr(Dir);
     llvm::sys::path::append(PathStr, (*Current)->getName());
-    llvm::ErrorOr<vfs::Status> S = FS.status(PathStr);
+    llvm::ErrorOr<vfs::Status> S = FS.status(PathStr.str());
     if (S)
       CurrentEntry = *S;
     else
@@ -1133,7 +1147,7 @@ std::error_code VFSFromYamlDirIterImpl::increment() {
   if (++Current != End) {
     SmallString<128> PathStr(Dir);
     llvm::sys::path::append(PathStr, (*Current)->getName());
-    llvm::ErrorOr<vfs::Status> S = FS.status(PathStr);
+    llvm::ErrorOr<vfs::Status> S = FS.status(PathStr.str());
     if (!S)
       return S.getError();
     CurrentEntry = *S;

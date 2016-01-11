@@ -514,12 +514,6 @@ void Lexer::lexVerbatimBlockBody(Token &T) {
   if (CommentState == LCS_InsideCComment)
     skipLineStartingDecorations();
 
-  if (BufferPtr == CommentEnd) {
-    formTokenWithChars(T, BufferPtr, tok::verbatim_block_line);
-    T.setVerbatimBlockText("");
-    return;
-  }
-
   lexVerbatimBlockFirstLine(T);
 }
 

@@ -171,14 +171,14 @@ void TestAfterDivZeroChecker::reportBug(SVal Val, CheckerContext &C) const {
     if (!DivZeroBug)
       DivZeroBug.reset(new BuiltinBug(this, "Division by zero"));
 
-    auto R = llvm::make_unique<BugReport>(
-        *DivZeroBug, "Value being compared against zero has already been used "
-                     "for division",
-        N);
+    BugReport *R =
+        new BugReport(*DivZeroBug, "Value being compared against zero has "
+                                   "already been used for division",
+                      N);
 
     R->addVisitor(llvm::make_unique<DivisionBRVisitor>(Val.getAsSymbol(),
                                                        C.getStackFrame()));
-    C.emitReport(std::move(R));
+    C.emitReport(R);
   }
 }
 

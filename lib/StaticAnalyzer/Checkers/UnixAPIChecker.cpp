@@ -83,9 +83,9 @@ void UnixAPIChecker::ReportOpenBug(CheckerContext &C,
 
   LazyInitialize(BT_open, "Improper use of 'open'");
 
-  auto Report = llvm::make_unique<BugReport>(*BT_open, Msg, N);
+  BugReport *Report = new BugReport(*BT_open, Msg, N);
   Report->addRange(SR);
-  C.emitReport(std::move(Report));
+  C.emitReport(Report);
 }
 
 void UnixAPIChecker::CheckOpen(CheckerContext &C, const CallExpr *CE) const {
@@ -200,9 +200,9 @@ void UnixAPIChecker::CheckPthreadOnce(CheckerContext &C,
 
   LazyInitialize(BT_pthreadOnce, "Improper use of 'pthread_once'");
 
-  auto report = llvm::make_unique<BugReport>(*BT_pthreadOnce, os.str(), N);
+  BugReport *report = new BugReport(*BT_pthreadOnce, os.str(), N);
   report->addRange(CE->getArg(0)->getSourceRange());
-  C.emitReport(std::move(report));
+  C.emitReport(report);
 }
 
 //===----------------------------------------------------------------------===//
@@ -241,11 +241,11 @@ bool UnixAPIChecker::ReportZeroByteAllocation(CheckerContext &C,
   SmallString<256> S;
   llvm::raw_svector_ostream os(S);    
   os << "Call to '" << fn_name << "' has an allocation size of 0 bytes";
-  auto report = llvm::make_unique<BugReport>(*BT_mallocZero, os.str(), N);
+  BugReport *report = new BugReport(*BT_mallocZero, os.str(), N);
 
   report->addRange(arg->getSourceRange());
   bugreporter::trackNullOrUndefValue(N, arg, *report);
-  C.emitReport(std::move(report));
+  C.emitReport(report);
 
   return true;
 }

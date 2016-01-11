@@ -61,7 +61,8 @@ class VoidModuleLoader : public ModuleLoader {
 
   void makeModuleVisible(Module *Mod,
                          Module::NameVisibilityKind Visibility,
-                         SourceLocation ImportLoc) override { }
+                         SourceLocation ImportLoc,
+                         bool Complain) override { }
 
   GlobalModuleIndex *loadGlobalModuleIndex(SourceLocation TriggerLoc) override
     { return nullptr; }

@@ -83,12 +83,12 @@ void UndefinedAssignmentChecker::checkBind(SVal location, SVal val,
     break;
   }
 
-  auto R = llvm::make_unique<BugReport>(*BT, str, N);
+  BugReport *R = new BugReport(*BT, str, N);
   if (ex) {
     R->addRange(ex->getSourceRange());
     bugreporter::trackNullOrUndefValue(N, ex, *R);
   }
-  C.emitReport(std::move(R));
+  C.emitReport(R);
 }
 
 void ento::registerUndefinedAssignmentChecker(CheckerManager &mgr) {

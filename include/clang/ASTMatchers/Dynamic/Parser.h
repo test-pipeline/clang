@@ -123,7 +123,7 @@ public:
   ///   tokens.
   class RegistrySema : public Parser::Sema {
    public:
-     ~RegistrySema() override;
+    virtual ~RegistrySema();
 
     llvm::Optional<MatcherCtor>
     lookupMatcherCtor(StringRef MatcherName) override;

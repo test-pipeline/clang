@@ -130,15 +130,16 @@ public:
       return true;
 
     // Recurse to children.
-    for (const Stmt *SubStmt : E->children())
-      if (const Expr *SubExpr = dyn_cast_or_null<Expr>(SubStmt))
-        if (HasMacroID(SubExpr))
-          return true;
+    for (ConstStmtRange SubStmts = E->children(); SubStmts; ++SubStmts)
+      if (*SubStmts)
+        if (const Expr *SubExpr = dyn_cast<Expr>(*SubStmts))
+          if (HasMacroID(SubExpr))
+            return true;
 
     return false;
   }
 
-  void compareAlwaysTrue(const BinaryOperator *B, bool isAlwaysTrue) override {
+  void compareAlwaysTrue(const BinaryOperator *B, bool isAlwaysTrue) {
     if (HasMacroID(B))
       return;
 
@@ -147,8 +148,7 @@ public:
         << DiagRange << isAlwaysTrue;
   }
 
-  void compareBitwiseEquality(const BinaryOperator *B,
-                              bool isAlwaysTrue) override {
+  void compareBitwiseEquality(const BinaryOperator *B, bool isAlwaysTrue) {
     if (HasMacroID(B))
       return;
 
@@ -573,29 +573,28 @@ namespace {
 /// ContainsReference - A visitor class to search for references to
 /// a particular declaration (the needle) within any evaluated component of an
 /// expression (recursively).
-class ContainsReference : public ConstEvaluatedExprVisitor<ContainsReference> {
+class ContainsReference : public EvaluatedExprVisitor<ContainsReference> {
   bool FoundReference;
   const DeclRefExpr *Needle;
 
 public:
-  typedef ConstEvaluatedExprVisitor<ContainsReference> Inherited;
-
   ContainsReference(ASTContext &Context, const DeclRefExpr *Needle)
-    : Inherited(Context), FoundReference(false), Needle(Needle) {}
+    : EvaluatedExprVisitor<ContainsReference>(Context),
+      FoundReference(false), Needle(Needle) {}
 
-  void VisitExpr(const Expr *E) {
+  void VisitExpr(Expr *E) {
     // Stop evaluating if we already have a reference.
     if (FoundReference)
       return;
 
-    Inherited::VisitExpr(E);
+    EvaluatedExprVisitor<ContainsReference>::VisitExpr(E);
   }
 
-  void VisitDeclRefExpr(const DeclRefExpr *E) {
+  void VisitDeclRefExpr(DeclRefExpr *E) {
     if (E == Needle)
       FoundReference = true;
     else
-      Inherited::VisitDeclRefExpr(E);
+      EvaluatedExprVisitor<ContainsReference>::VisitDeclRefExpr(E);
   }
 
   bool doesContainReference() const { return FoundReference; }
@@ -854,7 +853,7 @@ static bool DiagnoseUninitializedUse(Sema &S, const VarDecl *VD,
         return false;
 
       ContainsReference CR(S.Context, DRE);
-      CR.Visit(Initializer);
+      CR.Visit(const_cast<Expr*>(Initializer));
       if (CR.doesContainReference()) {
         S.Diag(DRE->getLocStart(),
                diag::warn_uninit_self_reference_in_init)
@@ -1334,7 +1333,9 @@ class UninitValsDiagReporter : public UninitVariablesHandler {
   
 public:
   UninitValsDiagReporter(Sema &S) : S(S), uses(nullptr) {}
-  ~UninitValsDiagReporter() override { flushDiagnostics(); }
+  ~UninitValsDiagReporter() { 
+    flushDiagnostics();
+  }
 
   MappedType &getUses(const VarDecl *vd) {
     if (!uses)
@@ -1438,7 +1439,7 @@ struct SortDiagBySourceLocation {
 //===----------------------------------------------------------------------===//
 namespace clang {
 namespace threadSafety {
-namespace {
+
 class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
   Sema &S;
   DiagList Warnings;
@@ -1463,7 +1464,7 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
       PartialDiagnosticAt FNote(CurrentFunction->getBody()->getLocStart(),
                                 S.PDiag(diag::note_thread_warning_in_fun)
                                     << CurrentFunction->getNameAsString());
-      ONS.push_back(std::move(FNote));
+      ONS.push_back(FNote);
     }
     return ONS;
   }
@@ -1477,7 +1478,7 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
       PartialDiagnosticAt FNote(CurrentFunction->getBody()->getLocStart(),
                                 S.PDiag(diag::note_thread_warning_in_fun)
                                     << CurrentFunction->getNameAsString());
-      ONS.push_back(std::move(FNote));
+      ONS.push_back(FNote);
     }
     return ONS;
   }
@@ -1490,7 +1491,7 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
     if (!Loc.isValid())
       Loc = FunLocation;
     PartialDiagnosticAt Warning(Loc, S.PDiag(DiagID) << Kind << LockName);
-    Warnings.emplace_back(std::move(Warning), getNotes());
+    Warnings.push_back(DelayedDiag(Warning, getNotes()));
   }
 
  public:
@@ -1516,7 +1517,7 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
   void handleInvalidLockExp(StringRef Kind, SourceLocation Loc) override {
     PartialDiagnosticAt Warning(Loc, S.PDiag(diag::warn_cannot_resolve_lock)
                                          << Loc);
-    Warnings.emplace_back(std::move(Warning), getNotes());
+    Warnings.push_back(DelayedDiag(Warning, getNotes()));
   }
 
   void handleUnmatchedUnlock(StringRef Kind, Name LockName,
@@ -1532,7 +1533,7 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
     PartialDiagnosticAt Warning(Loc, S.PDiag(diag::warn_unlock_kind_mismatch)
                                          << Kind << LockName << Received
                                          << Expected);
-    Warnings.emplace_back(std::move(Warning), getNotes());
+    Warnings.push_back(DelayedDiag(Warning, getNotes()));
   }
 
   void handleDoubleLock(StringRef Kind, Name LockName, SourceLocation Loc) override {
@@ -1566,10 +1567,10 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
     if (LocLocked.isValid()) {
       PartialDiagnosticAt Note(LocLocked, S.PDiag(diag::note_locked_here)
                                               << Kind);
-      Warnings.emplace_back(std::move(Warning), getNotes(Note));
+      Warnings.push_back(DelayedDiag(Warning, getNotes(Note)));
       return;
     }
-    Warnings.emplace_back(std::move(Warning), getNotes());
+    Warnings.push_back(DelayedDiag(Warning, getNotes()));
   }
 
   void handleExclusiveAndShared(StringRef Kind, Name LockName,
@@ -1580,7 +1581,7 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
                                     << Kind << LockName);
     PartialDiagnosticAt Note(Loc2, S.PDiag(diag::note_lock_exclusive_and_shared)
                                        << Kind << LockName);
-    Warnings.emplace_back(std::move(Warning), getNotes(Note));
+    Warnings.push_back(DelayedDiag(Warning, getNotes(Note)));
   }
 
   void handleNoMutexHeld(StringRef Kind, const NamedDecl *D,
@@ -1593,7 +1594,7 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
                         diag::warn_var_deref_requires_any_lock;
     PartialDiagnosticAt Warning(Loc, S.PDiag(DiagID)
       << D->getNameAsString() << getLockKindFromAccessKind(AK));
-    Warnings.emplace_back(std::move(Warning), getNotes());
+    Warnings.push_back(DelayedDiag(Warning, getNotes()));
   }
 
   void handleMutexNotHeld(StringRef Kind, const NamedDecl *D,
@@ -1628,9 +1629,9 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
         PartialDiagnosticAt VNote(D->getLocation(),
                                  S.PDiag(diag::note_guarded_by_declared_here)
                                      << D->getNameAsString());
-        Warnings.emplace_back(std::move(Warning), getNotes(Note, VNote));
+        Warnings.push_back(DelayedDiag(Warning, getNotes(Note, VNote)));
       } else
-        Warnings.emplace_back(std::move(Warning), getNotes(Note));
+        Warnings.push_back(DelayedDiag(Warning, getNotes(Note)));
     } else {
       switch (POK) {
         case POK_VarAccess:
@@ -1656,18 +1657,19 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
         PartialDiagnosticAt Note(D->getLocation(),
                                  S.PDiag(diag::note_guarded_by_declared_here)
                                      << D->getNameAsString());
-        Warnings.emplace_back(std::move(Warning), getNotes(Note));
+        Warnings.push_back(DelayedDiag(Warning, getNotes(Note)));
       } else
-        Warnings.emplace_back(std::move(Warning), getNotes());
+        Warnings.push_back(DelayedDiag(Warning, getNotes()));
     }
   }
 
-  void handleNegativeNotHeld(StringRef Kind, Name LockName, Name Neg,
-                             SourceLocation Loc) override {
+
+  virtual void handleNegativeNotHeld(StringRef Kind, Name LockName, Name Neg,
+                                     SourceLocation Loc) override {
     PartialDiagnosticAt Warning(Loc,
         S.PDiag(diag::warn_acquire_requires_negative_cap)
         << Kind << LockName << Neg);
-    Warnings.emplace_back(std::move(Warning), getNotes());
+    Warnings.push_back(DelayedDiag(Warning, getNotes()));
   }
 
 
@@ -1675,20 +1677,23 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
                              SourceLocation Loc) override {
     PartialDiagnosticAt Warning(Loc, S.PDiag(diag::warn_fun_excludes_mutex)
                                          << Kind << FunName << LockName);
-    Warnings.emplace_back(std::move(Warning), getNotes());
+    Warnings.push_back(DelayedDiag(Warning, getNotes()));
   }
 
-  void handleLockAcquiredBefore(StringRef Kind, Name L1Name, Name L2Name,
-                                SourceLocation Loc) override {
+
+  virtual void handleLockAcquiredBefore(StringRef Kind, Name L1Name,
+                                        Name L2Name, SourceLocation Loc)
+      override {
     PartialDiagnosticAt Warning(Loc,
       S.PDiag(diag::warn_acquired_before) << Kind << L1Name << L2Name);
-    Warnings.emplace_back(std::move(Warning), getNotes());
+    Warnings.push_back(DelayedDiag(Warning, getNotes()));
   }
 
-  void handleBeforeAfterCycle(Name L1Name, SourceLocation Loc) override {
+  virtual void handleBeforeAfterCycle(Name L1Name, SourceLocation Loc)
+      override {
     PartialDiagnosticAt Warning(Loc,
       S.PDiag(diag::warn_acquired_before_after_cycle) << L1Name);
-    Warnings.emplace_back(std::move(Warning), getNotes());
+    Warnings.push_back(DelayedDiag(Warning, getNotes()));
   }
 
   void enterFunction(const FunctionDecl* FD) override {
@@ -1699,9 +1704,9 @@ class ThreadSafetyReporter : public clang::threadSafety::ThreadSafetyHandler {
     CurrentFunction = 0;
   }
 };
-} // namespace
-} // namespace threadSafety
-} // namespace clang
+
+}
+}
 
 //===----------------------------------------------------------------------===//
 // -Wconsumed
@@ -1732,8 +1737,8 @@ public:
                              StringRef VariableName) override {
     PartialDiagnosticAt Warning(Loc, S.PDiag(diag::warn_loop_state_mismatch) <<
       VariableName);
-
-    Warnings.emplace_back(std::move(Warning), OptionalNotes());
+    
+    Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
   }
   
   void warnParamReturnTypestateMismatch(SourceLocation Loc,
@@ -1744,8 +1749,8 @@ public:
     PartialDiagnosticAt Warning(Loc, S.PDiag(
       diag::warn_param_return_typestate_mismatch) << VariableName <<
         ExpectedState << ObservedState);
-
-    Warnings.emplace_back(std::move(Warning), OptionalNotes());
+    
+    Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
   }
   
   void warnParamTypestateMismatch(SourceLocation Loc, StringRef ExpectedState,
@@ -1753,16 +1758,16 @@ public:
     
     PartialDiagnosticAt Warning(Loc, S.PDiag(
       diag::warn_param_typestate_mismatch) << ExpectedState << ObservedState);
-
-    Warnings.emplace_back(std::move(Warning), OptionalNotes());
+    
+    Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
   }
   
   void warnReturnTypestateForUnconsumableType(SourceLocation Loc,
                                               StringRef TypeName) override {
     PartialDiagnosticAt Warning(Loc, S.PDiag(
       diag::warn_return_typestate_for_unconsumable_type) << TypeName);
-
-    Warnings.emplace_back(std::move(Warning), OptionalNotes());
+    
+    Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
   }
   
   void warnReturnTypestateMismatch(SourceLocation Loc, StringRef ExpectedState,
@@ -1770,8 +1775,8 @@ public:
                                     
     PartialDiagnosticAt Warning(Loc, S.PDiag(
       diag::warn_return_typestate_mismatch) << ExpectedState << ObservedState);
-
-    Warnings.emplace_back(std::move(Warning), OptionalNotes());
+    
+    Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
   }
   
   void warnUseOfTempInInvalidState(StringRef MethodName, StringRef State,
@@ -1779,8 +1784,8 @@ public:
                                                     
     PartialDiagnosticAt Warning(Loc, S.PDiag(
       diag::warn_use_of_temp_in_invalid_state) << MethodName << State);
-
-    Warnings.emplace_back(std::move(Warning), OptionalNotes());
+    
+    Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
   }
   
   void warnUseInInvalidState(StringRef MethodName, StringRef VariableName,
@@ -1788,8 +1793,8 @@ public:
   
     PartialDiagnosticAt Warning(Loc, S.PDiag(diag::warn_use_in_invalid_state) <<
                                 MethodName << VariableName << State);
-
-    Warnings.emplace_back(std::move(Warning), OptionalNotes());
+    
+    Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
   }
 };
 }}}
@@ -1886,7 +1891,6 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
   AC.getCFGBuildOptions().AddImplicitDtors = true;
   AC.getCFGBuildOptions().AddTemporaryDtors = true;
   AC.getCFGBuildOptions().AddCXXNewAllocator = false;
-  AC.getCFGBuildOptions().AddCXXDefaultInitExprInCtors = true;
 
   // Force that certain expressions appear as CFGElements in the CFG.  This
   // is used to speed up various analyses.

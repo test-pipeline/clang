@@ -65,9 +65,10 @@ public:
   }
 
   void VisitChildren(const Stmt *S) {
-    for (const Stmt *Child : S->children())
-      if (Child)
-        VisitChild(S, Child);
+    for (Stmt::const_child_iterator I = S->child_begin(), E = S->child_end();
+         I!=E; ++I)
+      if (const Stmt *child = *I)
+        VisitChild(S, child);
   }
 
   TypeCallPair VisitCastExpr(const CastExpr *E) {

@@ -946,9 +946,10 @@ void ConsumedStmtVisitor::VisitVarDecl(const VarDecl *Var) {
 namespace clang {
 namespace consumed {
 
-static void splitVarStateForIf(const IfStmt *IfNode, const VarTestResult &Test,
-                               ConsumedStateMap *ThenStates,
-                               ConsumedStateMap *ElseStates) {
+void splitVarStateForIf(const IfStmt * IfNode, const VarTestResult &Test,
+                        ConsumedStateMap *ThenStates,
+                        ConsumedStateMap *ElseStates) {
+
   ConsumedState VarState = ThenStates->getState(Test.Var);
   
   if (VarState == CS_Unknown) {
@@ -963,9 +964,9 @@ static void splitVarStateForIf(const IfStmt *IfNode, const VarTestResult &Test,
   }
 }
 
-static void splitVarStateForIfBinOp(const PropagationInfo &PInfo,
-                                    ConsumedStateMap *ThenStates,
-                                    ConsumedStateMap *ElseStates) {
+void splitVarStateForIfBinOp(const PropagationInfo &PInfo,
+  ConsumedStateMap *ThenStates, ConsumedStateMap *ElseStates) {
+  
   const VarTestResult &LTest = PInfo.getLTest(),
                       &RTest = PInfo.getRTest();
   
@@ -1442,7 +1443,7 @@ void ConsumedAnalyzer::run(AnalysisDeclContext &AC) {
                                                            CurrStates,
                                                            WarningsHandler);
             
-            if (BlockInfo.allBackEdgesVisited(CurrBlock, *SI))
+            if (BlockInfo.allBackEdgesVisited(*SI, CurrBlock))
               BlockInfo.discardInfo(*SI);
           } else {
             BlockInfo.addInfo(*SI, CurrStates, OwnershipTaken);

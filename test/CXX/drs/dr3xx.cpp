@@ -110,6 +110,18 @@ namespace dr305 { // dr305: no
     x->~X<char>(); // expected-error {{no member named}}
   }
 
+  // FIXME: This appears to be valid (but allowing the nested types might be a
+  // defect).
+  template<typename> struct Nested {
+    template<typename> struct Nested {};
+  };
+  void testNested(Nested<int> n) { n.~Nested<int>(); } // expected-error {{no member named}}
+#if __cplusplus < 201103L
+  // expected-error@-2 {{ambiguous}}
+  // expected-note@-6 {{here}}
+  // expected-note@-6 {{here}}
+#endif
+
 #if __cplusplus >= 201103L
   struct Y {
     template<typename T> using T1 = Y;
@@ -158,9 +170,9 @@ namespace dr308 { // dr308: yes
   void f() {
     try {
       throw D();
-    } catch (const A&) { // expected-note {{for type 'const dr308::A &'}}
+    } catch (const A&) {
       // unreachable
-    } catch (const B&) { // expected-warning {{exception of type 'const dr308::B &' will be caught by earlier handler}}
+    } catch (const B&) {
       // get here instead
     }
   }

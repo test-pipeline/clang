@@ -26,32 +26,29 @@ class ASTContext;
   
 /// \brief Given a potentially-evaluated expression, this visitor visits all
 /// of its potentially-evaluated subexpressions, recursively.
-template<template <typename> class Ptr, typename ImplClass>
-class EvaluatedExprVisitorBase : public StmtVisitorBase<Ptr, ImplClass, void> {
-protected:
-  const ASTContext &Context;
-
+template<typename ImplClass>
+class EvaluatedExprVisitor : public StmtVisitor<ImplClass> {
+  ASTContext &Context;
+  
 public:
-#define PTR(CLASS) typename Ptr<CLASS>::type
-
-  explicit EvaluatedExprVisitorBase(const ASTContext &Context) : Context(Context) { }
-
+  explicit EvaluatedExprVisitor(ASTContext &Context) : Context(Context) { }
+  
   // Expressions that have no potentially-evaluated subexpressions (but may have
   // other sub-expressions).
-  void VisitDeclRefExpr(PTR(DeclRefExpr) E) { }
-  void VisitOffsetOfExpr(PTR(OffsetOfExpr) E) { }
-  void VisitUnaryExprOrTypeTraitExpr(PTR(UnaryExprOrTypeTraitExpr) E) { }
-  void VisitExpressionTraitExpr(PTR(ExpressionTraitExpr) E) { }
-  void VisitBlockExpr(PTR(BlockExpr) E) { }
-  void VisitCXXUuidofExpr(PTR(CXXUuidofExpr) E) { }
-  void VisitCXXNoexceptExpr(PTR(CXXNoexceptExpr) E) { }
-
-  void VisitMemberExpr(PTR(MemberExpr) E) {
+  void VisitDeclRefExpr(DeclRefExpr *E) { }
+  void VisitOffsetOfExpr(OffsetOfExpr *E) { }
+  void VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *E) { }
+  void VisitExpressionTraitExpr(ExpressionTraitExpr *E) { }
+  void VisitBlockExpr(BlockExpr *E) { }
+  void VisitCXXUuidofExpr(CXXUuidofExpr *E) { }  
+  void VisitCXXNoexceptExpr(CXXNoexceptExpr *E) { }
+  
+  void VisitMemberExpr(MemberExpr *E) {
     // Only the base matters.
     return this->Visit(E->getBase());
   }
-
-  void VisitChooseExpr(PTR(ChooseExpr) E) {
+  
+  void VisitChooseExpr(ChooseExpr *E) {
     // Don't visit either child expression if the condition is dependent.
     if (E->getCond()->isValueDependent())
       return;
@@ -59,7 +56,7 @@ public:
     return this->Visit(E->getChosenSubExpr());
   }
 
-  void VisitGenericSelectionExpr(PTR(GenericSelectionExpr) E) {
+  void VisitGenericSelectionExpr(GenericSelectionExpr *E) {
     // The controlling expression of a generic selection is not evaluated.
 
     // Don't visit either child expression if the condition is type-dependent.
@@ -70,23 +67,23 @@ public:
     return this->Visit(E->getResultExpr());
   }
 
-  void VisitDesignatedInitExpr(PTR(DesignatedInitExpr) E) {
+  void VisitDesignatedInitExpr(DesignatedInitExpr *E) {
     // Only the actual initializer matters; the designators are all constant
     // expressions.
     return this->Visit(E->getInit());
   }
 
-  void VisitCXXTypeidExpr(PTR(CXXTypeidExpr) E) {
+  void VisitCXXTypeidExpr(CXXTypeidExpr *E) {
     if (E->isPotentiallyEvaluated())
       return this->Visit(E->getExprOperand());
   }
 
-  void VisitCallExpr(PTR(CallExpr) CE) {
+  void VisitCallExpr(CallExpr *CE) {
     if (!CE->isUnevaluatedBuiltinCall(Context))
       return static_cast<ImplClass*>(this)->VisitExpr(CE);
   }
 
-  void VisitLambdaExpr(PTR(LambdaExpr) LE) {
+  void VisitLambdaExpr(LambdaExpr *LE) {
     // Only visit the capture initializers, and not the body.
     for (LambdaExpr::capture_init_iterator I = LE->capture_init_begin(),
                                            E = LE->capture_init_end();
@@ -97,31 +94,11 @@ public:
 
   /// \brief The basis case walks all of the children of the statement or
   /// expression, assuming they are all potentially evaluated.
-  void VisitStmt(PTR(Stmt) S) {
-    for (auto *SubStmt : S->children())
-      if (SubStmt)
-        this->Visit(SubStmt);
+  void VisitStmt(Stmt *S) {
+    for (Stmt::child_range C = S->children(); C; ++C)
+      if (*C)
+        this->Visit(*C);
   }
-
-#undef PTR
-};
-
-/// EvaluatedExprVisitor - This class visits 'Expr *'s
-template<typename ImplClass>
-class EvaluatedExprVisitor
- : public EvaluatedExprVisitorBase<make_ptr, ImplClass> {
-public:
-  explicit EvaluatedExprVisitor(const ASTContext &Context) :
-    EvaluatedExprVisitorBase<make_ptr, ImplClass>(Context) { }
-};
-
-/// ConstEvaluatedExprVisitor - This class visits 'const Expr *'s.
-template<typename ImplClass>
-class ConstEvaluatedExprVisitor
- : public EvaluatedExprVisitorBase<make_const_ptr, ImplClass> {
-public:
-  explicit ConstEvaluatedExprVisitor(const ASTContext &Context) :
-    EvaluatedExprVisitorBase<make_const_ptr, ImplClass>(Context) { }
 };
 
 }

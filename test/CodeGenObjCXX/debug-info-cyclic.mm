@@ -1,22 +1,13 @@
 // RUN: %clang_cc1 -triple x86_64-apple-darwin -g -emit-llvm %s -o - | FileCheck %s
 
+// CHECK: ![[B:.*]] = {{.*}}, null, null, ![[BMEMBERS:.*]], null, null, null} ; [ DW_TAG_structure_type ] [B] [line [[@LINE+1]], size 8, align 8, offset 0] [def] [from ]
 struct B {
-// CHECK: !DICompositeType(tag: DW_TAG_structure_type, name: "B"
-// CHECK-SAME:                             line: [[@LINE-2]],
-// CHECK-SAME:                             size: 8, align: 8,
-// CHECK-NOT:                              offset:
-// CHECK-NOT:                              DIFlagFwdDecl
-// CHECK-SAME:                             elements: ![[BMEMBERS:[0-9]+]]
-// CHECK-SAME:                             identifier: [[B:.*]])
-// CHECK: ![[BMEMBERS]] = !{![[BB:[0-9]+]]}
   B(struct A *);
-// CHECK: ![[BB]] = !DISubprogram(name: "B", scope: ![[B]]
-// CHECK-SAME:                    line: [[@LINE-2]],
-// CHECK-SAME:                    type: ![[TY:[0-9]+]],
-// CHECK: ![[TY]] = !DISubroutineType(types: ![[ARGS:[0-9]+]])
-// CHECK: ![[ARGS]] = !{null, ![[THIS:[0-9]+]], !{{[^,]+}}}
-// CHECK: ![[THIS]] = !DIDerivedType(tag: DW_TAG_pointer_type,
-// CHECK-SAME:                       baseType: ![[B]]
+// CHECK: ![[BMEMBERS]] = !{![[BB:.*]]}
+// CHECK: ![[BB]] = {{.*}} ![[B]], ![[TY:[0-9]+]], {{.*}}} ; [ DW_TAG_subprogram ] [line [[@LINE-2]]] [B]
+// CHECK: ![[TY]] = {{.*}} ![[ARGS:[0-9]+]], null, null, null} ; [ DW_TAG_subroutine_type ]
+// CHECK: ![[ARGS]] = !{null, ![[THIS:[0-9]+]],
+// CHECK: ![[THIS]] = {{.*}}[[B]]} ; [ DW_TAG_pointer_type ] [
 };
 
 struct C {

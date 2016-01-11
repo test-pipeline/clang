@@ -30,7 +30,7 @@ class Expr;
 class FieldDecl;
 class InclusionDirective;
 class LabelStmt;
-class MacroDefinitionRecord;
+class MacroDefinition;
 class MacroExpansion;
 class NamedDecl;
 class ObjCInterfaceDecl;
@@ -145,19 +145,20 @@ CXCursor MakePreprocessingDirectiveCursor(SourceRange Range,
 SourceRange getCursorPreprocessingDirective(CXCursor C);
 
 /// \brief Create a macro definition cursor.
-CXCursor MakeMacroDefinitionCursor(const MacroDefinitionRecord *,
+CXCursor MakeMacroDefinitionCursor(const MacroDefinition *,
                                    CXTranslationUnit TU);
 
 /// \brief Unpack a given macro definition cursor to retrieve its
 /// source range.
-const MacroDefinitionRecord *getCursorMacroDefinition(CXCursor C);
+const MacroDefinition *getCursorMacroDefinition(CXCursor C);
 
 /// \brief Create a macro expansion cursor.
-CXCursor MakeMacroExpansionCursor(MacroExpansion *, CXTranslationUnit TU);
+CXCursor MakeMacroExpansionCursor(MacroExpansion *,
+                                  CXTranslationUnit TU);
 
 /// \brief Create a "pseudo" macro expansion cursor, using a macro definition
 /// and a source location.
-CXCursor MakeMacroExpansionCursor(MacroDefinitionRecord *, SourceLocation Loc,
+CXCursor MakeMacroExpansionCursor(MacroDefinition *, SourceLocation Loc,
                                   CXTranslationUnit TU);
 
 /// \brief Wraps a macro expansion cursor and provides a common interface
@@ -170,10 +171,12 @@ CXCursor MakeMacroExpansionCursor(MacroDefinitionRecord *, SourceLocation Loc,
 class MacroExpansionCursor {
   CXCursor C;
 
-  bool isPseudo() const { return C.data[1] != nullptr; }
-  const MacroDefinitionRecord *getAsMacroDefinition() const {
+  bool isPseudo() const {
+    return C.data[1] != nullptr;
+  }
+  const MacroDefinition *getAsMacroDefinition() const {
     assert(isPseudo());
-    return static_cast<const MacroDefinitionRecord *>(C.data[0]);
+    return static_cast<const MacroDefinition *>(C.data[0]);
   }
   const MacroExpansion *getAsMacroExpansion() const {
     assert(!isPseudo());
@@ -190,7 +193,7 @@ public:
   }
 
   const IdentifierInfo *getName() const;
-  const MacroDefinitionRecord *getDefinition() const;
+  const MacroDefinition *getDefinition() const;
   SourceRange getSourceRange() const;
 };
 

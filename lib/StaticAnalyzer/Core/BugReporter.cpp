@@ -1250,8 +1250,10 @@ static void reversePropagateIntererstingSymbols(BugReport &R,
       // Fall through.
     case Stmt::BinaryOperatorClass:
     case Stmt::UnaryOperatorClass: {
-      for (const Stmt *SubStmt : Ex->children()) {
-        if (const Expr *child = dyn_cast_or_null<Expr>(SubStmt)) {
+      for (Stmt::const_child_iterator CI = Ex->child_begin(),
+            CE = Ex->child_end();
+            CI != CE; ++CI) {
+        if (const Expr *child = dyn_cast_or_null<Expr>(*CI)) {
           IE.insert(child);
           SVal ChildV = State->getSVal(child, LCtx);
           R.markInteresting(ChildV);
@@ -3222,7 +3224,10 @@ void BugReporter::Register(BugType *BT) {
   BugTypes = F.add(BugTypes, BT);
 }
 
-void BugReporter::emitReport(std::unique_ptr<BugReport> R) {
+void BugReporter::emitReport(BugReport* R) {
+  // To guarantee memory release.
+  std::unique_ptr<BugReport> UniqueR(R);
+
   if (const ExplodedNode *E = R->getErrorNode()) {
     const AnalysisDeclContext *DeclCtx =
         E->getLocationContext()->getAnalysisDeclContext();
@@ -3253,11 +3258,11 @@ void BugReporter::emitReport(std::unique_ptr<BugReport> R) {
   BugReportEquivClass* EQ = EQClasses.FindNodeOrInsertPos(ID, InsertPos);
 
   if (!EQ) {
-    EQ = new BugReportEquivClass(std::move(R));
+    EQ = new BugReportEquivClass(std::move(UniqueR));
     EQClasses.InsertNode(EQ, InsertPos);
     EQClassesVector.push_back(EQ);
   } else
-    EQ->AddReport(std::move(R));
+    EQ->AddReport(std::move(UniqueR));
 }
 
 
@@ -3457,12 +3462,12 @@ void BugReporter::EmitBasicReport(const Decl *DeclWithIssue,
 
   // 'BT' is owned by BugReporter.
   BugType *BT = getBugTypeForName(CheckName, name, category);
-  auto R = llvm::make_unique<BugReport>(*BT, str, Loc);
+  BugReport *R = new BugReport(*BT, str, Loc);
   R->setDeclWithIssue(DeclWithIssue);
   for (ArrayRef<SourceRange>::iterator I = Ranges.begin(), E = Ranges.end();
        I != E; ++I)
     R->addRange(*I);
-  emitReport(std::move(R));
+  emitReport(R);
 }
 
 BugType *BugReporter::getBugTypeForName(CheckName CheckName, StringRef name,

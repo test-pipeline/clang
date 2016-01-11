@@ -10,7 +10,6 @@
 #ifndef LLVM_CLANG_LIB_DRIVER_TOOLS_H
 #define LLVM_CLANG_LIB_DRIVER_TOOLS_H
 
-#include "clang/Basic/VersionTuple.h"
 #include "clang/Driver/Tool.h"
 #include "clang/Driver/Types.h"
 #include "clang/Driver/Util.h"
@@ -32,19 +31,16 @@ namespace toolchains {
 namespace tools {
 
 namespace visualstudio {
-class Compiler;
+  class Compile;
 }
 
 using llvm::opt::ArgStringList;
-
-SmallString<128> getCompilerRT(const ToolChain &TC, StringRef Component,
-                               bool Shared = false);
 
   /// \brief Clang compiler tool.
   class LLVM_LIBRARY_VISIBILITY Clang : public Tool {
   public:
     static const char *getBaseInputName(const llvm::opt::ArgList &Args,
-                                        const InputInfo &Input);
+                                        const InputInfoList &Inputs);
     static const char *getBaseInputStem(const llvm::opt::ArgList &Args,
                                         const InputInfoList &Inputs);
     static const char *getDependencyFileName(const llvm::opt::ArgList &Args,
@@ -89,14 +85,11 @@ SmallString<128> getCompilerRT(const ToolChain &TC, StringRef Component,
     void AddClangCLArgs(const llvm::opt::ArgList &Args,
                         llvm::opt::ArgStringList &CmdArgs) const;
 
-    visualstudio::Compiler *getCLFallback() const;
+    visualstudio::Compile *getCLFallback() const;
 
-    mutable std::unique_ptr<visualstudio::Compiler> CLFallback;
+    mutable std::unique_ptr<visualstudio::Compile> CLFallback;
 
   public:
-    // CAUTION! The first constructor argument ("clang") is not arbitrary,
-    // as it is for other tools. Some operations on a Tool actually test
-    // whether that tool is Clang based on the Tool's Name as a string.
     Clang(const ToolChain &TC) : Tool("clang", "clang frontend", TC, RF_Full) {}
 
     bool hasGoodDiagnostics() const override { return true; }
@@ -130,7 +123,7 @@ SmallString<128> getCompilerRT(const ToolChain &TC, StringRef Component,
 
   /// \brief Base class for all GNU tools that provide the same behavior when
   /// it comes to response files support
-  class LLVM_LIBRARY_VISIBILITY GnuTool : public Tool {
+  class GnuTool : public Tool {
     virtual void anchor();
 
   public:
@@ -154,14 +147,14 @@ namespace gcc {
     /// RenderExtraToolArgs - Render any arguments necessary to force
     /// the particular tool mode.
     virtual void
-    RenderExtraToolArgs(const JobAction &JA,
-                        llvm::opt::ArgStringList &CmdArgs) const = 0;
+        RenderExtraToolArgs(const JobAction &JA,
+                            llvm::opt::ArgStringList &CmdArgs) const = 0;
   };
 
-  class LLVM_LIBRARY_VISIBILITY Preprocessor : public Common {
+  class LLVM_LIBRARY_VISIBILITY Preprocess : public Common {
   public:
-    Preprocessor(const ToolChain &TC)
-        : Common("gcc::Preprocessor", "gcc preprocessor", TC) {}
+    Preprocess(const ToolChain &TC) : Common("gcc::Preprocess",
+                                             "gcc preprocessor", TC) {}
 
     bool hasGoodDiagnostics() const override { return true; }
     bool hasIntegratedCPP() const override { return false; }
@@ -170,10 +163,10 @@ namespace gcc {
                              llvm::opt::ArgStringList &CmdArgs) const override;
   };
 
-  class LLVM_LIBRARY_VISIBILITY Compiler : public Common {
+  class LLVM_LIBRARY_VISIBILITY Compile : public Common  {
   public:
-    Compiler(const ToolChain &TC)
-        : Common("gcc::Compiler", "gcc frontend", TC) {}
+    Compile(const ToolChain &TC) : Common("gcc::Compile",
+                                          "gcc frontend", TC) {}
 
     bool hasGoodDiagnostics() const override { return true; }
     bool hasIntegratedCPP() const override { return true; }
@@ -182,10 +175,10 @@ namespace gcc {
                              llvm::opt::ArgStringList &CmdArgs) const override;
   };
 
-  class LLVM_LIBRARY_VISIBILITY Linker : public Common {
+  class LLVM_LIBRARY_VISIBILITY Link : public Common  {
   public:
-    Linker(const ToolChain &TC)
-        : Common("gcc::Linker", "linker (via gcc)", TC) {}
+    Link(const ToolChain &TC) : Common("gcc::Link",
+                                       "linker (via gcc)", TC) {}
 
     bool hasIntegratedCPP() const override { return false; }
     bool isLinkJob() const override { return true; }
@@ -196,15 +189,14 @@ namespace gcc {
 } // end namespace gcc
 
 namespace hexagon {
-// For Hexagon, we do not need to instantiate tools for PreProcess, PreCompile
-// and Compile.
-// We simply use "clang -cc1" for those actions.
-class LLVM_LIBRARY_VISIBILITY Assembler : public GnuTool {
-public:
-  Assembler(const ToolChain &TC)
-      : GnuTool("hexagon::Assembler", "hexagon-as", TC) {}
+  // For Hexagon, we do not need to instantiate tools for PreProcess, PreCompile and Compile.
+  // We simply use "clang -cc1" for those actions.
+  class LLVM_LIBRARY_VISIBILITY Assemble : public GnuTool {
+  public:
+    Assemble(const ToolChain &TC) : GnuTool("hexagon::Assemble",
+      "hexagon-as", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
+    bool hasIntegratedCPP() const override { return false; }
 
     void RenderExtraToolArgs(const JobAction &JA,
                              llvm::opt::ArgStringList &CmdArgs) const;
@@ -212,13 +204,14 @@ public:
                       const InputInfo &Output, const InputInfoList &Inputs,
                       const llvm::opt::ArgList &TCArgs,
                       const char *LinkingOutput) const override;
-};
+  };
 
-class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
-public:
-  Linker(const ToolChain &TC) : GnuTool("hexagon::Linker", "hexagon-ld", TC) {}
+  class LLVM_LIBRARY_VISIBILITY Link : public GnuTool {
+  public:
+    Link(const ToolChain &TC) : GnuTool("hexagon::Link",
+      "hexagon-ld", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
+    bool hasIntegratedCPP() const override { return false; }
     bool isLinkJob() const override { return true; }
 
     virtual void RenderExtraToolArgs(const JobAction &JA,
@@ -231,23 +224,16 @@ public:
 } // end namespace hexagon.
 
 namespace arm {
-  std::string getARMTargetCPU(StringRef CPU, StringRef Arch,
-                              const llvm::Triple &Triple);
-  const std::string getARMArch(StringRef Arch,
-                               const llvm::Triple &Triple);
-  const char* getARMCPUForMArch(StringRef Arch,
+  StringRef getARMTargetCPU(const llvm::opt::ArgList &Args,
+                            const llvm::Triple &Triple);
+  const char* getARMCPUForMArch(const llvm::opt::ArgList &Args,
                                 const llvm::Triple &Triple);
-  const char* getLLVMArchSuffixForARM(StringRef CPU, StringRef Arch);
+  const char* getLLVMArchSuffixForARM(StringRef CPU);
 
   void appendEBLinkFlags(const llvm::opt::ArgList &Args, ArgStringList &CmdArgs, const llvm::Triple &Triple);
 }
 
 namespace mips {
-  typedef enum {
-    NanLegacy = 1,
-    Nan2008 = 2
-  } NanEncoding;
-  NanEncoding getSupportedNanEncoding(StringRef &CPU);
   void getMipsCPUAndABI(const llvm::opt::ArgList &Args,
                         const llvm::Triple &Triple, StringRef &CPUName,
                         StringRef &ABIName);
@@ -255,30 +241,12 @@ namespace mips {
   bool isUCLibc(const llvm::opt::ArgList &Args);
   bool isNaN2008(const llvm::opt::ArgList &Args, const llvm::Triple &Triple);
   bool isFPXXDefault(const llvm::Triple &Triple, StringRef CPUName,
-                     StringRef ABIName, StringRef FloatABI);
-  bool shouldUseFPXX(const llvm::opt::ArgList &Args, const llvm::Triple &Triple,
-                     StringRef CPUName, StringRef ABIName, StringRef FloatABI);
+                     StringRef ABIName);
 }
 
 namespace ppc {
   bool hasPPCAbiArg(const llvm::opt::ArgList &Args, const char *Value);
 }
-
-/// cloudabi -- Directly call GNU Binutils linker
-namespace cloudabi {
-class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
-public:
-  Linker(const ToolChain &TC) : GnuTool("cloudabi::Linker", "linker", TC) {}
-
-  bool hasIntegratedCPP() const override { return false; }
-  bool isLinkJob() const override { return true; }
-
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-} // end namespace cloudabi
 
 namespace darwin {
   llvm::Triple::ArchType getArchTypeForMachOArchName(StringRef Str);
@@ -295,19 +263,19 @@ namespace darwin {
     }
 
   public:
-    MachOTool(
-        const char *Name, const char *ShortName, const ToolChain &TC,
-        ResponseFileSupport ResponseSupport = RF_None,
-        llvm::sys::WindowsEncodingMethod ResponseEncoding = llvm::sys::WEM_UTF8,
-        const char *ResponseFlag = "@")
-        : Tool(Name, ShortName, TC, ResponseSupport, ResponseEncoding,
-               ResponseFlag) {}
+  MachOTool(
+      const char *Name, const char *ShortName, const ToolChain &TC,
+      ResponseFileSupport ResponseSupport = RF_None,
+      llvm::sys::WindowsEncodingMethod ResponseEncoding = llvm::sys::WEM_UTF8,
+      const char *ResponseFlag = "@")
+      : Tool(Name, ShortName, TC, ResponseSupport, ResponseEncoding,
+             ResponseFlag) {}
   };
 
-  class LLVM_LIBRARY_VISIBILITY Assembler : public MachOTool {
+  class LLVM_LIBRARY_VISIBILITY Assemble : public MachOTool  {
   public:
-    Assembler(const ToolChain &TC)
-        : MachOTool("darwin::Assembler", "assembler", TC) {}
+    Assemble(const ToolChain &TC) : MachOTool("darwin::Assemble",
+                                              "assembler", TC) {}
 
     bool hasIntegratedCPP() const override { return false; }
 
@@ -317,16 +285,16 @@ namespace darwin {
                       const char *LinkingOutput) const override;
   };
 
-  class LLVM_LIBRARY_VISIBILITY Linker : public MachOTool {
+  class LLVM_LIBRARY_VISIBILITY Link : public MachOTool  {
     bool NeedsTempPath(const InputInfoList &Inputs) const;
     void AddLinkArgs(Compilation &C, const llvm::opt::ArgList &Args,
                      llvm::opt::ArgStringList &CmdArgs,
                      const InputInfoList &Inputs) const;
 
   public:
-    Linker(const ToolChain &TC)
-        : MachOTool("darwin::Linker", "linker", TC, RF_FileList,
-                    llvm::sys::WEM_UTF8, "-filelist") {}
+    Link(const ToolChain &TC) : MachOTool("darwin::Link", "linker", TC,
+                                          RF_FileList, llvm::sys::WEM_UTF8,
+                                          "-filelist") {}
 
     bool hasIntegratedCPP() const override { return false; }
     bool isLinkJob() const override { return true; }
@@ -379,26 +347,27 @@ namespace darwin {
 
 }
 
-/// openbsd -- Directly call GNU Binutils assembler and linker
+  /// openbsd -- Directly call GNU Binutils assembler and linker
 namespace openbsd {
-class LLVM_LIBRARY_VISIBILITY Assembler : public GnuTool {
-public:
-  Assembler(const ToolChain &TC)
-      : GnuTool("openbsd::Assembler", "assembler", TC) {}
+  class LLVM_LIBRARY_VISIBILITY Assemble : public GnuTool  {
+  public:
+    Assemble(const ToolChain &TC) : GnuTool("openbsd::Assemble", "assembler",
+                                         TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
+    bool hasIntegratedCPP() const override { return false; }
 
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
-public:
-  Linker(const ToolChain &TC) : GnuTool("openbsd::Linker", "linker", TC) {}
+    void ConstructJob(Compilation &C, const JobAction &JA,
+                      const InputInfo &Output,
+                      const InputInfoList &Inputs,
+                      const llvm::opt::ArgList &TCArgs,
+                      const char *LinkingOutput) const override;
+  };
+  class LLVM_LIBRARY_VISIBILITY Link : public GnuTool  {
+  public:
+    Link(const ToolChain &TC) : GnuTool("openbsd::Link", "linker", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
-  bool isLinkJob() const override { return true; }
+    bool hasIntegratedCPP() const override { return false; }
+    bool isLinkJob() const override { return true; }
 
     void ConstructJob(Compilation &C, const JobAction &JA,
                       const InputInfo &Output, const InputInfoList &Inputs,
@@ -407,26 +376,26 @@ public:
   };
 } // end namespace openbsd
 
-/// bitrig -- Directly call GNU Binutils assembler and linker
+  /// bitrig -- Directly call GNU Binutils assembler and linker
 namespace bitrig {
-class LLVM_LIBRARY_VISIBILITY Assembler : public GnuTool {
-public:
-  Assembler(const ToolChain &TC)
-      : GnuTool("bitrig::Assembler", "assembler", TC) {}
+  class LLVM_LIBRARY_VISIBILITY Assemble : public GnuTool  {
+  public:
+    Assemble(const ToolChain &TC) : GnuTool("bitrig::Assemble", "assembler",
+                                         TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
+    bool hasIntegratedCPP() const override { return false; }
 
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
-public:
-  Linker(const ToolChain &TC) : GnuTool("bitrig::Linker", "linker", TC) {}
+    void ConstructJob(Compilation &C, const JobAction &JA,
+                      const InputInfo &Output, const InputInfoList &Inputs,
+                      const llvm::opt::ArgList &TCArgs,
+                      const char *LinkingOutput) const override;
+  };
+  class LLVM_LIBRARY_VISIBILITY Link : public GnuTool  {
+  public:
+    Link(const ToolChain &TC) : GnuTool("bitrig::Link", "linker", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
-  bool isLinkJob() const override { return true; }
+    bool hasIntegratedCPP() const override { return false; }
+    bool isLinkJob() const override { return true; }
 
     void ConstructJob(Compilation &C, const JobAction &JA,
                       const InputInfo &Output, const InputInfoList &Inputs,
@@ -435,26 +404,26 @@ public:
   };
 } // end namespace bitrig
 
-/// freebsd -- Directly call GNU Binutils assembler and linker
+  /// freebsd -- Directly call GNU Binutils assembler and linker
 namespace freebsd {
-class LLVM_LIBRARY_VISIBILITY Assembler : public GnuTool {
-public:
-  Assembler(const ToolChain &TC)
-      : GnuTool("freebsd::Assembler", "assembler", TC) {}
+  class LLVM_LIBRARY_VISIBILITY Assemble : public GnuTool  {
+  public:
+    Assemble(const ToolChain &TC) : GnuTool("freebsd::Assemble", "assembler",
+                                         TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
+    bool hasIntegratedCPP() const override { return false; }
 
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
-public:
-  Linker(const ToolChain &TC) : GnuTool("freebsd::Linker", "linker", TC) {}
+    void ConstructJob(Compilation &C, const JobAction &JA,
+                      const InputInfo &Output, const InputInfoList &Inputs,
+                      const llvm::opt::ArgList &TCArgs,
+                      const char *LinkingOutput) const override;
+  };
+  class LLVM_LIBRARY_VISIBILITY Link : public GnuTool  {
+  public:
+    Link(const ToolChain &TC) : GnuTool("freebsd::Link", "linker", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
-  bool isLinkJob() const override { return true; }
+    bool hasIntegratedCPP() const override { return false; }
+    bool isLinkJob() const override { return true; }
 
     void ConstructJob(Compilation &C, const JobAction &JA,
                       const InputInfo &Output, const InputInfoList &Inputs,
@@ -463,28 +432,29 @@ public:
   };
 } // end namespace freebsd
 
-/// netbsd -- Directly call GNU Binutils assembler and linker
+  /// netbsd -- Directly call GNU Binutils assembler and linker
 namespace netbsd {
-class LLVM_LIBRARY_VISIBILITY Assembler : public GnuTool {
+  class LLVM_LIBRARY_VISIBILITY Assemble : public GnuTool  {
 
-public:
-  Assembler(const ToolChain &TC)
-      : GnuTool("netbsd::Assembler", "assembler", TC) {}
+  public:
+    Assemble(const ToolChain &TC)
+      : GnuTool("netbsd::Assemble", "assembler", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
+    bool hasIntegratedCPP() const override { return false; }
 
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
+    void ConstructJob(Compilation &C, const JobAction &JA,
+                      const InputInfo &Output, const InputInfoList &Inputs,
+                      const llvm::opt::ArgList &TCArgs,
+                      const char *LinkingOutput) const override;
+  };
+  class LLVM_LIBRARY_VISIBILITY Link : public GnuTool  {
 
-public:
-  Linker(const ToolChain &TC) : GnuTool("netbsd::Linker", "linker", TC) {}
+  public:
+    Link(const ToolChain &TC)
+      : GnuTool("netbsd::Link", "linker", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
-  bool isLinkJob() const override { return true; }
+    bool hasIntegratedCPP() const override { return false; }
+    bool isLinkJob() const override { return true; }
 
     void ConstructJob(Compilation &C, const JobAction &JA,
                       const InputInfo &Output, const InputInfoList &Inputs,
@@ -493,25 +463,13 @@ public:
   };
 } // end namespace netbsd
 
-/// Directly call GNU Binutils' assembler and linker.
+  /// Directly call GNU Binutils' assembler and linker.
 namespace gnutools {
-class LLVM_LIBRARY_VISIBILITY Assembler : public GnuTool {
-public:
-  Assembler(const ToolChain &TC) : GnuTool("GNU::Assembler", "assembler", TC) {}
+  class LLVM_LIBRARY_VISIBILITY Assemble : public GnuTool  {
+  public:
+    Assemble(const ToolChain &TC) : GnuTool("GNU::Assemble", "assembler", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
-
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
-public:
-  Linker(const ToolChain &TC) : GnuTool("GNU::Linker", "linker", TC) {}
-
-  bool hasIntegratedCPP() const override { return false; }
-  bool isLinkJob() const override { return true; }
+    bool hasIntegratedCPP() const override { return false; }
 
     void ConstructJob(Compilation &C, const JobAction &JA,
                       const InputInfo &Output,
@@ -519,53 +477,41 @@ public:
                       const llvm::opt::ArgList &TCArgs,
                       const char *LinkingOutput) const override;
   };
-  }
-
-  namespace nacltools {
-  class LLVM_LIBRARY_VISIBILITY AssemblerARM : public gnutools::Assembler {
+  class LLVM_LIBRARY_VISIBILITY Link : public GnuTool  {
   public:
-    AssemblerARM(const ToolChain &TC) : gnutools::Assembler(TC) {}
-
-    void ConstructJob(Compilation &C, const JobAction &JA,
-                      const InputInfo &Output, const InputInfoList &Inputs,
-                      const llvm::opt::ArgList &TCArgs,
-                      const char *LinkingOutput) const override;
-  };
-  class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
-  public:
-    Linker(const ToolChain &TC) : Tool("NaCl::Linker", "linker", TC) {}
+    Link(const ToolChain &TC) : GnuTool("GNU::Link", "linker", TC) {}
 
     bool hasIntegratedCPP() const override { return false; }
     bool isLinkJob() const override { return true; }
 
     void ConstructJob(Compilation &C, const JobAction &JA,
-                              const InputInfo &Output,
-                              const InputInfoList &Inputs,
-                              const llvm::opt::ArgList &TCArgs,
-                              const char *LinkingOutput) const override;
+                      const InputInfo &Output,
+                      const InputInfoList &Inputs,
+                      const llvm::opt::ArgList &TCArgs,
+                      const char *LinkingOutput) const override;
   };
 }
-
-/// minix -- Directly call GNU Binutils assembler and linker
+  /// minix -- Directly call GNU Binutils assembler and linker
 namespace minix {
-class LLVM_LIBRARY_VISIBILITY Assembler : public GnuTool {
-public:
-  Assembler(const ToolChain &TC)
-      : GnuTool("minix::Assembler", "assembler", TC) {}
+  class LLVM_LIBRARY_VISIBILITY Assemble : public GnuTool  {
+  public:
+    Assemble(const ToolChain &TC) : GnuTool("minix::Assemble", "assembler",
+                                         TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
+    bool hasIntegratedCPP() const override { return false; }
 
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
-public:
-  Linker(const ToolChain &TC) : GnuTool("minix::Linker", "linker", TC) {}
+    void ConstructJob(Compilation &C, const JobAction &JA,
+                      const InputInfo &Output,
+                      const InputInfoList &Inputs,
+                      const llvm::opt::ArgList &TCArgs,
+                      const char *LinkingOutput) const override;
+  };
+  class LLVM_LIBRARY_VISIBILITY Link : public GnuTool  {
+  public:
+    Link(const ToolChain &TC) : GnuTool("minix::Link", "linker", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
-  bool isLinkJob() const override { return true; }
+    bool hasIntegratedCPP() const override { return false; }
+    bool isLinkJob() const override { return true; }
 
     void ConstructJob(Compilation &C, const JobAction &JA,
                       const InputInfo &Output,
@@ -575,26 +521,26 @@ public:
   };
 } // end namespace minix
 
-/// solaris -- Directly call Solaris assembler and linker
+  /// solaris -- Directly call Solaris assembler and linker
 namespace solaris {
-class LLVM_LIBRARY_VISIBILITY Assembler : public Tool {
-public:
-  Assembler(const ToolChain &TC)
-      : Tool("solaris::Assembler", "assembler", TC) {}
+  class LLVM_LIBRARY_VISIBILITY Assemble : public Tool  {
+  public:
+    Assemble(const ToolChain &TC) : Tool("solaris::Assemble", "assembler",
+                                         TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
+    bool hasIntegratedCPP() const override { return false; }
 
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
-public:
-  Linker(const ToolChain &TC) : Tool("solaris::Linker", "linker", TC) {}
+    void ConstructJob(Compilation &C, const JobAction &JA,
+                      const InputInfo &Output, const InputInfoList &Inputs,
+                      const llvm::opt::ArgList &TCArgs,
+                      const char *LinkingOutput) const override;
+  };
+  class LLVM_LIBRARY_VISIBILITY Link : public Tool  {
+  public:
+    Link(const ToolChain &TC) : Tool("solaris::Link", "linker", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
-  bool isLinkJob() const override { return true; }
+    bool hasIntegratedCPP() const override { return false; }
+    bool isLinkJob() const override { return true; }
 
     void ConstructJob(Compilation &C, const JobAction &JA,
                       const InputInfo &Output, const InputInfoList &Inputs,
@@ -603,26 +549,26 @@ public:
   };
 } // end namespace solaris
 
-/// dragonfly -- Directly call GNU Binutils assembler and linker
+  /// dragonfly -- Directly call GNU Binutils assembler and linker
 namespace dragonfly {
-class LLVM_LIBRARY_VISIBILITY Assembler : public GnuTool {
-public:
-  Assembler(const ToolChain &TC)
-      : GnuTool("dragonfly::Assembler", "assembler", TC) {}
+  class LLVM_LIBRARY_VISIBILITY Assemble : public GnuTool  {
+  public:
+    Assemble(const ToolChain &TC) : GnuTool("dragonfly::Assemble", "assembler",
+                                         TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
+    bool hasIntegratedCPP() const override { return false; }
 
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
-public:
-  Linker(const ToolChain &TC) : GnuTool("dragonfly::Linker", "linker", TC) {}
+    void ConstructJob(Compilation &C, const JobAction &JA,
+                      const InputInfo &Output, const InputInfoList &Inputs,
+                      const llvm::opt::ArgList &TCArgs,
+                      const char *LinkingOutput) const override;
+  };
+  class LLVM_LIBRARY_VISIBILITY Link : public GnuTool  {
+  public:
+    Link(const ToolChain &TC) : GnuTool("dragonfly::Link", "linker", TC) {}
 
-  bool hasIntegratedCPP() const override { return false; }
-  bool isLinkJob() const override { return true; }
+    bool hasIntegratedCPP() const override { return false; }
+    bool isLinkJob() const override { return true; }
 
     void ConstructJob(Compilation &C, const JobAction &JA,
                       const InputInfo &Output,
@@ -634,31 +580,26 @@ public:
 
 /// Visual studio tools.
 namespace visualstudio {
-VersionTuple getMSVCVersion(const Driver *D, const llvm::Triple &Triple,
-                            const llvm::opt::ArgList &Args, bool IsWindowsMSVC);
+  class LLVM_LIBRARY_VISIBILITY Link : public Tool {
+  public:
+    Link(const ToolChain &TC) : Tool("visualstudio::Link", "linker", TC,
+                                     RF_Full, llvm::sys::WEM_UTF16) {}
 
-class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
-public:
-  Linker(const ToolChain &TC)
-      : Tool("visualstudio::Linker", "linker", TC, RF_Full,
-             llvm::sys::WEM_UTF16) {}
-
-  bool hasIntegratedCPP() const override { return false; }
+    bool hasIntegratedCPP() const override { return false; }
     bool isLinkJob() const override { return true; }
 
     void ConstructJob(Compilation &C, const JobAction &JA,
                       const InputInfo &Output, const InputInfoList &Inputs,
                       const llvm::opt::ArgList &TCArgs,
                       const char *LinkingOutput) const override;
-};
+  };
 
-class LLVM_LIBRARY_VISIBILITY Compiler : public Tool {
-public:
-  Compiler(const ToolChain &TC)
-      : Tool("visualstudio::Compiler", "compiler", TC, RF_Full,
-             llvm::sys::WEM_UTF16) {}
+  class LLVM_LIBRARY_VISIBILITY Compile : public Tool {
+  public:
+    Compile(const ToolChain &TC) : Tool("visualstudio::Compile", "compiler", TC,
+                                        RF_Full, llvm::sys::WEM_UTF16) {}
 
-  bool hasIntegratedAssembler() const override { return true; }
+    bool hasIntegratedAssembler() const override { return true; }
     bool hasIntegratedCPP() const override { return true; }
     bool isLinkJob() const override { return false; }
 
@@ -675,11 +616,43 @@ public:
   };
 } // end namespace visualstudio
 
-/// MinGW -- Directly call GNU Binutils assembler and linker
-namespace MinGW {
-class LLVM_LIBRARY_VISIBILITY Assembler : public Tool {
+namespace arm {
+  StringRef getARMFloatABI(const Driver &D, const llvm::opt::ArgList &Args,
+                         const llvm::Triple &Triple);
+}
+namespace XCore {
+  // For XCore, we do not need to instantiate tools for PreProcess, PreCompile and Compile.
+  // We simply use "clang -cc1" for those actions.
+  class LLVM_LIBRARY_VISIBILITY Assemble : public Tool {
+  public:
+    Assemble(const ToolChain &TC) : Tool("XCore::Assemble",
+      "XCore-as", TC) {}
+
+    bool hasIntegratedCPP() const override { return false; }
+    void ConstructJob(Compilation &C, const JobAction &JA,
+                      const InputInfo &Output, const InputInfoList &Inputs,
+                      const llvm::opt::ArgList &TCArgs,
+                      const char *LinkingOutput) const override;
+  };
+
+  class LLVM_LIBRARY_VISIBILITY Link : public Tool {
+  public:
+    Link(const ToolChain &TC) : Tool("XCore::Link",
+      "XCore-ld", TC) {}
+
+    bool hasIntegratedCPP() const override { return false; }
+    bool isLinkJob() const override { return true; }
+    void ConstructJob(Compilation &C, const JobAction &JA,
+                      const InputInfo &Output, const InputInfoList &Inputs,
+                      const llvm::opt::ArgList &TCArgs,
+                      const char *LinkingOutput) const override;
+  };
+} // end namespace XCore.
+
+namespace CrossWindows {
+class LLVM_LIBRARY_VISIBILITY Assemble : public Tool {
 public:
-  Assembler(const ToolChain &TC) : Tool("MinGW::Assemble", "assembler", TC) {}
+  Assemble(const ToolChain &TC) : Tool("CrossWindows::Assemble", "as", TC) { }
 
   bool hasIntegratedCPP() const override { return false; }
 
@@ -689,9 +662,9 @@ public:
                     const char *LinkingOutput) const override;
 };
 
-class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
+class LLVM_LIBRARY_VISIBILITY Link : public Tool {
 public:
-  Linker(const ToolChain &TC) : Tool("MinGW::Linker", "linker", TC) {}
+  Link(const ToolChain &TC) : Tool("CrossWindows::Link", "ld", TC, RF_Full) {}
 
   bool hasIntegratedCPP() const override { return false; }
   bool isLinkJob() const override { return true; }
@@ -700,101 +673,10 @@ public:
                     const InputInfo &Output, const InputInfoList &Inputs,
                     const llvm::opt::ArgList &TCArgs,
                     const char *LinkingOutput) const override;
-
-private:
-  void AddLibGCC(const llvm::opt::ArgList &Args, ArgStringList &CmdArgs) const;
-};
-} // end namespace MinGW
-
-namespace arm {
-  StringRef getARMFloatABI(const Driver &D, const llvm::opt::ArgList &Args,
-                         const llvm::Triple &Triple);
-}
-namespace XCore {
-// For XCore, we do not need to instantiate tools for PreProcess, PreCompile and
-// Compile.
-// We simply use "clang -cc1" for those actions.
-class LLVM_LIBRARY_VISIBILITY Assembler : public Tool {
-public:
-  Assembler(const ToolChain &TC) : Tool("XCore::Assembler", "XCore-as", TC) {}
-
-  bool hasIntegratedCPP() const override { return false; }
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-
-class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
-public:
-  Linker(const ToolChain &TC) : Tool("XCore::Linker", "XCore-ld", TC) {}
-
-  bool hasIntegratedCPP() const override { return false; }
-    bool isLinkJob() const override { return true; }
-    void ConstructJob(Compilation &C, const JobAction &JA,
-                      const InputInfo &Output, const InputInfoList &Inputs,
-                      const llvm::opt::ArgList &TCArgs,
-                      const char *LinkingOutput) const override;
-  };
-  } // end namespace XCore.
-
-  namespace CrossWindows {
-  class LLVM_LIBRARY_VISIBILITY Assembler : public Tool {
-  public:
-    Assembler(const ToolChain &TC)
-        : Tool("CrossWindows::Assembler", "as", TC) {}
-
-    bool hasIntegratedCPP() const override { return false; }
-
-    void ConstructJob(Compilation &C, const JobAction &JA,
-                      const InputInfo &Output, const InputInfoList &Inputs,
-                      const llvm::opt::ArgList &TCArgs,
-                      const char *LinkingOutput) const override;
-  };
-
-  class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
-  public:
-    Linker(const ToolChain &TC)
-        : Tool("CrossWindows::Linker", "ld", TC, RF_Full) {}
-
-    bool hasIntegratedCPP() const override { return false; }
-    bool isLinkJob() const override { return true; }
-
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
 };
 }
 
-/// SHAVE tools -- Directly call moviCompile and moviAsm
-namespace SHAVE {
-class LLVM_LIBRARY_VISIBILITY Compiler : public Tool {
-public:
-  Compiler(const ToolChain &TC) : Tool("moviCompile", "movicompile", TC) {}
-
-  bool hasIntegratedCPP() const override { return true; }
-
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-
-class LLVM_LIBRARY_VISIBILITY Assembler : public Tool {
-public:
-  Assembler(const ToolChain &TC) : Tool("moviAsm", "moviAsm", TC) {}
-
-  bool hasIntegratedCPP() const override { return false; } // not sure.
-
-  void ConstructJob(Compilation &C, const JobAction &JA,
-                    const InputInfo &Output, const InputInfoList &Inputs,
-                    const llvm::opt::ArgList &TCArgs,
-                    const char *LinkingOutput) const override;
-};
-} // end namespace SHAVE
-
-} // end namespace tools
+} // end namespace toolchains
 } // end namespace driver
 } // end namespace clang
 

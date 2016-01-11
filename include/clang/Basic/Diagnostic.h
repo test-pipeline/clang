@@ -18,7 +18,6 @@
 #include "clang/Basic/DiagnosticIDs.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/SourceLocation.h"
-#include "clang/Basic/Specifiers.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
@@ -992,8 +991,7 @@ public:
 
   void AddFixItHint(const FixItHint &Hint) const {
     assert(isActive() && "Clients must not add to cleared diagnostic!");
-    if (!Hint.isNull())
-      DiagObj->DiagFixItHints.push_back(Hint);
+    DiagObj->DiagFixItHints.push_back(Hint);
   }
 
   void addFlagValue(StringRef V) const { DiagObj->FlagValue = V; }
@@ -1097,23 +1095,10 @@ inline const DiagnosticBuilder &operator<<(const DiagnosticBuilder &DB,
 
 inline const DiagnosticBuilder &operator<<(const DiagnosticBuilder &DB,
                                            const FixItHint &Hint) {
-  DB.AddFixItHint(Hint);
-  return DB;
-}
-
-inline const DiagnosticBuilder &operator<<(const DiagnosticBuilder &DB,
-                                           ArrayRef<FixItHint> Hints) {
-  for (const FixItHint &Hint : Hints)
+  if (!Hint.isNull())
     DB.AddFixItHint(Hint);
   return DB;
 }
-
-/// A nullability kind paired with a bit indicating whether it used a
-/// context-sensitive keyword.
-typedef std::pair<NullabilityKind, bool> DiagNullabilityKind;
-
-const DiagnosticBuilder &operator<<(const DiagnosticBuilder &DB,
-                                    DiagNullabilityKind nullability);
 
 inline DiagnosticBuilder DiagnosticsEngine::Report(SourceLocation Loc,
                                                    unsigned DiagID) {
@@ -1379,7 +1364,7 @@ class ForwardingDiagnosticConsumer : public DiagnosticConsumer {
 public:
   ForwardingDiagnosticConsumer(DiagnosticConsumer &Target) : Target(Target) {}
 
-  ~ForwardingDiagnosticConsumer() override;
+  virtual ~ForwardingDiagnosticConsumer();
 
   void HandleDiagnostic(DiagnosticsEngine::Level DiagLevel,
                         const Diagnostic &Info) override;

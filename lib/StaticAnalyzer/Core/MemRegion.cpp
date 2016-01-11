@@ -824,12 +824,9 @@ const VarRegion* MemRegionManager::getVarRegion(const VarDecl *D,
           QualType T;
           if (const TypeSourceInfo *TSI = BD->getSignatureAsWritten())
             T = TSI->getType();
-          if (T.isNull())
-            T = getContext().VoidTy;
-          if (!T->getAs<FunctionType>())
-            T = getContext().getFunctionNoProtoType(T);
-          T = getContext().getBlockPointerType(T);
-
+          else
+            T = getContext().getFunctionNoProtoType(getContext().VoidTy);
+          
           const BlockTextRegion *BTR =
             getBlockTextRegion(BD, C.getCanonicalType(T),
                                STC->getAnalysisDeclContext());

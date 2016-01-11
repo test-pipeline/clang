@@ -119,12 +119,15 @@ namespace {
 class StatementFilterCCC : public CorrectionCandidateCallback {
 public:
   StatementFilterCCC(Token nextTok) : NextToken(nextTok) {
-    WantTypeSpecifiers = nextTok.isOneOf(tok::l_paren, tok::less, tok::l_square,
-                                         tok::identifier, tok::star, tok::amp);
-    WantExpressionKeywords =
-        nextTok.isOneOf(tok::l_paren, tok::identifier, tok::arrow, tok::period);
-    WantRemainingKeywords =
-        nextTok.isOneOf(tok::l_paren, tok::semi, tok::identifier, tok::l_brace);
+    WantTypeSpecifiers = nextTok.is(tok::l_paren) || nextTok.is(tok::less) ||
+                         nextTok.is(tok::identifier) || nextTok.is(tok::star) ||
+                         nextTok.is(tok::amp) || nextTok.is(tok::l_square);
+    WantExpressionKeywords = nextTok.is(tok::l_paren) ||
+                             nextTok.is(tok::identifier) ||
+                             nextTok.is(tok::arrow) || nextTok.is(tok::period);
+    WantRemainingKeywords = nextTok.is(tok::l_paren) || nextTok.is(tok::semi) ||
+                            nextTok.is(tok::identifier) ||
+                            nextTok.is(tok::l_brace);
     WantCXXNamedCasts = false;
   }
 
@@ -405,6 +408,12 @@ StmtResult Parser::ParseExprStatement() {
   return Actions.ActOnExprStmt(Expr);
 }
 
+StmtResult Parser::ParseSEHTryBlock() {
+  assert(Tok.is(tok::kw___try) && "Expected '__try'");
+  SourceLocation Loc = ConsumeToken();
+  return ParseSEHTryBlockCommon(Loc);
+}
+
 /// ParseSEHTryBlockCommon
 ///
 /// seh-try-block:
@@ -414,11 +423,8 @@ StmtResult Parser::ParseExprStatement() {
 ///   seh-except-block
 ///   seh-finally-block
 ///
-StmtResult Parser::ParseSEHTryBlock() {
-  assert(Tok.is(tok::kw___try) && "Expected '__try'");
-  SourceLocation TryLoc = ConsumeToken();
-
-  if (Tok.isNot(tok::l_brace))
+StmtResult Parser::ParseSEHTryBlockCommon(SourceLocation TryLoc) {
+  if(Tok.isNot(tok::l_brace))
     return StmtError(Diag(Tok, diag::err_expected) << tok::l_brace);
 
   StmtResult TryBlock(ParseCompoundStatement(/*isStmtExpr=*/false,
@@ -435,7 +441,7 @@ StmtResult Parser::ParseSEHTryBlock() {
     SourceLocation Loc = ConsumeToken();
     Handler = ParseSEHFinallyBlock(Loc);
   } else {
-    return StmtError(Diag(Tok, diag::err_seh_expected_handler));
+    return StmtError(Diag(Tok,diag::err_seh_expected_handler));
   }
 
   if(Handler.isInvalid())
@@ -473,7 +479,7 @@ StmtResult Parser::ParseSEHExceptBlock(SourceLocation ExceptLoc) {
   {
     ParseScopeFlags FilterScope(this, getCurScope()->getFlags() |
                                           Scope::SEHFilterScope);
-    FilterExpr = Actions.CorrectDelayedTyposInExpr(ParseExpression());
+    FilterExpr = ParseExpression();
   }
 
   if (getLangOpts().Borland) {
@@ -488,9 +494,6 @@ StmtResult Parser::ParseSEHExceptBlock(SourceLocation ExceptLoc) {
   if (ExpectAndConsume(tok::r_paren))
     return StmtError();
 
-  if (Tok.isNot(tok::l_brace))
-    return StmtError(Diag(Tok, diag::err_expected) << tok::l_brace);
-
   StmtResult Block(ParseCompoundStatement());
 
   if(Block.isInvalid())
@@ -504,24 +507,16 @@ StmtResult Parser::ParseSEHExceptBlock(SourceLocation ExceptLoc) {
 /// seh-finally-block:
 ///   '__finally' compound-statement
 ///
-StmtResult Parser::ParseSEHFinallyBlock(SourceLocation FinallyLoc) {
+StmtResult Parser::ParseSEHFinallyBlock(SourceLocation FinallyBlock) {
   PoisonIdentifierRAIIObject raii(Ident__abnormal_termination, false),
     raii2(Ident___abnormal_termination, false),
     raii3(Ident_AbnormalTermination, false);
 
-  if (Tok.isNot(tok::l_brace))
-    return StmtError(Diag(Tok, diag::err_expected) << tok::l_brace);
-
-  ParseScope FinallyScope(this, 0);
-  Actions.ActOnStartSEHFinallyBlock();
-
   StmtResult Block(ParseCompoundStatement());
-  if(Block.isInvalid()) {
-    Actions.ActOnAbortSEHFinallyBlock();
+  if(Block.isInvalid())
     return Block;
-  }
 
-  return Actions.ActOnFinishSEHFinallyBlock(FinallyLoc, Block.get());
+  return Actions.ActOnSEHFinallyBlock(FinallyBlock,Block.get());
 }
 
 /// Handle __leave
@@ -1265,7 +1260,7 @@ StmtResult Parser::ParseSwitchStatement(SourceLocation *TrailingElseLoc) {
   // We have incremented the mangling number for the SwitchScope and the
   // InnerScope, which is one too many.
   if (C99orCXX)
-    getCurScope()->decrementMSManglingNumber();
+    getCurScope()->decrementMSLocalManglingNumber();
 
   // Read the body statement.
   StmtResult Body(ParseStatement(TrailingElseLoc));
@@ -1424,7 +1419,7 @@ bool Parser::isForRangeIdentifier() {
   if (Next.is(tok::colon))
     return true;
 
-  if (Next.isOneOf(tok::l_square, tok::kw_alignas)) {
+  if (Next.is(tok::l_square) || Next.is(tok::kw_alignas)) {
     TentativeParsingAction PA(*this);
     ConsumeToken();
     SkipCXX11Attributes();
@@ -1686,12 +1681,6 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
                                                      FirstPart.get(),
                                                      Collection.get(),
                                                      T.getCloseLocation());
-  } else {
-    // In OpenMP loop region loop control variable must be captured and be
-    // private. Perform analysis of first part (if any).
-    if (getLangOpts().OpenMP && FirstPart.isUsable()) {
-      Actions.ActOnOpenMPLoopInitialization(ForLoc, FirstPart.get());
-    }
   }
 
   // C99 6.8.5p5 - In C99, the body of the for statement is a scope, even if
@@ -1713,7 +1702,7 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
   // It will only be incremented if the body contains other things that would
   // normally increment the mangling number (like a compound statement).
   if (C99orCXXorObjC)
-    getCurScope()->decrementMSManglingNumber();
+    getCurScope()->decrementMSLocalManglingNumber();
 
   // Read the body statement.
   StmtResult Body(ParseStatement(TrailingElseLoc));

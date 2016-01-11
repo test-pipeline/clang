@@ -89,7 +89,7 @@ ModuleMap::ModuleMap(SourceManager &SourceMgr, DiagnosticsEngine &Diags,
                      HeaderSearch &HeaderInfo)
     : SourceMgr(SourceMgr), Diags(Diags), LangOpts(LangOpts), Target(Target),
       HeaderInfo(HeaderInfo), BuiltinIncludeDir(nullptr),
-      CompilingModule(nullptr), SourceModule(nullptr), NumCreatedModules(0) {
+      CompilingModule(nullptr), SourceModule(nullptr) {
   MMapLangOpts.LineComment = true;
 }
 
@@ -165,8 +165,7 @@ static bool isBuiltinHeader(StringRef FileName) {
 ModuleMap::HeadersMap::iterator
 ModuleMap::findKnownHeader(const FileEntry *File) {
   HeadersMap::iterator Known = Headers.find(File);
-  if (HeaderInfo.getHeaderSearchOpts().ImplicitModuleMaps &&
-      Known == Headers.end() && File->getDir() == BuiltinIncludeDir &&
+  if (Known == Headers.end() && File->getDir() == BuiltinIncludeDir &&
       isBuiltinHeader(llvm::sys::path::filename(File->getName()))) {
     HeaderInfo.loadTopLevelSystemModules();
     return Headers.find(File);
@@ -177,9 +176,6 @@ ModuleMap::findKnownHeader(const FileEntry *File) {
 ModuleMap::KnownHeader
 ModuleMap::findHeaderInUmbrellaDirs(const FileEntry *File,
                     SmallVectorImpl<const DirectoryEntry *> &IntermediateDirs) {
-  if (UmbrellaDirs.empty())
-    return KnownHeader();
-
   const DirectoryEntry *Dir = File->getDir();
   assert(Dir && "file in no directory");
 
@@ -209,32 +205,35 @@ ModuleMap::findHeaderInUmbrellaDirs(const FileEntry *File,
   return KnownHeader();
 }
 
+// Returns true if RequestingModule directly uses RequestedModule.
+static bool directlyUses(const Module *RequestingModule,
+                         const Module *RequestedModule) {
+  return std::find(RequestingModule->DirectUses.begin(),
+                   RequestingModule->DirectUses.end(),
+                   RequestedModule) != RequestingModule->DirectUses.end();
+}
+
 static bool violatesPrivateInclude(Module *RequestingModule,
                                    const FileEntry *IncFileEnt,
                                    ModuleMap::ModuleHeaderRole Role,
                                    Module *RequestedModule) {
   bool IsPrivateRole = Role & ModuleMap::PrivateHeader;
 #ifndef NDEBUG
-  if (IsPrivateRole) {
-    // Check for consistency between the module header role
-    // as obtained from the lookup and as obtained from the module.
-    // This check is not cheap, so enable it only for debugging.
-    bool IsPrivate = false;
-    SmallVectorImpl<Module::Header> *HeaderList[] = {
-        &RequestedModule->Headers[Module::HK_Private],
-        &RequestedModule->Headers[Module::HK_PrivateTextual]};
-    for (auto *Hs : HeaderList)
-      IsPrivate |=
-          std::find_if(Hs->begin(), Hs->end(), [&](const Module::Header &H) {
-            return H.Entry == IncFileEnt;
-          }) != Hs->end();
-    assert((!IsPrivateRole || IsPrivate) && "inconsistent headers and roles");
-  }
+  // Check for consistency between the module header role
+  // as obtained from the lookup and as obtained from the module.
+  // This check is not cheap, so enable it only for debugging.
+  bool IsPrivate = false;
+  SmallVectorImpl<Module::Header> *HeaderList[] =
+      {&RequestedModule->Headers[Module::HK_Private],
+       &RequestedModule->Headers[Module::HK_PrivateTextual]};
+  for (auto *Hdrs : HeaderList)
+    IsPrivate |=
+        std::find_if(Hdrs->begin(), Hdrs->end(), [&](const Module::Header &H) {
+          return H.Entry == IncFileEnt;
+        }) != Hdrs->end();
+  assert(IsPrivate == IsPrivateRole && "inconsistent headers and roles");
 #endif
   return IsPrivateRole &&
-         // FIXME: Should we map RequestingModule to its top-level module here
-         //        too? This check is redundant with the isSubModuleOf check in
-         //        diagnoseHeaderInclusion.
          RequestedModule->getTopLevelModule() != RequestingModule;
 }
 
@@ -262,8 +261,7 @@ void ModuleMap::diagnoseHeaderInclusion(Module *RequestingModule,
   if (Known != Headers.end()) {
     for (const KnownHeader &Header : Known->second) {
       // If 'File' is part of 'RequestingModule' we can definitely include it.
-      if (Header.getModule() &&
-          Header.getModule()->isSubModuleOf(RequestingModule))
+      if (Header.getModule() == RequestingModule)
         return;
 
       // Remember private headers for later printing of a diagnostic.
@@ -276,7 +274,7 @@ void ModuleMap::diagnoseHeaderInclusion(Module *RequestingModule,
       // If uses need to be specified explicitly, we are only allowed to return
       // modules that are explicitly used by the requesting module.
       if (RequestingModule && LangOpts.ModulesDeclUse &&
-          !RequestingModule->directlyUses(Header.getModule())) {
+          !directlyUses(RequestingModule, Header.getModule())) {
         NotUsed = Header.getModule();
         continue;
       }
@@ -334,26 +332,42 @@ static bool isBetterKnownHeader(const ModuleMap::KnownHeader &New,
   return false;
 }
 
-ModuleMap::KnownHeader ModuleMap::findModuleForHeader(const FileEntry *File) {
+ModuleMap::KnownHeader
+ModuleMap::findModuleForHeader(const FileEntry *File,
+                               Module *RequestingModule,
+                               bool IncludeTextualHeaders) {
+  HeadersMap::iterator Known = findKnownHeader(File);
+
   auto MakeResult = [&](ModuleMap::KnownHeader R) -> ModuleMap::KnownHeader {
-    if (R.getRole() & ModuleMap::TextualHeader)
+    if (!IncludeTextualHeaders && (R.getRole() & ModuleMap::TextualHeader))
       return ModuleMap::KnownHeader();
     return R;
   };
 
-  HeadersMap::iterator Known = findKnownHeader(File);
   if (Known != Headers.end()) {
     ModuleMap::KnownHeader Result;
+
     // Iterate over all modules that 'File' is part of to find the best fit.
-    for (KnownHeader &H : Known->second) {
-      // Prefer a header from the current module over all others.
-      if (H.getModule()->getTopLevelModule() == CompilingModule)
-        return MakeResult(H);
+    for (SmallVectorImpl<KnownHeader>::iterator I = Known->second.begin(),
+                                                E = Known->second.end();
+         I != E; ++I) {
       // Cannot use a module if it is unavailable.
-      if (!H.getModule()->isAvailable())
+      if (!I->getModule()->isAvailable())
         continue;
-      if (!Result || isBetterKnownHeader(H, Result))
-        Result = H;
+
+      // If 'File' is part of 'RequestingModule', 'RequestingModule' is the
+      // module we are looking for.
+      if (I->getModule() == RequestingModule)
+        return MakeResult(*I);
+
+      // If uses need to be specified explicitly, we are only allowed to return
+      // modules that are explicitly used by the requesting module.
+      if (RequestingModule && LangOpts.ModulesDeclUse &&
+          !directlyUses(RequestingModule, I->getModule()))
+        continue;
+
+      if (!Result || isBetterKnownHeader(*I, Result))
+        Result = *I;
     }
     return MakeResult(Result);
   }
@@ -551,7 +565,7 @@ ModuleMap::findOrCreateModule(StringRef Name, Module *Parent, bool IsFramework,
   
   // Create a new module with this name.
   Module *Result = new Module(Name, SourceLocation(), Parent,
-                              IsFramework, IsExplicit, NumCreatedModules++);
+                              IsFramework, IsExplicit);
   if (LangOpts.CurrentModule == Name) {
     SourceModule = Result;
     SourceModuleName = Name;
@@ -583,28 +597,19 @@ static void inferFrameworkLink(Module *Mod, const DirectoryEntry *FrameworkDir,
   }
 }
 
-Module *ModuleMap::inferFrameworkModule(const DirectoryEntry *FrameworkDir,
-                                        bool IsSystem, Module *Parent) {
+Module *
+ModuleMap::inferFrameworkModule(StringRef ModuleName,
+                                const DirectoryEntry *FrameworkDir,
+                                bool IsSystem,
+                                Module *Parent) {
   Attributes Attrs;
   Attrs.IsSystem = IsSystem;
-  return inferFrameworkModule(FrameworkDir, Attrs, Parent);
+  return inferFrameworkModule(ModuleName, FrameworkDir, Attrs, Parent);
 }
 
-Module *ModuleMap::inferFrameworkModule(const DirectoryEntry *FrameworkDir,
+Module *ModuleMap::inferFrameworkModule(StringRef ModuleName,
+                                        const DirectoryEntry *FrameworkDir,
                                         Attributes Attrs, Module *Parent) {
-  // Note: as an egregious but useful hack we use the real path here, because
-  // we might be looking at an embedded framework that symlinks out to a
-  // top-level framework, and we need to infer as if we were naming the
-  // top-level framework.
-  StringRef FrameworkDirName =
-      SourceMgr.getFileManager().getCanonicalName(FrameworkDir);
-
-  // In case this is a case-insensitive filesystem, use the canonical
-  // directory name as the ModuleName, since modules are case-sensitive.
-  // FIXME: we should be able to give a fix-it hint for the correct spelling.
-  SmallString<32> ModuleNameStorage;
-  StringRef ModuleName = sanitizeFilenameAsIdentifier(
-      llvm::sys::path::stem(FrameworkDirName), ModuleNameStorage);
 
   // Check whether we've already found this module.
   if (Module *Mod = lookupModuleQualified(ModuleName, Parent))
@@ -617,6 +622,20 @@ Module *ModuleMap::inferFrameworkModule(const DirectoryEntry *FrameworkDir,
   const FileEntry *ModuleMapFile = nullptr;
   if (!Parent) {
     // Determine whether we're allowed to infer a module map.
+
+    // Note: as an egregious but useful hack we use the real path here, because
+    // we might be looking at an embedded framework that symlinks out to a
+    // top-level framework, and we need to infer as if we were naming the
+    // top-level framework.
+    StringRef FrameworkDirName
+      = SourceMgr.getFileManager().getCanonicalName(FrameworkDir);
+
+    // In case this is a case-insensitive filesystem, make sure the canonical
+    // directory name matches ModuleName exactly. Modules are case-sensitive.
+    // FIXME: we should be able to give a fix-it hint for the correct spelling.
+    if (llvm::sys::path::stem(FrameworkDirName) != ModuleName)
+      return nullptr;
+
     bool canInfer = false;
     if (llvm::sys::path::has_parent_path(FrameworkDirName)) {
       // Figure out the parent path.
@@ -676,8 +695,7 @@ Module *ModuleMap::inferFrameworkModule(const DirectoryEntry *FrameworkDir,
     return nullptr;
 
   Module *Result = new Module(ModuleName, SourceLocation(), Parent,
-                              /*IsFramework=*/true, /*IsExplicit=*/false,
-                              NumCreatedModules++);
+                              /*IsFramework=*/true, /*IsExplicit=*/false);
   InferredModuleAllowedBy[Result] = ModuleMapFile;
   Result->IsInferred = true;
   if (LangOpts.CurrentModule == ModuleName) {
@@ -688,16 +706,14 @@ Module *ModuleMap::inferFrameworkModule(const DirectoryEntry *FrameworkDir,
   Result->IsSystem |= Attrs.IsSystem;
   Result->IsExternC |= Attrs.IsExternC;
   Result->ConfigMacrosExhaustive |= Attrs.IsExhaustive;
-  Result->Directory = FrameworkDir;
 
   if (!Parent)
     Modules[ModuleName] = Result;
   
   // umbrella header "umbrella-header-name"
-  //
-  // The "Headers/" component of the name is implied because this is
-  // a framework module.
-  setUmbrellaHeader(Result, UmbrellaHeader, ModuleName + ".h");
+  Result->Umbrella = UmbrellaHeader;
+  Headers[UmbrellaHeader].push_back(KnownHeader(Result, NormalHeader));
+  UmbrellaDirs[UmbrellaHeader->getDir()] = Result;
   
   // export *
   Result->Exports.push_back(Module::ExportDecl(nullptr, true));
@@ -712,7 +728,8 @@ Module *ModuleMap::inferFrameworkModule(const DirectoryEntry *FrameworkDir,
     = StringRef(FrameworkDir->getName());
   llvm::sys::path::append(SubframeworksDirName, "Frameworks");
   llvm::sys::path::native(SubframeworksDirName);
-  for (llvm::sys::fs::directory_iterator Dir(SubframeworksDirName, EC), DirEnd;
+  for (llvm::sys::fs::directory_iterator 
+         Dir(SubframeworksDirName.str(), EC), DirEnd;
        Dir != DirEnd && !EC; Dir.increment(EC)) {
     if (!StringRef(Dir->path()).endswith(".framework"))
       continue;
@@ -742,7 +759,10 @@ Module *ModuleMap::inferFrameworkModule(const DirectoryEntry *FrameworkDir,
         continue;
 
       // FIXME: Do we want to warn about subframeworks without umbrella headers?
-      inferFrameworkModule(SubframeworkDir, Attrs, Result);
+      SmallString<32> NameBuf;
+      inferFrameworkModule(sanitizeFilenameAsIdentifier(
+                               llvm::sys::path::stem(Dir->path()), NameBuf),
+                           SubframeworkDir, Attrs, Result);
     }
   }
 
@@ -755,18 +775,14 @@ Module *ModuleMap::inferFrameworkModule(const DirectoryEntry *FrameworkDir,
   return Result;
 }
 
-void ModuleMap::setUmbrellaHeader(Module *Mod, const FileEntry *UmbrellaHeader,
-                                  Twine NameAsWritten) {
+void ModuleMap::setUmbrellaHeader(Module *Mod, const FileEntry *UmbrellaHeader){
   Headers[UmbrellaHeader].push_back(KnownHeader(Mod, NormalHeader));
   Mod->Umbrella = UmbrellaHeader;
-  Mod->UmbrellaAsWritten = NameAsWritten.str();
   UmbrellaDirs[UmbrellaHeader->getDir()] = Mod;
 }
 
-void ModuleMap::setUmbrellaDir(Module *Mod, const DirectoryEntry *UmbrellaDir,
-                               Twine NameAsWritten) {
+void ModuleMap::setUmbrellaDir(Module *Mod, const DirectoryEntry *UmbrellaDir) {
   Mod->Umbrella = UmbrellaDir;
-  Mod->UmbrellaAsWritten = NameAsWritten.str();
   UmbrellaDirs[UmbrellaDir] = Mod;
 }
 
@@ -851,44 +867,50 @@ void ModuleMap::dump() {
 }
 
 bool ModuleMap::resolveExports(Module *Mod, bool Complain) {
-  auto Unresolved = std::move(Mod->UnresolvedExports);
-  Mod->UnresolvedExports.clear();
-  for (auto &UE : Unresolved) {
-    Module::ExportDecl Export = resolveExport(Mod, UE, Complain);
+  bool HadError = false;
+  for (unsigned I = 0, N = Mod->UnresolvedExports.size(); I != N; ++I) {
+    Module::ExportDecl Export = resolveExport(Mod, Mod->UnresolvedExports[I], 
+                                              Complain);
     if (Export.getPointer() || Export.getInt())
       Mod->Exports.push_back(Export);
     else
-      Mod->UnresolvedExports.push_back(UE);
+      HadError = true;
   }
-  return !Mod->UnresolvedExports.empty();
+  Mod->UnresolvedExports.clear();
+  return HadError;
 }
 
 bool ModuleMap::resolveUses(Module *Mod, bool Complain) {
-  auto Unresolved = std::move(Mod->UnresolvedDirectUses);
-  Mod->UnresolvedDirectUses.clear();
-  for (auto &UDU : Unresolved) {
-    Module *DirectUse = resolveModuleId(UDU, Mod, Complain);
+  bool HadError = false;
+  for (unsigned I = 0, N = Mod->UnresolvedDirectUses.size(); I != N; ++I) {
+    Module *DirectUse =
+        resolveModuleId(Mod->UnresolvedDirectUses[I], Mod, Complain);
     if (DirectUse)
       Mod->DirectUses.push_back(DirectUse);
     else
-      Mod->UnresolvedDirectUses.push_back(UDU);
+      HadError = true;
   }
-  return !Mod->UnresolvedDirectUses.empty();
+  Mod->UnresolvedDirectUses.clear();
+  return HadError;
 }
 
 bool ModuleMap::resolveConflicts(Module *Mod, bool Complain) {
-  auto Unresolved = std::move(Mod->UnresolvedConflicts);
-  Mod->UnresolvedConflicts.clear();
-  for (auto &UC : Unresolved) {
-    if (Module *OtherMod = resolveModuleId(UC.Id, Mod, Complain)) {
-      Module::Conflict Conflict;
-      Conflict.Other = OtherMod;
-      Conflict.Message = UC.Message;
-      Mod->Conflicts.push_back(Conflict);
-    } else
-      Mod->UnresolvedConflicts.push_back(UC);
+  bool HadError = false;
+  for (unsigned I = 0, N = Mod->UnresolvedConflicts.size(); I != N; ++I) {
+    Module *OtherMod = resolveModuleId(Mod->UnresolvedConflicts[I].Id,
+                                       Mod, Complain);
+    if (!OtherMod) {
+      HadError = true;
+      continue;
+    }
+
+    Module::Conflict Conflict;
+    Conflict.Other = OtherMod;
+    Conflict.Message = Mod->UnresolvedConflicts[I].Message;
+    Mod->Conflicts.push_back(Conflict);
   }
-  return !Mod->UnresolvedConflicts.empty();
+  Mod->UnresolvedConflicts.clear();
+  return HadError;
 }
 
 Module *ModuleMap::inferModuleFromLocation(FullSourceLoc Loc) {
@@ -1528,7 +1550,7 @@ void ModuleMapParser::parseModuleDecl() {
 ///     'extern' 'module' module-id string-literal
 void ModuleMapParser::parseExternModuleDecl() {
   assert(Tok.is(MMToken::ExternKeyword));
-  SourceLocation ExternLoc = consumeToken(); // 'extern' keyword
+  consumeToken(); // 'extern' keyword
 
   // Parse 'module' keyword.
   if (!Tok.is(MMToken::ModuleKeyword)) {
@@ -1560,14 +1582,14 @@ void ModuleMapParser::parseExternModuleDecl() {
   if (llvm::sys::path::is_relative(FileNameRef)) {
     ModuleMapFileName += Directory->getName();
     llvm::sys::path::append(ModuleMapFileName, FileName);
-    FileNameRef = ModuleMapFileName;
+    FileNameRef = ModuleMapFileName.str();
   }
   if (const FileEntry *File = SourceMgr.getFileManager().getFile(FileNameRef))
     Map.parseModuleMapFile(
         File, /*IsSystem=*/false,
         Map.HeaderInfo.getHeaderSearchOpts().ModuleMapFileHomeIsCwd
             ? Directory
-            : File->getDir(), ExternLoc);
+            : File->getDir());
 }
 
 /// \brief Parse a requires declaration.
@@ -1707,7 +1729,7 @@ void ModuleMapParser::parseHeaderDecl(MMToken::TokenKind LeadingToken,
       
       // Check whether this file is in the public headers.
       llvm::sys::path::append(RelativePathName, "Headers", Header.FileName);
-      llvm::sys::path::append(FullPathName, RelativePathName);
+      llvm::sys::path::append(FullPathName, RelativePathName.str());
       File = SourceMgr.getFileManager().getFile(FullPathName);
       
       if (!File) {
@@ -1717,13 +1739,13 @@ void ModuleMapParser::parseHeaderDecl(MMToken::TokenKind LeadingToken,
         FullPathName.resize(FullPathLength);
         llvm::sys::path::append(RelativePathName, "PrivateHeaders",
                                 Header.FileName);
-        llvm::sys::path::append(FullPathName, RelativePathName);
+        llvm::sys::path::append(FullPathName, RelativePathName.str());
         File = SourceMgr.getFileManager().getFile(FullPathName);
       }
     } else {
       // Lookup for normal headers.
       llvm::sys::path::append(RelativePathName, Header.FileName);
-      llvm::sys::path::append(FullPathName, RelativePathName);
+      llvm::sys::path::append(FullPathName, RelativePathName.str());
       File = SourceMgr.getFileManager().getFile(FullPathName);
 
       // If this is a system module with a top-level header, this header
@@ -1739,13 +1761,7 @@ void ModuleMapParser::parseHeaderDecl(MMToken::TokenKind LeadingToken,
         // If Clang supplies this header but the underlying system does not,
         // just silently swap in our builtin version. Otherwise, we'll end
         // up adding both (later).
-        //
-        // For local visibility, entirely replace the system file with our
-        // one and textually include the system one. We need to pass macros
-        // from our header to the system one if we #include_next it.
-        //
-        // FIXME: Can we do this in all cases?
-        if (BuiltinFile && (!File || Map.LangOpts.ModulesLocalVisibility)) {
+        if (!File && BuiltinFile) {
           File = BuiltinFile;
           RelativePathName = BuiltinPathName;
           BuiltinFile = nullptr;
@@ -1765,7 +1781,7 @@ void ModuleMapParser::parseHeaderDecl(MMToken::TokenKind LeadingToken,
         HadError = true;
       } else {
         // Record this umbrella header.
-        Map.setUmbrellaHeader(ActiveModule, File, RelativePathName.str());
+        Map.setUmbrellaHeader(ActiveModule, File);
       }
     } else if (LeadingToken == MMToken::ExcludeKeyword) {
       Module::Header H = {RelativePathName.str(), File};
@@ -1847,7 +1863,7 @@ void ModuleMapParser::parseUmbrellaDirDecl(SourceLocation UmbrellaLoc) {
   } 
   
   // Record this umbrella directory.
-  Map.setUmbrellaDir(ActiveModule, Dir, DirName);
+  Map.setUmbrellaDir(ActiveModule, Dir);
 }
 
 /// \brief Parse a module export declaration.
@@ -1898,21 +1914,18 @@ void ModuleMapParser::parseExportDecl() {
   ActiveModule->UnresolvedExports.push_back(Unresolved);
 }
 
-/// \brief Parse a module use declaration.
+/// \brief Parse a module uses declaration.
 ///
-///   use-declaration:
-///     'use' wildcard-module-id
+///   uses-declaration:
+///     'uses' wildcard-module-id
 void ModuleMapParser::parseUseDecl() {
   assert(Tok.is(MMToken::UseKeyword));
-  auto KWLoc = consumeToken();
+  consumeToken();
   // Parse the module-id.
   ModuleId ParsedModuleId;
   parseModuleId(ParsedModuleId);
 
-  if (ActiveModule->Parent)
-    Diags.Report(KWLoc, diag::err_mmap_use_decl_submodule);
-  else
-    ActiveModule->UnresolvedDirectUses.push_back(ParsedModuleId);
+  ActiveModule->UnresolvedDirectUses.push_back(ParsedModuleId);
 }
 
 /// \brief Parse a link declaration.
@@ -2319,8 +2332,7 @@ bool ModuleMapParser::parseModuleMapFile() {
 }
 
 bool ModuleMap::parseModuleMapFile(const FileEntry *File, bool IsSystem,
-                                   const DirectoryEntry *Dir,
-                                   SourceLocation ExternModuleLoc) {
+                                   const DirectoryEntry *Dir) {
   llvm::DenseMap<const FileEntry *, bool>::iterator Known
     = ParsedModuleMap.find(File);
   if (Known != ParsedModuleMap.end())
@@ -2328,7 +2340,7 @@ bool ModuleMap::parseModuleMapFile(const FileEntry *File, bool IsSystem,
 
   assert(Target && "Missing target information");
   auto FileCharacter = IsSystem ? SrcMgr::C_System : SrcMgr::C_User;
-  FileID ID = SourceMgr.createFileID(File, ExternModuleLoc, FileCharacter);
+  FileID ID = SourceMgr.createFileID(File, SourceLocation(), FileCharacter);
   const llvm::MemoryBuffer *Buffer = SourceMgr.getBuffer(ID);
   if (!Buffer)
     return ParsedModuleMap[File] = true;

@@ -28,7 +28,6 @@ using namespace ento;
 static bool isArc4RandomAvailable(const ASTContext &Ctx) {
   const llvm::Triple &T = Ctx.getTargetInfo().getTriple();
   return T.getVendor() == llvm::Triple::Apple ||
-         T.getOS() == llvm::Triple::CloudABI ||
          T.getOS() == llvm::Triple::FreeBSD ||
          T.getOS() == llvm::Triple::NetBSD ||
          T.getOS() == llvm::Triple::OpenBSD ||
@@ -109,9 +108,9 @@ public:
 //===----------------------------------------------------------------------===//
 
 void WalkAST::VisitChildren(Stmt *S) {
-  for (Stmt *Child : S->children())
-    if (Child)
-      Visit(Child);
+  for (Stmt::child_iterator I = S->child_begin(), E = S->child_end(); I!=E; ++I)
+    if (Stmt *child = *I)
+      Visit(child);
 }
 
 void WalkAST::VisitCallExpr(CallExpr *CE) {
@@ -162,11 +161,11 @@ void WalkAST::VisitCallExpr(CallExpr *CE) {
 }
 
 void WalkAST::VisitCompoundStmt(CompoundStmt *S) {
-  for (Stmt *Child : S->children())
-    if (Child) {
-      if (CallExpr *CE = dyn_cast<CallExpr>(Child))
+  for (Stmt::child_iterator I = S->child_begin(), E = S->child_end(); I!=E; ++I)
+    if (Stmt *child = *I) {
+      if (CallExpr *CE = dyn_cast<CallExpr>(child))
         checkUncheckedReturnValue(CE);
-      Visit(Child);
+      Visit(child);
     }
 }
 

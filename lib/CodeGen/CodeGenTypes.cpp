@@ -154,16 +154,14 @@ isSafeToConvert(const RecordDecl *RD, CodeGenTypes &CGT,
 static bool
 isSafeToConvert(QualType T, CodeGenTypes &CGT,
                 llvm::SmallPtrSet<const RecordDecl*, 16> &AlreadyChecked) {
-  // Strip off atomic type sugar.
-  if (const auto *AT = T->getAs<AtomicType>())
-    T = AT->getValueType();
-
+  T = T.getCanonicalType();
+  
   // If this is a record, check it.
-  if (const auto *RT = T->getAs<RecordType>())
+  if (const RecordType *RT = dyn_cast<RecordType>(T))
     return isSafeToConvert(RT->getDecl(), CGT, AlreadyChecked);
-
+  
   // If this is an array, check the elements, which are embedded inline.
-  if (const auto *AT = CGT.getContext().getAsArrayType(T))
+  if (const ArrayType *AT = dyn_cast<ArrayType>(T))
     return isSafeToConvert(AT->getElementType(), CGT, AlreadyChecked);
 
   // Otherwise, there is no concern about transforming this.  We only care about
@@ -717,16 +715,9 @@ bool CodeGenTypes::isZeroInitializable(QualType T) {
   // No need to check for member pointers when not compiling C++.
   if (!Context.getLangOpts().CPlusPlus)
     return true;
-
-  if (const auto *AT = Context.getAsArrayType(T)) {
-    if (isa<IncompleteArrayType>(AT))
-      return true;
-    if (const auto *CAT = dyn_cast<ConstantArrayType>(AT))
-      if (Context.getConstantArrayElementCount(CAT) == 0)
-        return true;
-    T = Context.getBaseElementType(T);
-  }
-
+  
+  T = Context.getBaseElementType(T);
+  
   // Records are non-zero-initializable if they contain any
   // non-zero-initializable subobjects.
   if (const RecordType *RT = T->getAs<RecordType>()) {
@@ -742,6 +733,6 @@ bool CodeGenTypes::isZeroInitializable(QualType T) {
   return true;
 }
 
-bool CodeGenTypes::isZeroInitializable(const RecordDecl *RD) {
+bool CodeGenTypes::isZeroInitializable(const CXXRecordDecl *RD) {
   return getCGRecordLayout(RD).isZeroInitializable();
 }

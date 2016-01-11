@@ -118,13 +118,12 @@ public:
 
 /// \brief Represents Objective-C's \@finally statement
 class ObjCAtFinallyStmt : public Stmt {
-  SourceLocation AtFinallyLoc;
   Stmt *AtFinallyStmt;
-
+  SourceLocation AtFinallyLoc;
 public:
   ObjCAtFinallyStmt(SourceLocation atFinallyLoc, Stmt *atFinallyStmt)
-      : Stmt(ObjCAtFinallyStmtClass), AtFinallyLoc(atFinallyLoc),
-        AtFinallyStmt(atFinallyStmt) {}
+  : Stmt(ObjCAtFinallyStmtClass),
+    AtFinallyStmt(atFinallyStmt), AtFinallyLoc(atFinallyLoc) {}
 
   explicit ObjCAtFinallyStmt(EmptyShell Empty) :
     Stmt(ObjCAtFinallyStmtClass, Empty) { }
@@ -261,9 +260,9 @@ public:
 /// \endcode
 class ObjCAtSynchronizedStmt : public Stmt {
 private:
-  SourceLocation AtSynchronizedLoc;
   enum { SYNC_EXPR, SYNC_BODY, END_EXPR };
   Stmt* SubStmts[END_EXPR];
+  SourceLocation AtSynchronizedLoc;
 
 public:
   ObjCAtSynchronizedStmt(SourceLocation atSynchronizedLoc, Stmt *synchExpr,
@@ -311,9 +310,8 @@ public:
 
 /// \brief Represents Objective-C's \@throw statement.
 class ObjCAtThrowStmt : public Stmt {
-  SourceLocation AtThrowLoc;
   Stmt *Throw;
-
+  SourceLocation AtThrowLoc;
 public:
   ObjCAtThrowStmt(SourceLocation atThrowLoc, Stmt *throwExpr)
   : Stmt(ObjCAtThrowStmtClass), Throw(throwExpr) {
@@ -343,12 +341,13 @@ public:
 
 /// \brief Represents Objective-C's \@autoreleasepool Statement
 class ObjCAutoreleasePoolStmt : public Stmt {
-  SourceLocation AtLoc;
   Stmt *SubStmt;
-
+  SourceLocation AtLoc;
 public:
-  ObjCAutoreleasePoolStmt(SourceLocation atLoc, Stmt *subStmt)
-      : Stmt(ObjCAutoreleasePoolStmtClass), AtLoc(atLoc), SubStmt(subStmt) {}
+  ObjCAutoreleasePoolStmt(SourceLocation atLoc, 
+                            Stmt *subStmt)
+  : Stmt(ObjCAutoreleasePoolStmtClass),
+    SubStmt(subStmt), AtLoc(atLoc) {}
 
   explicit ObjCAutoreleasePoolStmt(EmptyShell Empty) :
     Stmt(ObjCAutoreleasePoolStmtClass, Empty) { }

@@ -78,7 +78,6 @@ def main():
       # Other languages that clang-format supports
       'proto', 'protodevel',  # Protocol Buffers
       'js',  # JavaScript
-      'ts',  # TypeScript
       ])
 
   p = argparse.ArgumentParser(

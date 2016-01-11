@@ -71,5 +71,3 @@ namespace N12 {
   }
   Foo *getFoo();
 }
-
-namespace Empty {}

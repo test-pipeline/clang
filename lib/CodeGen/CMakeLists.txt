@@ -10,11 +10,9 @@ set(LLVM_LINK_COMPONENTS
   Linker
   MC
   ObjCARCOpts
-  Object
   ProfileData
   ScalarOpts
   Support
-  Target
   TransformUtils
   )
 
@@ -72,7 +70,6 @@ add_clang_library(clangCodeGen
   ItaniumCXXABI.cpp
   MicrosoftCXXABI.cpp
   ModuleBuilder.cpp
-  ObjectFilePCHContainerOperations.cpp
   SanitizerMetadata.cpp
   TargetInfo.cpp
 

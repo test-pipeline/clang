@@ -11,7 +11,6 @@
 #define LLVM_CLANG_FRONTEND_COMPILERINSTANCE_H_
 
 #include "clang/AST/ASTConsumer.h"
-#include "clang/Frontend/PCHContainerOperations.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Frontend/CompilerInvocation.h"
@@ -30,7 +29,6 @@
 namespace llvm {
 class raw_fd_ostream;
 class Timer;
-class TimerGroup;
 }
 
 namespace clang {
@@ -102,10 +100,7 @@ class CompilerInstance : public ModuleLoader {
   /// \brief The semantic analysis object.
   std::unique_ptr<Sema> TheSema;
 
-  /// \brief The frontend timer group.
-  std::unique_ptr<llvm::TimerGroup> FrontendTimerGroup;
-
-  /// \brief The frontend timer.
+  /// \brief The frontend timer
   std::unique_ptr<llvm::Timer> FrontendTimer;
 
   /// \brief The ASTReader, if one exists.
@@ -113,9 +108,6 @@ class CompilerInstance : public ModuleLoader {
 
   /// \brief The module dependency collector for crashdumps
   std::shared_ptr<ModuleDependencyCollector> ModuleDepCollector;
-
-  /// \brief The module provider.
-  std::shared_ptr<PCHContainerOperations> ThePCHContainerOperations;
 
   /// \brief The dependency file generator.
   std::unique_ptr<DependencyFileGenerator> TheDependencyFileGenerator;
@@ -128,10 +120,6 @@ class CompilerInstance : public ModuleLoader {
 
   /// \brief Module names that have an override for the target file.
   llvm::StringMap<std::string> ModuleFileOverrides;
-
-  /// \brief Module files that we've explicitly loaded via \ref loadModuleFile,
-  /// and their dependencies.
-  llvm::StringSet<> ExplicitlyLoadedModuleFiles;
 
   /// \brief The location of the module-import keyword for the last module
   /// import. 
@@ -159,21 +147,12 @@ class CompilerInstance : public ModuleLoader {
   struct OutputFile {
     std::string Filename;
     std::string TempFilename;
-    std::unique_ptr<raw_ostream> OS;
+    raw_ostream *OS;
 
-    OutputFile(std::string filename, std::string tempFilename,
-               std::unique_ptr<raw_ostream> OS)
-        : Filename(std::move(filename)), TempFilename(std::move(tempFilename)),
-          OS(std::move(OS)) {}
-    OutputFile(OutputFile &&O)
-        : Filename(std::move(O.Filename)),
-          TempFilename(std::move(O.TempFilename)), OS(std::move(O.OS)) {}
+    OutputFile(const std::string &filename, const std::string &tempFilename,
+               raw_ostream *os)
+      : Filename(filename), TempFilename(tempFilename), OS(os) { }
   };
-
-  /// If the output doesn't support seeking (terminal, pipe). we switch
-  /// the stream to a buffer_ostream. These are the buffer and the original
-  /// stream.
-  std::unique_ptr<llvm::raw_fd_ostream> NonSeekStream;
 
   /// The list of active output files.
   std::list<OutputFile> OutputFiles;
@@ -181,11 +160,8 @@ class CompilerInstance : public ModuleLoader {
   CompilerInstance(const CompilerInstance &) = delete;
   void operator=(const CompilerInstance &) = delete;
 public:
-  explicit CompilerInstance(
-      std::shared_ptr<PCHContainerOperations> PCHContainerOps =
-          std::make_shared<PCHContainerOperations>(),
-      bool BuildingModule = false);
-  ~CompilerInstance() override;
+  explicit CompilerInstance(bool BuildingModule = false);
+  ~CompilerInstance();
 
   /// @name High-Level Operations
   /// {
@@ -504,38 +480,6 @@ public:
   void setModuleDepCollector(
       std::shared_ptr<ModuleDependencyCollector> Collector);
 
-  std::shared_ptr<PCHContainerOperations> getPCHContainerOperations() const {
-    return ThePCHContainerOperations;
-  }
-
-  /// Return the appropriate PCHContainerWriter depending on the
-  /// current CodeGenOptions.
-  const PCHContainerWriter &getPCHContainerWriter() const {
-    assert(Invocation && "cannot determine module format without invocation");
-    StringRef Format = getHeaderSearchOpts().ModuleFormat;
-    auto *Writer = ThePCHContainerOperations->getWriterOrNull(Format);
-    if (!Writer) {
-      if (Diagnostics)
-        Diagnostics->Report(diag::err_module_format_unhandled) << Format;
-      llvm::report_fatal_error("unknown module format");
-    }
-    return *Writer;
-  }
-
-  /// Return the appropriate PCHContainerReader depending on the
-  /// current CodeGenOptions.
-  const PCHContainerReader &getPCHContainerReader() const {
-    assert(Invocation && "cannot determine module format without invocation");
-    StringRef Format = getHeaderSearchOpts().ModuleFormat;
-    auto *Reader = ThePCHContainerOperations->getReaderOrNull(Format);
-    if (!Reader) {
-      if (Diagnostics)
-        Diagnostics->Report(diag::err_module_format_unhandled) << Format;
-      llvm::report_fatal_error("unknown module format");
-    }
-    return *Reader;
-  }
-
   /// }
   /// @name Code Completion
   /// {
@@ -570,7 +514,7 @@ public:
   /// addOutputFile - Add an output file onto the list of tracked output files.
   ///
   /// \param OutFile - The output file info.
-  void addOutputFile(OutputFile &&OutFile);
+  void addOutputFile(const OutputFile &OutFile);
 
   /// clearOutputFiles - Clear the output file list, destroying the contained
   /// output streams.
@@ -647,9 +591,8 @@ public:
   ///
   /// \return - The new object on success, or null on failure.
   static IntrusiveRefCntPtr<ASTReader> createPCHExternalASTSource(
-      StringRef Path, StringRef Sysroot, bool DisablePCHValidation,
+      StringRef Path, const std::string &Sysroot, bool DisablePCHValidation,
       bool AllowPCHWithCompilerErrors, Preprocessor &PP, ASTContext &Context,
-      const PCHContainerReader &PCHContainerRdr,
       void *DeserializationListener, bool OwnDeserializationListener,
       bool Preamble, bool UseGlobalModuleIndex);
 
@@ -660,9 +603,11 @@ public:
 
   /// Create a code completion consumer to print code completion results, at
   /// \p Filename, \p Line, and \p Column, to the given output stream \p OS.
-  static CodeCompleteConsumer *createCodeCompletionConsumer(
-      Preprocessor &PP, StringRef Filename, unsigned Line, unsigned Column,
-      const CodeCompleteOptions &Opts, raw_ostream &OS);
+  static CodeCompleteConsumer *
+  createCodeCompletionConsumer(Preprocessor &PP, const std::string &Filename,
+                               unsigned Line, unsigned Column,
+                               const CodeCompleteOptions &Opts,
+                               raw_ostream &OS);
 
   /// \brief Create the Sema object to be used for parsing.
   void createSema(TranslationUnitKind TUKind,
@@ -679,19 +624,21 @@ public:
   /// atomically replace the target output on success).
   ///
   /// \return - Null on error.
-  raw_pwrite_stream *createDefaultOutputFile(bool Binary = true,
-                                             StringRef BaseInput = "",
-                                             StringRef Extension = "");
+  llvm::raw_fd_ostream *
+  createDefaultOutputFile(bool Binary = true, StringRef BaseInput = "",
+                          StringRef Extension = "");
 
   /// Create a new output file and add it to the list of tracked output files,
   /// optionally deriving the output path name.
   ///
   /// \return - Null on error.
-  raw_pwrite_stream *createOutputFile(StringRef OutputPath, bool Binary,
-                                      bool RemoveFileOnSignal,
-                                      StringRef BaseInput, StringRef Extension,
-                                      bool UseTemporary,
-                                      bool CreateMissingDirectories = false);
+  llvm::raw_fd_ostream *
+  createOutputFile(StringRef OutputPath,
+                   bool Binary, bool RemoveFileOnSignal,
+                   StringRef BaseInput,
+                   StringRef Extension,
+                   bool UseTemporary,
+                   bool CreateMissingDirectories = false);
 
   /// Create a new output file, optionally deriving the output path name.
   ///
@@ -718,7 +665,7 @@ public:
   /// stored here on success.
   /// \param TempPathName [out] - If given, the temporary file path name
   /// will be stored here on success.
-  std::unique_ptr<raw_pwrite_stream>
+  static llvm::raw_fd_ostream *
   createOutputFile(StringRef OutputPath, std::error_code &Error, bool Binary,
                    bool RemoveFileOnSignal, StringRef BaseInput,
                    StringRef Extension, bool UseTemporary,
@@ -759,7 +706,7 @@ public:
                               bool IsInclusionDirective) override;
 
   void makeModuleVisible(Module *Mod, Module::NameVisibilityKind Visibility,
-                         SourceLocation ImportLoc) override;
+                         SourceLocation ImportLoc, bool Complain) override;
 
   bool hadModuleLoaderFatalFailure() const {
     return ModuleLoader::HadFatalFailure;

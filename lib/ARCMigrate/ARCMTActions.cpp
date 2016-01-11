@@ -16,7 +16,6 @@ using namespace arcmt;
 
 bool CheckAction::BeginInvocation(CompilerInstance &CI) {
   if (arcmt::checkForManualIssues(CI.getInvocation(), getCurrentInput(),
-                                  CI.getPCHContainerOperations(),
                                   CI.getDiagnostics().getClient()))
     return false; // errors, stop the action.
 
@@ -30,7 +29,6 @@ CheckAction::CheckAction(FrontendAction *WrappedAction)
 
 bool ModifyAction::BeginInvocation(CompilerInstance &CI) {
   return !arcmt::applyTransformations(CI.getInvocation(), getCurrentInput(),
-                                      CI.getPCHContainerOperations(),
                                       CI.getDiagnostics().getClient());
 }
 
@@ -38,10 +36,12 @@ ModifyAction::ModifyAction(FrontendAction *WrappedAction)
   : WrapperFrontendAction(WrappedAction) {}
 
 bool MigrateAction::BeginInvocation(CompilerInstance &CI) {
-  if (arcmt::migrateWithTemporaryFiles(
-          CI.getInvocation(), getCurrentInput(), CI.getPCHContainerOperations(),
-          CI.getDiagnostics().getClient(), MigrateDir, EmitPremigrationARCErros,
-          PlistOut))
+  if (arcmt::migrateWithTemporaryFiles(CI.getInvocation(),
+                                       getCurrentInput(),
+                                       CI.getDiagnostics().getClient(),
+                                       MigrateDir,
+                                       EmitPremigrationARCErros,
+                                       PlistOut))
     return false; // errors, stop the action.
 
   // We only want to see diagnostics emitted by migrateWithTemporaryFiles.

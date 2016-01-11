@@ -65,7 +65,8 @@ public:
                       ArrayRef<FormatToken *> Tokens,
                       UnwrappedLineConsumer &Callback);
 
-  void parse();
+  /// Returns true in case of a structural error.
+  bool parse();
 
 private:
   void reset();
@@ -94,7 +95,6 @@ private:
   void parseCaseLabel();
   void parseSwitch();
   void parseNamespace();
-  void parseNew();
   void parseAccessSpecifier();
   void parseEnum();
   void parseJavaEnumBody();
@@ -113,7 +113,7 @@ private:
   void readToken();
   void flushComments(bool NewlineBeforeNext);
   void pushToken(FormatToken *Tok);
-  void calculateBraceTypes(bool ExpectClassBody = false);
+  void calculateBraceTypes();
 
   // Marks a conditional compilation edge (for example, an '#if', '#ifdef',
   // '#else' or merge conflict marker). If 'Unreachable' is true, assumes
@@ -156,6 +156,10 @@ private:
   // We store for each line whether it must be a declaration depending on
   // whether we are in a compound statement or not.
   std::vector<bool> DeclarationScopeStack;
+
+  // Will be true if we encounter an error that leads to possibily incorrect
+  // indentation levels.
+  bool StructuralError;
 
   const FormatStyle &Style;
   const AdditionalKeywords &Keywords;

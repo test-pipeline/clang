@@ -40,8 +40,8 @@ public:
                  const LangOptions &LangOpts,
                  DiagnosticOptions *DiagOpts);
 
-  ~TextDiagnostic() override;
-
+  virtual ~TextDiagnostic();
+  
   /// \brief Print the diagonstic level to a raw_ostream.
   ///
   /// This is a static helper that handles colorizing the level and formatting

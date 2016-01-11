@@ -16,9 +16,9 @@ typedef C::A CB;
 constexpr int C_test(bool b) { return b ? C::variable : C::function(); }
 
 struct D {
-  struct A;
+  struct A; // expected-note {{forward}}
   static const int variable;
-  static constexpr int function();
+  static constexpr int function(); // expected-note {{here}}
 };
 typedef D::A DB;
-constexpr int D_test(bool b) { return b ? D::variable : D::function(); }
+constexpr int D_test(bool b) { return b ? D::variable : D::function(); } // expected-note {{subexpression}} expected-note {{undefined}}

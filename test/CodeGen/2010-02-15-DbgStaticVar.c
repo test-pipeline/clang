@@ -11,6 +11,4 @@ int main() {
 	int j = foo(1);
 	return 0;
 }
-// CHECK: !DIGlobalVariable(name: "b",
-// CHECK-NOT:               linkageName:
-// CHECK-SAME:              ){{$}}
+// CHECK: !"0x34\00b\00b\00\00{{.*}}",
