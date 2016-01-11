@@ -77,7 +77,7 @@ UndefCapturedBlockVarChecker::checkPostStmt(const BlockExpr *BE,
     // Get the VarRegion associated with VD in the local stack frame.
     if (Optional<UndefinedVal> V =
           state->getSVal(I.getOriginalRegion()).getAs<UndefinedVal>()) {
-      if (ExplodedNode *N = C.generateSink()) {
+      if (ExplodedNode *N = C.generateErrorNode()) {
         if (!BT)
           BT.reset(
               new BuiltinBug(this, "uninitialized variable captured by block"));
@@ -86,7 +86,7 @@ UndefCapturedBlockVarChecker::checkPostStmt(const BlockExpr *BE,
         SmallString<128> buf;
         llvm::raw_svector_ostream os(buf);
 
-        os << "Variable '" << VD->getName() 
+        os << "Variable '" << VD->getName()
            << "' is uninitialized when captured by block";
 
         BugReport *R = new BugReport(*BT, os.str(), N);

@@ -27,7 +27,8 @@ using namespace clang;
 Module::Module(StringRef Name, SourceLocation DefinitionLoc, Module *Parent,
                bool IsFramework, bool IsExplicit)
     : Name(Name), DefinitionLoc(DefinitionLoc), Parent(Parent), Directory(),
-      Umbrella(), ASTFile(nullptr), IsMissingRequirement(false),
+      Umbrella(), Signature(0), ASTFile(nullptr), VisibilityID(VisibilityID),
+      IsMissingRequirement(false), HasIncompatibleModuleFile(false),
       IsAvailable(true), IsFromModuleFile(false), IsFramework(IsFramework),
       IsExplicit(IsExplicit), IsSystem(false), IsExternC(false),
       IsInferred(false), InferSubmodules(false), InferExplicitSubmodules(false),
@@ -67,6 +68,7 @@ static bool hasFeature(StringRef Feature, const LangOptions &LangOpts,
                         .Case("objc_arc", LangOpts.ObjCAutoRefCount)
                         .Case("opencl", LangOpts.OpenCL)
                         .Case("tls", Target.isTLSSupported())
+                        .Case("zvector", LangOpts.ZVector)
                         .Default(Target.hasFeature(Feature));
   if (!HasFeature)
     HasFeature = std::find(LangOpts.ModuleFeatures.begin(),
@@ -138,9 +140,18 @@ std::string Module::getFullModuleName() const {
   return Result;
 }
 
-const DirectoryEntry *Module::getUmbrellaDir() const {
-  if (const FileEntry *Header = getUmbrellaHeader())
-    return Header->getDir();
+bool Module::fullModuleNameIs(ArrayRef<StringRef> nameParts) const {
+  for (const Module *M = this; M; M = M->Parent) {
+    if (nameParts.empty() || M->Name != nameParts.back())
+      return false;
+    nameParts = nameParts.drop_back();
+  }
+  return nameParts.empty();
+}
+
+Module::DirectoryName Module::getUmbrellaDir() const {
+  if (Header U = getUmbrellaHeader())
+    return {"", U.Entry->getDir()};
   
   return Umbrella.dyn_cast<const DirectoryEntry *>();
 }

@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -triple x86_64-none-linux-gnu -emit-llvm -g %s -o - | FileCheck %s
-// RUN: %clang_cc1 -triple i686-pc-windows-msvc -emit-llvm -g %s -o - | FileCheck %s --check-prefix=MSVC
+// RUN: %clang_cc1 -triple x86_64-none-linux-gnu -emit-llvm -debug-info-kind=limited %s -o - | FileCheck %s
+// RUN: %clang_cc1 -triple i686-pc-windows-msvc -emit-llvm -debug-info-kind=limited %s -o - | FileCheck %s --check-prefix=MSVC
 
 template<typename T> struct Identity {
   typedef T Type;
@@ -96,7 +96,9 @@ foo func(foo f) {
 // CHECK: [[A_I]] = {{.*}} ; [ DW_TAG_member ] [i] {{.*}} [from int]
 // CHECK: ; [ DW_TAG_structure_type ] [b] {{.*}}[decl]
 
-// CHECK: [[FUNC:![0-9]*]] = !{!"0x2e\00func\00func\00_ZN7pr147634funcENS_3fooE\00{{.*}}"{{, [^,]+, [^,]+}}, [[FUNC_TYPE:![0-9]*]], {{.*}} ; [ DW_TAG_subprogram ] {{.*}} [def] [func]
+// CHECK: [[FUNC:![0-9]+]] = distinct !DISubprogram(name: "func", linkageName: "_ZN7pr147634funcENS_3fooE"
+// CHECK-SAME:                                      type: [[FUNC_TYPE:![0-9]*]]
+// CHECK-SAME:                                      isDefinition: true
 }
 
 void foo() {
@@ -115,10 +117,13 @@ incomplete (*x)[3];
 }
 
 // For some reason function arguments ended up down here
-// CHECK: ![[F]] = !{!"0x101\00f\00{{.*}}\000", [[FUNC]], {{![0-9]+}}, !"[[FOO]]"} ; [ DW_TAG_arg_variable ] [f]
-// CHECK: ![[EXPR]] = {{.*}} ; [ DW_TAG_expression ] [DW_OP_deref]
+// CHECK: ![[F]] = !DILocalVariable(name: "f", arg: 1, scope: [[FUNC]]
+// CHECK-SAME:                      type: !"[[FOO]]"
+// CHECK: ![[EXPR]] = !DIExpression(DW_OP_deref)
 
-// CHECK: ; [ DW_TAG_auto_variable ] [c]
+// CHECK: !DILocalVariable(name: "c"
+// CHECK-NOT:              arg:
+// CHECK-SAME:            )
 
 namespace pr16214 {
 struct a {

@@ -295,16 +295,15 @@ bool MultilibSet::select(const Multilib::flags_list &Flags, Multilib &M) const {
 
   multilib_list Filtered = filterCopy(FlagsMismatch, Multilibs);
 
-  if (Filtered.size() == 0) {
+  if (Filtered.size() == 0)
     return false;
-  } else if (Filtered.size() == 1) {
+  if (Filtered.size() == 1) {
     M = Filtered[0];
     return true;
   }
 
   // TODO: pick the "best" multlib when more than one is suitable
   assert(false);
-
   return false;
 }
 

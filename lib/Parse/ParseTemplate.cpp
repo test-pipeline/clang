@@ -125,8 +125,7 @@ Parser::ParseTemplateDeclarationOrSpecialization(unsigned Context,
       Actions.ActOnTemplateParameterList(CurTemplateDepthTracker.getDepth(), 
                                          ExportLoc,
                                          TemplateLoc, LAngleLoc,
-                                         TemplateParams.data(),
-                                         TemplateParams.size(), RAngleLoc));
+                                         TemplateParams, RAngleLoc));
 
     if (!TemplateParams.empty()) {
       isSpecialization = false;
@@ -268,8 +267,8 @@ Parser::ParseSingleDeclarationAfterTemplate(
         // Recover as if it were an explicit specialization.
         TemplateParameterLists FakedParamLists;
         FakedParamLists.push_back(Actions.ActOnTemplateParameterList(
-            0, SourceLocation(), TemplateInfo.TemplateLoc, LAngleLoc, nullptr,
-            0, LAngleLoc));
+            0, SourceLocation(), TemplateInfo.TemplateLoc, LAngleLoc, None,
+            LAngleLoc));
 
         return ParseFunctionDefinition(
             DeclaratorInfo, ParsedTemplateInfo(&FakedParamLists,
@@ -620,8 +619,7 @@ Parser::ParseTemplateTemplateParameter(unsigned Depth, unsigned Position) {
   TemplateParameterList *ParamList =
     Actions.ActOnTemplateParameterList(Depth, SourceLocation(),
                                        TemplateLoc, LAngleLoc,
-                                       TemplateParams.data(),
-                                       TemplateParams.size(),
+                                       TemplateParams,
                                        RAngleLoc);
 
   // Grab a default argument (if available).
@@ -684,7 +682,8 @@ Parser::ParseNonTypeTemplateParameter(unsigned Depth, unsigned Position) {
     //   end of the template-parameter-list rather than a greater-than
     //   operator.
     GreaterThanIsOperatorScope G(GreaterThanIsOperator, false);
-    EnterExpressionEvaluationContext Unevaluated(Actions, Sema::Unevaluated);
+    EnterExpressionEvaluationContext ConstantEvaluated(Actions,
+                                                       Sema::ConstantEvaluated);
 
     DefaultArg = Actions.CorrectDelayedTyposInExpr(ParseAssignmentExpression());
     if (DefaultArg.isInvalid())

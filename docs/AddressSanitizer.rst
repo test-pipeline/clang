@@ -126,21 +126,11 @@ this purpose.
 -----------------------------------------------
 
 Some code should not be instrumented by AddressSanitizer. One may use the
-function attribute
-:ref:`no_sanitize_address <langext-address_sanitizer>`
-(or a deprecated synonym `no_address_safety_analysis`)
-to disable instrumentation of a particular function. This attribute may not be
+function attribute ``__attribute__((no_sanitize("address")))`` (which has
+deprecated synonyms `no_sanitize_address` and `no_address_safety_analysis`) to
+disable instrumentation of a particular function. This attribute may not be
 supported by other compilers, so we suggest to use it together with
 ``__has_feature(address_sanitizer)``.
-
-Initialization order checking
------------------------------
-
-AddressSanitizer can optionally detect dynamic initialization order problems,
-when initialization of globals defined in one translation unit uses
-globals defined in another translation unit. To enable this check at runtime,
-you should set environment variable
-``ASAN_OPTIONS=check_initialization_order=1``.
 
 Blacklist
 ---------
@@ -212,5 +202,4 @@ check-asan`` command.
 More Information
 ================
 
-`http://code.google.com/p/address-sanitizer <http://code.google.com/p/address-sanitizer/>`_
-
+`<https://github.com/google/sanitizers/wiki/AddressSanitizer>`_

@@ -66,8 +66,8 @@ void test1(int cond) {
 // CHECK-NEXT: br i1 [[ICRISNULL1]], label [[ICRDONE:%.*]], label [[ICRWRITEBACK:%.*]]
 // CHECK:  [[TWO:%.*]] = load i8** [[INCRTEMP]]
 // CHECK-NEXT:  [[THREE:%.*]] = call i8* @objc_storeWeak(
-// CHECK-NEXT  br label [[ICRDONE]]
-// CHECK:  [[CLEANUPISACTIVE:%.*]] = load i1* [[CONDCLEANUP]]
+// CHECK-NEXT:  br label [[ICRDONE]]
+// CHECK:  [[CLEANUPISACTIVE:%.*]] = load i1, i1* [[CONDCLEANUP]]
 // CHECK-NEXT:  br i1 [[CLEANUPISACTIVE]], label [[CLEASNUPACTION:%.*]], label [[CLEANUPDONE:%.*]]
 
 // CHECK: [[FOUR:%.*]] = load i8** [[CONDCLEANUPSAVE]]

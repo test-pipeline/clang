@@ -303,14 +303,15 @@ FixedCompilationDatabase(Twine Directory, ArrayRef<std::string> CommandLine) {
   std::vector<std::string> ToolCommandLine(1, "clang-tool");
   ToolCommandLine.insert(ToolCommandLine.end(),
                          CommandLine.begin(), CommandLine.end());
-  CompileCommands.push_back(
-      CompileCommand(Directory, std::move(ToolCommandLine)));
+  CompileCommands.emplace_back(Directory, StringRef(),
+                               std::move(ToolCommandLine));
 }
 
 std::vector<CompileCommand>
 FixedCompilationDatabase::getCompileCommands(StringRef FilePath) const {
   std::vector<CompileCommand> Result(CompileCommands);
   Result[0].CommandLine.push_back(FilePath);
+  Result[0].Filename = FilePath;
   return Result;
 }
 
@@ -327,7 +328,7 @@ FixedCompilationDatabase::getAllCompileCommands() const {
 // This anchor is used to force the linker to link in the generated object file
 // and thus register the JSONCompilationDatabasePlugin.
 extern volatile int JSONAnchorSource;
-static int JSONAnchorDest = JSONAnchorSource;
+static int LLVM_ATTRIBUTE_UNUSED JSONAnchorDest = JSONAnchorSource;
 
 } // end namespace tooling
 } // end namespace clang

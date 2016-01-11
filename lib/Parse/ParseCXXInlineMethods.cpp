@@ -73,14 +73,16 @@ NamedDecl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
     SourceLocation KWLoc;
     if (TryConsumeToken(tok::kw_delete, KWLoc)) {
       Diag(KWLoc, getLangOpts().CPlusPlus11
-                      ? diag::warn_cxx98_compat_deleted_function
-                      : diag::ext_deleted_function);
+                      ? diag::warn_cxx98_compat_defaulted_deleted_function
+                      : diag::ext_defaulted_deleted_function)
+        << 1 /* deleted */;
       Actions.SetDeclDeleted(FnD, KWLoc);
       Delete = true;
     } else if (TryConsumeToken(tok::kw_default, KWLoc)) {
       Diag(KWLoc, getLangOpts().CPlusPlus11
-                      ? diag::warn_cxx98_compat_defaulted_function
-                      : diag::ext_defaulted_function);
+                      ? diag::warn_cxx98_compat_defaulted_deleted_function
+                      : diag::ext_defaulted_deleted_function)
+        << 0 /* defaulted */;
       Actions.SetDeclDefaulted(FnD, KWLoc);
     } else {
       llvm_unreachable("function definition after = not 'delete' or 'default'");

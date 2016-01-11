@@ -11,7 +11,8 @@ A *foo (A* x) {
   return a;
 }
 
-// CHECK: ; [ DW_TAG_class_type ] [B] {{.*}} [def]
+// CHECK: !DICompositeType(tag: DW_TAG_class_type, name: "B"
+// CHECK-SAME:             flags: DIFlagFwdDecl
 
 class B {
 public:

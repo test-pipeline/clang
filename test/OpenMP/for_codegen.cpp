@@ -1,6 +1,7 @@
-// RUN: %clang_cc1 -verify -fopenmp=libiomp5 -x c++ -triple x86_64-unknown-unknown -emit-llvm %s -fexceptions -fcxx-exceptions -o - | FileCheck %s
-// RUN: %clang_cc1 -fopenmp=libiomp5 -x c++ -std=c++11 -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -emit-pch -o %t %s
-// RUN: %clang_cc1 -fopenmp=libiomp5 -x c++ -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -g -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple x86_64-unknown-unknown -emit-llvm %s -fexceptions -fcxx-exceptions -o - | FileCheck %s
+// RUN: %clang_cc1 -fopenmp -x c++ -std=c++11 -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -emit-pch -o %t %s
+// RUN: %clang_cc1 -fopenmp -x c++ -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s
+// RUN: %clang_cc1 -verify -triple x86_64-apple-darwin10 -fopenmp -fexceptions -fcxx-exceptions -debug-info-kind=line-tables-only -x c++ -emit-llvm %s -o - | FileCheck %s --check-prefix=TERM_DEBUG
 //
 // expected-no-diagnostics
 #ifndef HEADER
@@ -146,5 +147,171 @@ void static_chunked(float *a, float *b, float *c, float *d) {
 // CHECK: ret void
 }
 
-#endif // HEADER
+// CHECK-LABEL: test_precond
+void test_precond() {
+  // CHECK: [[A_ADDR:%.+]] = alloca i8,
+  // CHECK: [[I_ADDR:%.+]] = alloca i8,
+  char a = 0;
+  // CHECK: store i8 0,
+  // CHECK: store i32
+  // CHECK: store i8
+  // CHECK: [[A:%.+]] = load i8, i8* [[A_ADDR]],
+  // CHECK: [[CONV:%.+]] = sext i8 [[A]] to i32
+  // CHECK: [[CMP:%.+]] = icmp slt i32 [[CONV]], 10
+  // CHECK: br i1 [[CMP]], label %[[PRECOND_THEN:[^,]+]], label %[[PRECOND_END:[^,]+]]
+  // CHECK: [[PRECOND_THEN]]
+  // CHECK: call void @__kmpc_for_static_init_4
+#pragma omp for
+  for(char i = a; i < 10; ++i);
+  // CHECK: call void @__kmpc_for_static_fini
+  // CHECK: [[PRECOND_END]]
+}
 
+// TERM_DEBUG-LABEL: foo
+int foo() {return 0;};
+
+// TERM_DEBUG-LABEL: parallel_for
+void parallel_for(float *a) {
+#pragma omp parallel
+#pragma omp for schedule(static, 5)
+  // TERM_DEBUG-NOT: __kmpc_global_thread_num
+  // TERM_DEBUG:     call void @__kmpc_for_static_init_4u({{.+}}), !dbg [[DBG_LOC_START:![0-9]+]]
+  // TERM_DEBUG:     invoke i32 {{.*}}foo{{.*}}()
+  // TERM_DEBUG:     unwind label %[[TERM_LPAD:.+]],
+  // TERM_DEBUG-NOT: __kmpc_global_thread_num
+  // TERM_DEBUG:     call void @__kmpc_for_static_fini({{.+}}), !dbg [[DBG_LOC_END:![0-9]+]]
+  // TERM_DEBUG:     call {{.+}} @__kmpc_barrier({{.+}}), !dbg [[DBG_LOC_CANCEL:![0-9]+]]
+  // TERM_DEBUG:     [[TERM_LPAD]]
+  // TERM_DEBUG:     call void @__clang_call_terminate
+  // TERM_DEBUG:     unreachable
+  for (unsigned i = 131071; i <= 2147483647; i += 127)
+    a[i] += foo();
+}
+// Check source line corresponds to "#pragma omp for schedule(static, 5)" above:
+// TERM_DEBUG-DAG: [[DBG_LOC_START]] = !DILocation(line: [[@LINE-15]],
+// TERM_DEBUG-DAG: [[DBG_LOC_END]] = !DILocation(line: [[@LINE-16]],
+// TERM_DEBUG-DAG: [[DBG_LOC_CANCEL]] = !DILocation(line: [[@LINE-17]],
+
+char i = 1, j = 2, k = 3;
+// CHECK-LABEL: for_with_global_lcv
+void for_with_global_lcv() {
+// CHECK: [[I_ADDR:%.+]] = alloca i8,
+// CHECK: [[J_ADDR:%.+]] = alloca i8,
+
+// CHECK: call void @__kmpc_for_static_init_4(
+// CHECK-NOT: [[I]]
+// CHECK: store i8 %{{.+}}, i8* [[I_ADDR]]
+// CHECK-NOT: [[I]]
+// CHECK: [[I_VAL:%.+]] = load i8, i8* [[I_ADDR]],
+// CHECK-NOT: [[I]]
+// CHECK: store i8 [[I_VAL]], i8* [[K]]
+// CHECK-NOT: [[I]]
+// CHECK: call void @__kmpc_for_static_fini(
+// CHECK: call void @__kmpc_barrier(
+#pragma omp for
+  for (i = 0; i < 2; ++i) {
+    k = i;
+  }
+// CHECK: call void @__kmpc_for_static_init_4(
+// CHECK-NOT: [[J]]
+// CHECK: store i8 %{{.+}}, i8* [[J_ADDR]]
+// CHECK-NOT: [[J]]
+// CHECK: [[J_VAL:%.+]] = load i8, i8* [[J_ADDR]],
+// CHECK-NOT: [[J]]
+// CHECK: store i8 [[J_VAL]], i8* [[K]]
+// CHECK-NOT: [[J]]
+// CHECK: call void @__kmpc_for_static_fini(
+#pragma omp for collapse(2)
+  for (int i = 0; i < 2; ++i)
+  for (j = 0; j < 2; ++j) {
+    k = i;
+    k = j;
+  }
+  char &cnt = i;
+#pragma omp for
+  for (cnt = 0; cnt < 2; ++cnt)
+    k = cnt;
+}
+
+// CHECK-LABEL: for_with_references
+void for_with_references() {
+// CHECK: [[I:%.+]] = alloca i8,
+// CHECK: [[CNT:%.+]] = alloca i8*,
+// CHECK: [[CNT_PRIV:%.+]] = alloca i8,
+// CHECK: call void @__kmpc_for_static_init_4(
+// CHECK-NOT: load i8, i8* [[CNT]],
+// CHECK: call void @__kmpc_for_static_fini(
+  char i = 0;
+  char &cnt = i;
+#pragma omp for
+  for (cnt = 0; cnt < 2; ++cnt)
+    k = cnt;
+}
+
+struct Bool {
+  Bool(bool b) : b(b) {}
+  operator bool() const { return b; }
+  const bool b;
+};
+
+template <typename T>
+struct It {
+  It() : p(0) {}
+  It(const It &, int = 0) ;
+  template <typename U>
+  It(U &, int = 0) ;
+  It &operator=(const It &);
+  It &operator=(It &);
+  ~It() {}
+
+  It(T *p) : p(p) {}
+
+  operator T *&() { return p; }
+  operator T *() const { return p; }
+  T *operator->() const { return p; }
+
+  It &operator++() { ++p; return *this; }
+  It &operator--() { --p; return *this; }
+  It &operator+=(unsigned n) { p += n; return *this; }
+  It &operator-=(unsigned n) { p -= n; return *this; }
+
+  T *p;
+};
+
+template <typename T>
+It<T> operator+(It<T> a, typename It<T>::difference_type n) { return a.p + n; }
+
+template <typename T>
+It<T> operator+(typename It<T>::difference_type n, It<T> a) { return a.p + n; }
+
+template <typename T>
+It<T> operator-(It<T> a, typename It<T>::difference_type n) { return a.p - n; }
+
+typedef Bool BoolType;
+
+template <typename T>
+BoolType operator<(It<T> a, It<T> b) { return a.p < b.p; }
+
+void loop_with_It(It<char> begin, It<char> end) {
+#pragma omp for
+  for (It<char> it = begin; it < end; ++it) {
+    *it = 0;
+  }
+}
+
+// CHECK-LABEL: loop_with_It
+// CHECK: call i32 @__kmpc_global_thread_num(
+// CHECK: call void @__kmpc_for_static_init_8(
+// CHECK: call void @__kmpc_for_static_fini(
+
+void loop_with_stmt_expr() {
+#pragma omp for
+  for (int i = __extension__({float b = 0;b; }); i < __extension__({double c = 1;c; }); i += __extension__({char d = 1; d; }))
+    ;
+}
+// CHECK-LABEL: loop_with_stmt_expr
+// CHECK: call i32 @__kmpc_global_thread_num(
+// CHECK: call void @__kmpc_for_static_init_4(
+// CHECK: call void @__kmpc_for_static_fini(
+
+#endif // HEADER

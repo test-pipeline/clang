@@ -105,10 +105,16 @@ namespace {
     KEYOPENCL = 0x200,
     KEYC11 = 0x400,
     KEYARC = 0x800,
-    KEYNOMS = 0x01000,
-    WCHARSUPPORT = 0x02000,
-    HALFSUPPORT = 0x04000,
-    KEYALL = (0xffff & ~KEYNOMS) // Because KEYNOMS is used to exclude.
+    KEYNOMS18 = 0x01000,
+    KEYNOOPENCL = 0x02000,
+    WCHARSUPPORT = 0x04000,
+    HALFSUPPORT = 0x08000,
+    KEYCONCEPTS = 0x10000,
+    KEYOBJC2    = 0x20000,
+    KEYZVECTOR  = 0x40000,
+    KEYCOROUTINES = 0x80000,
+    KEYALL = (0xfffff & ~KEYNOMS18 &
+              ~KEYNOOPENCL) // KEYNOMS18 and KEYNOOPENCL are used to exclude.
   };
 
   /// \brief How a keyword is treated in the selected standard.
@@ -141,6 +147,9 @@ static KeywordStatus getKeywordStatus(const LangOptions &LangOpts,
   // We treat bridge casts as objective-C keywords so we can warn on them
   // in non-arc mode.
   if (LangOpts.ObjC2 && (Flags & KEYARC)) return KS_Enabled;
+  if (LangOpts.ConceptsTS && (Flags & KEYCONCEPTS)) return KS_Enabled;
+  if (LangOpts.ObjC2 && (Flags & KEYOBJC2)) return KS_Enabled;
+  if (LangOpts.Coroutines && (Flags & KEYCOROUTINES)) return KS_Enabled;
   if (LangOpts.CPlusPlus && (Flags & KEYCXX11)) return KS_Future;
   return KS_Disabled;
 }
@@ -207,6 +216,9 @@ void IdentifierTable::AddKeywords(const LangOptions &LangOpts) {
   if (LangOpts.ParseUnknownAnytype)
     AddKeyword("__unknown_anytype", tok::kw___unknown_anytype, KEYALL,
                LangOpts, *this);
+
+  if (LangOpts.DeclSpecKeyword)
+    AddKeyword("__declspec", tok::kw___declspec, KEYALL, LangOpts, *this);
 }
 
 /// \brief Checks if the specified token kind represents a keyword in the

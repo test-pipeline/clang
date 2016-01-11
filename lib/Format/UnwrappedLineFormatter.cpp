@@ -25,6 +25,107 @@ bool startsExternCBlock(const AnnotatedLine &Line) {
          NextNext && NextNext->is(tok::l_brace);
 }
 
+/// \brief Tracks the indent level of \c AnnotatedLines across levels.
+///
+/// \c nextLine must be called for each \c AnnotatedLine, after which \c
+/// getIndent() will return the indent for the last line \c nextLine was called
+/// with.
+/// If the line is not formatted (and thus the indent does not change), calling
+/// \c adjustToUnmodifiedLine after the call to \c nextLine will cause
+/// subsequent lines on the same level to be indented at the same level as the
+/// given line.
+class LevelIndentTracker {
+public:
+  LevelIndentTracker(const FormatStyle &Style,
+                     const AdditionalKeywords &Keywords, unsigned StartLevel,
+                     int AdditionalIndent)
+      : Style(Style), Keywords(Keywords), AdditionalIndent(AdditionalIndent) {
+    for (unsigned i = 0; i != StartLevel; ++i)
+      IndentForLevel.push_back(Style.IndentWidth * i + AdditionalIndent);
+  }
+
+  /// \brief Returns the indent for the current line.
+  unsigned getIndent() const { return Indent; }
+
+  /// \brief Update the indent state given that \p Line is going to be formatted
+  /// next.
+  void nextLine(const AnnotatedLine &Line) {
+    Offset = getIndentOffset(*Line.First);
+    // Update the indent level cache size so that we can rely on it
+    // having the right size in adjustToUnmodifiedline.
+    while (IndentForLevel.size() <= Line.Level)
+      IndentForLevel.push_back(-1);
+    if (Line.InPPDirective) {
+      Indent = Line.Level * Style.IndentWidth + AdditionalIndent;
+    } else {
+      IndentForLevel.resize(Line.Level + 1);
+      Indent = getIndent(IndentForLevel, Line.Level);
+    }
+    if (static_cast<int>(Indent) + Offset >= 0)
+      Indent += Offset;
+  }
+
+  /// \brief Update the level indent to adapt to the given \p Line.
+  ///
+  /// When a line is not formatted, we move the subsequent lines on the same
+  /// level to the same indent.
+  /// Note that \c nextLine must have been called before this method.
+  void adjustToUnmodifiedLine(const AnnotatedLine &Line) {
+    unsigned LevelIndent = Line.First->OriginalColumn;
+    if (static_cast<int>(LevelIndent) - Offset >= 0)
+      LevelIndent -= Offset;
+    if ((!Line.First->is(tok::comment) || IndentForLevel[Line.Level] == -1) &&
+        !Line.InPPDirective)
+      IndentForLevel[Line.Level] = LevelIndent;
+  }
+
+private:
+  /// \brief Get the offset of the line relatively to the level.
+  ///
+  /// For example, 'public:' labels in classes are offset by 1 or 2
+  /// characters to the left from their level.
+  int getIndentOffset(const FormatToken &RootToken) {
+    if (Style.Language == FormatStyle::LK_Java ||
+        Style.Language == FormatStyle::LK_JavaScript)
+      return 0;
+    if (RootToken.isAccessSpecifier(false) ||
+        RootToken.isObjCAccessSpecifier() ||
+        (RootToken.isOneOf(Keywords.kw_signals, Keywords.kw_qsignals) &&
+         RootToken.Next && RootToken.Next->is(tok::colon)))
+      return Style.AccessModifierOffset;
+    return 0;
+  }
+
+  /// \brief Get the indent of \p Level from \p IndentForLevel.
+  ///
+  /// \p IndentForLevel must contain the indent for the level \c l
+  /// at \p IndentForLevel[l], or a value < 0 if the indent for
+  /// that level is unknown.
+  unsigned getIndent(ArrayRef<int> IndentForLevel, unsigned Level) {
+    if (IndentForLevel[Level] != -1)
+      return IndentForLevel[Level];
+    if (Level == 0)
+      return 0;
+    return getIndent(IndentForLevel, Level - 1) + Style.IndentWidth;
+  }
+
+  const FormatStyle &Style;
+  const AdditionalKeywords &Keywords;
+  const unsigned AdditionalIndent;
+
+  /// \brief The indent in characters for each level.
+  std::vector<int> IndentForLevel;
+
+  /// \brief Offset of the current line relative to the indent level.
+  ///
+  /// For example, the 'public' keywords is often indented with a negative
+  /// offset.
+  int Offset = 0;
+
+  /// \brief The current line's indent.
+  unsigned Indent = 0;
+};
+
 class LineJoiner {
 public:
   LineJoiner(const FormatStyle &Style, const AdditionalKeywords &Keywords)
@@ -68,12 +169,12 @@ public:
       return MergeShortFunctions ? tryMergeSimpleBlock(I, E, Limit) : 0;
     }
     if (TheLine->Last->is(tok::l_brace)) {
-      return Style.BreakBeforeBraces == FormatStyle::BS_Attach
+      return !Style.BraceWrapping.AfterFunction
                  ? tryMergeSimpleBlock(I, E, Limit)
                  : 0;
     }
     if (I[1]->First->is(TT_FunctionLBrace) &&
-        Style.BreakBeforeBraces != FormatStyle::BS_Attach) {
+        Style.BraceWrapping.AfterFunction) {
       if (I[1]->Last->is(TT_LineComment))
         return 0;
 
@@ -135,8 +236,7 @@ private:
       SmallVectorImpl<AnnotatedLine *>::const_iterator E, unsigned Limit) {
     if (Limit == 0)
       return 0;
-    if ((Style.BreakBeforeBraces == FormatStyle::BS_Allman ||
-         Style.BreakBeforeBraces == FormatStyle::BS_GNU) &&
+    if (Style.BraceWrapping.AfterControlStatement &&
         (I[1]->First->is(tok::l_brace) && !Style.AllowShortBlocksOnASingleLine))
       return 0;
     if (I[1]->InPPDirective != (*I)->InPPDirective ||
@@ -176,7 +276,8 @@ private:
       if (Line->First->isOneOf(tok::kw_case, tok::kw_default, tok::r_brace))
         break;
       if (Line->First->isOneOf(tok::kw_if, tok::kw_for, tok::kw_switch,
-                               tok::kw_while, tok::comment))
+                               tok::kw_while, tok::comment) ||
+          Line->Last->is(tok::comment))
         return 0;
       Length += I[1 + NumStmts]->Last->TotalLength + 1; // 1 for the space.
     }
@@ -313,11 +414,153 @@ public:
           (Indenter->canBreak(State) && State.NextToken->NewlinesBefore > 0);
       Indenter->addTokenToState(State, Newline, /*DryRun=*/false);
     }
+    return 0;
+  }
+};
+
+/// \brief Formatter that puts all tokens into a single line without breaks.
+class NoLineBreakFormatter : public LineFormatter {
+public:
+  NoLineBreakFormatter(ContinuationIndenter *Indenter,
+                       WhitespaceManager *Whitespaces, const FormatStyle &Style,
+                       UnwrappedLineFormatter *BlockFormatter)
+      : LineFormatter(Indenter, Whitespaces, Style, BlockFormatter) {}
+
+  /// \brief Puts all tokens into a single line.
+  unsigned formatLine(const AnnotatedLine &Line, unsigned FirstIndent,
+                      bool DryRun) override {
+    unsigned Penalty = 0;
+    LineState State = Indenter->getInitialState(FirstIndent, &Line, DryRun);
+    while (State.NextToken) {
+      formatChildren(State, /*Newline=*/false, DryRun, Penalty);
+      Indenter->addTokenToState(State, /*Newline=*/false, DryRun);
+    }
+    return Penalty;
+  }
+};
+
+/// \brief Finds the best way to break lines.
+class OptimizingLineFormatter : public LineFormatter {
+public:
+  OptimizingLineFormatter(ContinuationIndenter *Indenter,
+                          WhitespaceManager *Whitespaces,
+                          const FormatStyle &Style,
+                          UnwrappedLineFormatter *BlockFormatter)
+      : LineFormatter(Indenter, Whitespaces, Style, BlockFormatter) {}
+
+  /// \brief Formats the line by finding the best line breaks with line lengths
+  /// below the column limit.
+  unsigned formatLine(const AnnotatedLine &Line, unsigned FirstIndent,
+                      bool DryRun) override {
+    LineState State = Indenter->getInitialState(FirstIndent, &Line, DryRun);
+
+    // If the ObjC method declaration does not fit on a line, we should format
+    // it with one arg per line.
+    if (State.Line->Type == LT_ObjCMethodDecl)
+      State.Stack.back().BreakBeforeParameter = true;
+
+    // Find best solution in solution space.
+    return analyzeSolutionSpace(State, DryRun);
   }
 
 private:
-  ContinuationIndenter *Indenter;
-};
+  struct CompareLineStatePointers {
+    bool operator()(LineState *obj1, LineState *obj2) const {
+      return *obj1 < *obj2;
+    }
+  };
+
+  /// \brief A pair of <penalty, count> that is used to prioritize the BFS on.
+  ///
+  /// In case of equal penalties, we want to prefer states that were inserted
+  /// first. During state generation we make sure that we insert states first
+  /// that break the line as late as possible.
+  typedef std::pair<unsigned, unsigned> OrderedPenalty;
+
+  /// \brief An edge in the solution space from \c Previous->State to \c State,
+  /// inserting a newline dependent on the \c NewLine.
+  struct StateNode {
+    StateNode(const LineState &State, bool NewLine, StateNode *Previous)
+        : State(State), NewLine(NewLine), Previous(Previous) {}
+    LineState State;
+    bool NewLine;
+    StateNode *Previous;
+  };
+
+  /// \brief An item in the prioritized BFS search queue. The \c StateNode's
+  /// \c State has the given \c OrderedPenalty.
+  typedef std::pair<OrderedPenalty, StateNode *> QueueItem;
+
+  /// \brief The BFS queue type.
+  typedef std::priority_queue<QueueItem, std::vector<QueueItem>,
+                              std::greater<QueueItem>> QueueType;
+
+  /// \brief Analyze the entire solution space starting from \p InitialState.
+  ///
+  /// This implements a variant of Dijkstra's algorithm on the graph that spans
+  /// the solution space (\c LineStates are the nodes). The algorithm tries to
+  /// find the shortest path (the one with lowest penalty) from \p InitialState
+  /// to a state where all tokens are placed. Returns the penalty.
+  ///
+  /// If \p DryRun is \c false, directly applies the changes.
+  unsigned analyzeSolutionSpace(LineState &InitialState, bool DryRun) {
+    std::set<LineState *, CompareLineStatePointers> Seen;
+
+    // Increasing count of \c StateNode items we have created. This is used to
+    // create a deterministic order independent of the container.
+    unsigned Count = 0;
+    QueueType Queue;
+
+    // Insert start element into queue.
+    StateNode *Node =
+        new (Allocator.Allocate()) StateNode(InitialState, false, nullptr);
+    Queue.push(QueueItem(OrderedPenalty(0, Count), Node));
+    ++Count;
+
+    unsigned Penalty = 0;
+
+    // While not empty, take first element and follow edges.
+    while (!Queue.empty()) {
+      Penalty = Queue.top().first.first;
+      StateNode *Node = Queue.top().second;
+      if (!Node->State.NextToken) {
+        DEBUG(llvm::dbgs() << "\n---\nPenalty for line: " << Penalty << "\n");
+        break;
+      }
+      Queue.pop();
+
+      // Cut off the analysis of certain solutions if the analysis gets too
+      // complex. See description of IgnoreStackForComparison.
+      if (Count > 50000)
+        Node->State.IgnoreStackForComparison = true;
+
+      if (!Seen.insert(&Node->State).second)
+        // State already examined with lower penalty.
+        continue;
+
+      FormatDecision LastFormat = Node->State.NextToken->Decision;
+      if (LastFormat == FD_Unformatted || LastFormat == FD_Continue)
+        addNextStateToQueue(Penalty, Node, /*NewLine=*/false, &Count, &Queue);
+      if (LastFormat == FD_Unformatted || LastFormat == FD_Break)
+        addNextStateToQueue(Penalty, Node, /*NewLine=*/true, &Count, &Queue);
+    }
+
+    if (Queue.empty()) {
+      // We were unable to find a solution, do nothing.
+      // FIXME: Add diagnostic?
+      DEBUG(llvm::dbgs() << "Could not find a solution.\n");
+      return 0;
+    }
+
+    // Reconstruct the solution.
+    if (!DryRun)
+      reconstructPath(InitialState, Queue.top().second);
+
+    DEBUG(llvm::dbgs() << "Total number of analyzed states: " << Count << "\n");
+    DEBUG(llvm::dbgs() << "---\n");
+
+    return Penalty;
+  }
 
 
 static void markFinalized(FormatToken *Tok) {
@@ -328,7 +571,7 @@ static void markFinalized(FormatToken *Tok) {
   }
 }
 
-} // namespace
+} // anonymous namespace
 
 unsigned
 UnwrappedLineFormatter::format(const SmallVectorImpl<AnnotatedLine *> &Lines,
@@ -349,17 +592,54 @@ UnwrappedLineFormatter::format(const SmallVectorImpl<AnnotatedLine *> &Lines,
   for (unsigned i = 0, e = Lines[0]->Level; i != e; ++i)
     IndentForLevel.push_back(Style.IndentWidth * i + AdditionalIndent);
   const AnnotatedLine *PreviousLine = nullptr;
-  for (SmallVectorImpl<AnnotatedLine *>::const_iterator I = Lines.begin(),
-                                                        E = Lines.end();
-       I != E; ++I) {
-    const AnnotatedLine &TheLine = **I;
-    const FormatToken *FirstTok = TheLine.First;
-    int Offset = getIndentOffset(*FirstTok);
+  const AnnotatedLine *NextLine = nullptr;
 
-    // Determine indent and try to merge multiple unwrapped lines.
-    unsigned Indent;
-    if (TheLine.InPPDirective) {
-      Indent = TheLine.Level * Style.IndentWidth;
+  // The minimum level of consecutive lines that have been formatted.
+  unsigned RangeMinLevel = UINT_MAX;
+
+  for (const AnnotatedLine *Line =
+           Joiner.getNextMergedLine(DryRun, IndentTracker);
+       Line; Line = NextLine) {
+    const AnnotatedLine &TheLine = *Line;
+    unsigned Indent = IndentTracker.getIndent();
+
+    // We continue formatting unchanged lines to adjust their indent, e.g. if a
+    // scope was added. However, we need to carefully stop doing this when we
+    // exit the scope of affected lines to prevent indenting a the entire
+    // remaining file if it currently missing a closing brace.
+    bool ContinueFormatting =
+        TheLine.Level > RangeMinLevel ||
+        (TheLine.Level == RangeMinLevel && !TheLine.startsWith(tok::r_brace));
+
+    bool FixIndentation = (FixBadIndentation || ContinueFormatting) &&
+                          Indent != TheLine.First->OriginalColumn;
+    bool ShouldFormat = TheLine.Affected || FixIndentation;
+    // We cannot format this line; if the reason is that the line had a
+    // parsing error, remember that.
+    if (ShouldFormat && TheLine.Type == LT_Invalid && IncompleteFormat)
+      *IncompleteFormat = true;
+
+    if (ShouldFormat && TheLine.Type != LT_Invalid) {
+      if (!DryRun)
+        formatFirstToken(*TheLine.First, PreviousLine, TheLine.Level, Indent,
+                         TheLine.InPPDirective);
+
+      NextLine = Joiner.getNextMergedLine(DryRun, IndentTracker);
+      unsigned ColumnLimit = getColumnLimit(TheLine.InPPDirective, NextLine);
+      bool FitsIntoOneLine =
+          TheLine.Last->TotalLength + Indent <= ColumnLimit ||
+          TheLine.Type == LT_ImportStatement;
+
+      if (Style.ColumnLimit == 0)
+        NoColumnLimitLineFormatter(Indenter, Whitespaces, Style, this)
+            .formatLine(TheLine, Indent, DryRun);
+      else if (FitsIntoOneLine)
+        Penalty += NoLineBreakFormatter(Indenter, Whitespaces, Style, this)
+                       .formatLine(TheLine, Indent, DryRun);
+      else
+        Penalty += OptimizingLineFormatter(Indenter, Whitespaces, Style, this)
+                       .formatLine(TheLine, Indent, DryRun);
+      RangeMinLevel = std::min(RangeMinLevel, TheLine.Level);
     } else {
       while (IndentForLevel.size() <= TheLine.Level)
         IndentForLevel.push_back(-1);
@@ -460,6 +740,8 @@ UnwrappedLineFormatter::format(const SmallVectorImpl<AnnotatedLine *> &Lines,
           Whitespaces->addUntouchableToken(*Tok, TheLine.InPPDirective);
         }
       }
+      NextLine = Joiner.getNextMergedLine(DryRun, IndentTracker);
+      RangeMinLevel = UINT_MAX;
     }
     if (!DryRun)
       markFinalized(TheLine.First);

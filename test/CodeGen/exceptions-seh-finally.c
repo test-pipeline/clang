@@ -30,16 +30,10 @@ void basic_finally(void) {
 // CHECK-NEXT: ret void
 //
 // CHECK: [[lpad]]
-// CHECK-NEXT: landingpad
-// CHECK-NEXT: cleanup
-// CHECK: store i8 1, i8* %[[abnormal]]
-// CHECK: br label %[[finally]]
-//
-// CHECK: [[resumecont]]
-// CHECK: br label %[[ehresume:[^ ]*]]
-//
-// CHECK: [[ehresume]]
-// CHECK: resume { i8*, i32 }
+// CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad
+// CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK: call void @"\01?fin$0@0@basic_finally@@"({{i8( zeroext)?}} 1, i8* %[[fp]])
+// CHECK-NEXT: cleanupret from %[[pad]] unwind to caller
 
 // Mostly check that we don't double emit 'r' which would crash.
 void decl_in_finally(void) {
@@ -108,16 +102,10 @@ void use_abnormal_termination(void) {
 // CHECK-NEXT: ret void
 //
 // CHECK: [[lpad]]
-// CHECK-NEXT: landingpad
-// CHECK-NEXT: cleanup
-// CHECK: store i8 1, i8* %[[abnormal]]
-// CHECK: br label %[[finally]]
-//
-// CHECK: [[resumecont]]
-// CHECK: br label %[[ehresume:[^ ]*]]
-//
-// CHECK: [[ehresume]]
-// CHECK: resume { i8*, i32 }
+// CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad
+// CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK: call void @"\01?fin$0@0@use_abnormal_termination@@"({{i8( zeroext)?}} 1, i8* %[[fp]])
+// CHECK-NEXT: cleanupret from %[[pad]] unwind to caller
 
 void noreturn_noop_finally() {
   __try {
@@ -151,12 +139,67 @@ void noreturn_finally() {
 // CHECK: store i8 0, i8* %
 // CHECK: br label %[[finally:[^ ]*]]
 //
-// CHECK: [[finally]]
+// CHECK: [[lpad]]
+// CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad
+// CHECK: call void @"\01?fin$0@0@noreturn_finally@@"({{.*}})
+// CHECK-NEXT: cleanupret from %[[pad]] unwind to caller
+
+// CHECK: define internal void @"\01?fin$0@0@noreturn_finally@@"({{.*}})
 // CHECK: call void @abort()
 // CHECK-NEXT: unreachable
 //
 // CHECK: [[lpad]]
-// CHECK: landingpad
-// CHECK-NEXT: cleanup
-// CHECK: store i8 1, i8* %
-// CHECK: br label %[[finally]]
+// CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad
+// CHECK: call void @"\01?fin$0@0@nested___finally___finally@@"({{.*}})
+// CHECK-NEXT: cleanupret from %[[pad]] unwind to caller
+
+// CHECK-LABEL: define internal void @"\01?fin$0@0@nested___finally___finally@@"({{.*}})
+// CHECK: ret void
+
+// CHECK-LABEL: define internal void @"\01?fin$1@0@nested___finally___finally@@"({{.*}})
+// CHECK: unreachable
+
+// FIXME: Our behavior seems suspiciously different.
+
+int nested___finally___finally_with_eh_edge() {
+  __try {
+    __try {
+      might_crash();
+    } __finally {
+      return 899;
+    }
+  } __finally {
+    // Intentionally no return here.
+  }
+  return 912;
+}
+// CHECK-LABEL: define i32 @nested___finally___finally_with_eh_edge
+// CHECK: invoke void @might_crash()
+// CHECK-NEXT: to label %[[invokecont:[^ ]*]] unwind label %[[lpad1:[^ ]*]]
+//
+// [[invokecont]]
+// CHECK: invoke void @"\01?fin$1@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+// CHECK-NEXT:       to label %[[outercont:[^ ]*]] unwind label %[[lpad2:[^ ]*]]
+//
+// CHECK: [[outercont]]
+// CHECK: call void @"\01?fin$0@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+// CHECK-NEXT: ret i32 912
+//
+// CHECK: [[lpad1]]
+// CHECK-NEXT: %[[innerpad:[^ ]*]] = cleanuppad
+// CHECK: invoke void @"\01?fin$1@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+// CHECK-NEXT:    label %[[innercleanupretbb:[^ ]*]] unwind label %[[lpad2:[^ ]*]]
+//
+// CHECK: [[innercleanupretbb]]
+// CHECK-NEXT: cleanupret from %[[innerpad]] unwind label %[[lpad2]]
+//
+// CHECK: [[lpad2]]
+// CHECK-NEXT: %[[outerpad:[^ ]*]] = cleanuppad
+// CHECK: call void @"\01?fin$0@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+// CHECK-NEXT: cleanupret from %[[outerpad]] unwind to caller
+
+// CHECK-LABEL: define internal void @"\01?fin$0@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+// CHECK: ret void
+
+// CHECK-LABEL: define internal void @"\01?fin$1@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+// CHECK: unreachable

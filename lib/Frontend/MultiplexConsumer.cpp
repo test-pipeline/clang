@@ -101,11 +101,10 @@ public:
   void DeducedReturnType(const FunctionDecl *FD, QualType ReturnType) override;
   void CompletedImplicitDefinition(const FunctionDecl *D) override;
   void StaticDataMemberInstantiated(const VarDecl *D) override;
+  void DefaultArgumentInstantiated(const ParmVarDecl *D) override;
   void AddedObjCCategoryToInterface(const ObjCCategoryDecl *CatD,
                                     const ObjCInterfaceDecl *IFD) override;
-  void AddedObjCPropertyInClassExtension(const ObjCPropertyDecl *Prop,
-                                    const ObjCPropertyDecl *OrigProp,
-                                    const ObjCCategoryDecl *ClassExt) override;
+  void FunctionDefinitionInstantiated(const FunctionDecl *D) override;
   void DeclarationMarkedUsed(const Decl *D) override;
   void DeclarationMarkedOpenMPThreadPrivate(const Decl *D) override;
 
@@ -164,18 +163,21 @@ void MultiplexASTMutationListener::StaticDataMemberInstantiated(
   for (size_t i = 0, e = Listeners.size(); i != e; ++i)
     Listeners[i]->StaticDataMemberInstantiated(D);
 }
+void MultiplexASTMutationListener::DefaultArgumentInstantiated(
+                                                         const ParmVarDecl *D) {
+  for (size_t i = 0, e = Listeners.size(); i != e; ++i)
+    Listeners[i]->DefaultArgumentInstantiated(D);
+}
 void MultiplexASTMutationListener::AddedObjCCategoryToInterface(
                                                  const ObjCCategoryDecl *CatD,
                                                  const ObjCInterfaceDecl *IFD) {
   for (size_t i = 0, e = Listeners.size(); i != e; ++i)
     Listeners[i]->AddedObjCCategoryToInterface(CatD, IFD);
 }
-void MultiplexASTMutationListener::AddedObjCPropertyInClassExtension(
-                                             const ObjCPropertyDecl *Prop,
-                                             const ObjCPropertyDecl *OrigProp,
-                                             const ObjCCategoryDecl *ClassExt) {
-  for (size_t i = 0, e = Listeners.size(); i != e; ++i)
-    Listeners[i]->AddedObjCPropertyInClassExtension(Prop, OrigProp, ClassExt);
+void MultiplexASTMutationListener::FunctionDefinitionInstantiated(
+    const FunctionDecl *D) {
+  for (auto &Listener : Listeners)
+    Listener->FunctionDefinitionInstantiated(D);
 }
 void MultiplexASTMutationListener::DeclarationMarkedUsed(const Decl *D) {
   for (size_t i = 0, e = Listeners.size(); i != e; ++i)

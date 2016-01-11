@@ -42,11 +42,11 @@ ID = ALIAS, ID##Group = 1 << SO_##ID##Group,
 #include "clang/Basic/Sanitizers.def"
   NeedsUbsanRt = Undefined | Integer,
   NotAllowedWithTrap = Vptr,
-  RequiresPIE = Memory | DataFlow,
+  RequiresPIE = DataFlow,
   NeedsUnwindTables = Address | Thread | Memory | DataFlow,
   SupportsCoverage = Address | Memory | Leak | Undefined | Integer,
   RecoverableByDefault = Undefined | Integer,
-  Unrecoverable = Address | Unreachable | Return,
+  Unrecoverable = Unreachable | Return,
   LegacyFsanitizeRecoverMask = Undefined | Integer,
   NeedsLTO = CFIVptr,
 };
@@ -112,21 +112,25 @@ static std::string describeSanitizeArg(const llvm::opt::Arg *A, unsigned Mask);
 /// Sanitizers set.
 static std::string toString(const clang::SanitizerSet &Sanitizers);
 
-/// For each sanitizer group bit set in \p Kinds, set the bits for sanitizers
-/// this group enables.
-static unsigned expandGroups(unsigned Kinds);
+static bool getDefaultBlacklist(const Driver &D, SanitizerMask Kinds,
+                                std::string &BLPath) {
+  const char *BlacklistFile = nullptr;
+  if (Kinds & Address)
+    BlacklistFile = "asan_blacklist.txt";
+  else if (Kinds & Memory)
+    BlacklistFile = "msan_blacklist.txt";
+  else if (Kinds & Thread)
+    BlacklistFile = "tsan_blacklist.txt";
+  else if (Kinds & DataFlow)
+    BlacklistFile = "dfsan_abilist.txt";
+  else if (Kinds & CFI)
+    BlacklistFile = "cfi_blacklist.txt";
 
-static unsigned getToolchainUnsupportedKinds(const ToolChain &TC) {
-  bool IsFreeBSD = TC.getTriple().getOS() == llvm::Triple::FreeBSD;
-  bool IsLinux = TC.getTriple().getOS() == llvm::Triple::Linux;
-  bool IsX86 = TC.getTriple().getArch() == llvm::Triple::x86;
-  bool IsX86_64 = TC.getTriple().getArch() == llvm::Triple::x86_64;
-  bool IsMIPS64 = TC.getTriple().getArch() == llvm::Triple::mips64 ||
-                  TC.getTriple().getArch() == llvm::Triple::mips64el;
-
-  unsigned Unsupported = 0;
-  if (!(IsLinux && (IsX86_64 || IsMIPS64))) {
-    Unsupported |= Memory | DataFlow;
+  if (BlacklistFile) {
+    clang::SmallString<64> Path(D.ResourceDir);
+    llvm::sys::path::append(Path, BlacklistFile);
+    BLPath = Path.str();
+    return true;
   }
   if (!((IsLinux || IsFreeBSD) && IsX86_64)) {
     Unsupported |= Thread;
@@ -138,11 +142,23 @@ static unsigned getToolchainUnsupportedKinds(const ToolChain &TC) {
 }
 
 bool SanitizerArgs::needsUbsanRt() const {
-  return !UbsanTrapOnError && hasOneOf(Sanitizers, NeedsUbsanRt);
+  return (Sanitizers.Mask & NeedsUbsanRt & ~TrapSanitizers.Mask) &&
+         !Sanitizers.has(Address) &&
+         !Sanitizers.has(Memory) &&
+         !Sanitizers.has(Thread) &&
+         !CfiCrossDso;
+}
+
+bool SanitizerArgs::needsCfiRt() const {
+  return !(Sanitizers.Mask & CFI & ~TrapSanitizers.Mask) && CfiCrossDso;
+}
+
+bool SanitizerArgs::needsCfiDiagRt() const {
+  return (Sanitizers.Mask & CFI & ~TrapSanitizers.Mask) && CfiCrossDso;
 }
 
 bool SanitizerArgs::requiresPIE() const {
-  return AsanZeroBaseShadow || hasOneOf(Sanitizers, RequiresPIE);
+  return NeedPIE || (Sanitizers.Mask & RequiresPIE);
 }
 
 bool SanitizerArgs::needsUnwindTables() const {
@@ -157,13 +173,15 @@ void SanitizerArgs::clear() {
   Sanitizers.clear();
   RecoverableSanitizers.clear();
   BlacklistFiles.clear();
-  SanitizeCoverage = 0;
+  ExtraDeps.clear();
+  CoverageFeatures = 0;
   MsanTrackOrigins = 0;
+  MsanUseAfterDtor = false;
+  NeedPIE = false;
   AsanFieldPadding = 0;
-  AsanZeroBaseShadow = false;
-  UbsanTrapOnError = false;
   AsanSharedRuntime = false;
   LinkCXXRuntimes = false;
+  CfiCrossDso = false;
 }
 
 SanitizerArgs::SanitizerArgs(const ToolChain &TC,
@@ -243,8 +261,13 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
   if (Sanitizers.has(SanitizerKind::Vptr) &&
       (RTTIMode == ToolChain::RM_DisabledImplicitly ||
        RTTIMode == ToolChain::RM_DisabledExplicitly)) {
-    Kinds &= ~SanitizeKind::Vptr;
-    Sanitizers.set(SanitizerKind::Vptr, 0);
+    Kinds &= ~Vptr;
+  }
+
+  // Check that LTO is enabled if we need it.
+  if ((Kinds & NeedsLTO) && !D.isUsingLTO()) {
+    D.Diag(diag::err_drv_argument_only_allowed_with)
+        << lastArgumentForMask(D, Args, Kinds & NeedsLTO) << "-flto";
   }
 
   // Parse -f(no-)?sanitize-recover flags.
@@ -335,13 +358,16 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
     if (Arg->getOption().matches(options::OPT_fsanitize_blacklist)) {
       Arg->claim();
       std::string BLPath = Arg->getValue();
-      if (llvm::sys::fs::exists(BLPath))
+      if (llvm::sys::fs::exists(BLPath)) {
         BlacklistFiles.push_back(BLPath);
-      else
+        ExtraDeps.push_back(BLPath);
+      } else
         D.Diag(clang::diag::err_drv_no_such_file) << BLPath;
+
     } else if (Arg->getOption().matches(options::OPT_fno_sanitize_blacklist)) {
       Arg->claim();
       BlacklistFiles.clear();
+      ExtraDeps.clear();
     }
   }
   // Validate blacklists format.
@@ -372,6 +398,18 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
         }
       }
     }
+    MsanUseAfterDtor =
+        Args.hasArg(options::OPT_fsanitize_memory_use_after_dtor);
+    NeedPIE |= !(TC.getTriple().isOSLinux() &&
+                 TC.getTriple().getArch() == llvm::Triple::x86_64);
+  }
+
+  if (AllAddedKinds & CFI) {
+    CfiCrossDso = Args.hasFlag(options::OPT_fsanitize_cfi_cross_dso,
+                               options::OPT_fno_sanitize_cfi_cross_dso, false);
+    // Without PIE, external function address may resolve to a PLT record, which
+    // can not be verified by the target module.
+    NeedPIE |= CfiCrossDso;
   }
 
   // Parse -fsanitize-coverage=N. Currently one of asan/msan/lsan is required.
@@ -387,10 +425,8 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
 
   if (NeedsAsan) {
     AsanSharedRuntime =
-        Args.hasArg(options::OPT_shared_libasan) ||
-        (TC.getTriple().getEnvironment() == llvm::Triple::Android);
-    AsanZeroBaseShadow =
-        (TC.getTriple().getEnvironment() == llvm::Triple::Android);
+        Args.hasArg(options::OPT_shared_libasan) || TC.getTriple().isAndroid();
+    NeedPIE |= TC.getTriple().isAndroid();
     if (Arg *A =
             Args.getLastArg(options::OPT_fsanitize_address_field_padding)) {
         StringRef S = A->getValue();
@@ -452,10 +488,22 @@ void SanitizerArgs::addArgs(const llvm::opt::ArgList &Args,
     BlacklistOpt += BLPath;
     CmdArgs.push_back(Args.MakeArgString(BlacklistOpt));
   }
+  for (const auto &Dep : ExtraDeps) {
+    SmallString<64> ExtraDepOpt("-fdepfile-entry=");
+    ExtraDepOpt += Dep;
+    CmdArgs.push_back(Args.MakeArgString(ExtraDepOpt));
+  }
 
   if (MsanTrackOrigins)
     CmdArgs.push_back(Args.MakeArgString("-fsanitize-memory-track-origins=" +
                                          llvm::utostr(MsanTrackOrigins)));
+
+  if (MsanUseAfterDtor)
+    CmdArgs.push_back(Args.MakeArgString("-fsanitize-memory-use-after-dtor"));
+
+  if (CfiCrossDso)
+    CmdArgs.push_back(Args.MakeArgString("-fsanitize-cfi-cross-dso"));
+
   if (AsanFieldPadding)
     CmdArgs.push_back(Args.MakeArgString("-fsanitize-address-field-padding=" +
                                          llvm::utostr(AsanFieldPadding)));
@@ -483,11 +531,14 @@ bool SanitizerArgs::getDefaultBlacklist(const Driver &D, std::string &BLPath) {
   else if (Sanitizers.has(SanitizerKind::DataFlow))
     BlacklistFile = "dfsan_abilist.txt";
 
-  if (BlacklistFile) {
-    SmallString<64> Path(D.ResourceDir);
-    llvm::sys::path::append(Path, BlacklistFile);
-    BLPath = Path.str();
-    return true;
+  if (TC.getTriple().isOSWindows() && needsUbsanRt()) {
+    // Instruct the code generator to embed linker directives in the object file
+    // that cause the required runtime libraries to be linked.
+    CmdArgs.push_back(Args.MakeArgString(
+        "--dependent-lib=" + TC.getCompilerRT(Args, "ubsan_standalone")));
+    if (types::isCXX(InputType))
+      CmdArgs.push_back(Args.MakeArgString(
+          "--dependent-lib=" + TC.getCompilerRT(Args, "ubsan_standalone_cxx")));
   }
   return false;
 }

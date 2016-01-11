@@ -21,8 +21,10 @@
 #include "clang/AST/DeclVisitor.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/AST/TypeVisitor.h"
+#include "clang/Basic/Builtins.h"
 #include "clang/Basic/Module.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Sema/LocInfoType.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace clang;
 using namespace clang::comments;
@@ -444,6 +446,7 @@ namespace  {
         const ClassTemplatePartialSpecializationDecl *D);
     void VisitClassScopeFunctionSpecializationDecl(
         const ClassScopeFunctionSpecializationDecl *D);
+    void VisitBuiltinTemplateDecl(const BuiltinTemplateDecl *D);
     void VisitVarTemplateDecl(const VarTemplateDecl *D);
     void VisitVarTemplateSpecializationDecl(
         const VarTemplateSpecializationDecl *D);
@@ -645,6 +648,15 @@ void ASTDumper::dumpTypeAsChild(const Type *T) {
     if (!T) {
       ColorScope Color(*this, NullColor);
       OS << "<<<NULL>>>";
+      return;
+    }
+    if (const LocInfoType *LIT = llvm::dyn_cast<LocInfoType>(T)) {
+      {
+        ColorScope Color(*this, TypeColor);
+        OS << "LocInfo Type";
+      }
+      dumpPointer(T);
+      dumpTypeAsChild(LIT->getTypeSourceInfo()->getType());
       return;
     }
 
@@ -1309,6 +1321,11 @@ void ASTDumper::VisitVarTemplateDecl(const VarTemplateDecl *D) {
   VisitTemplateDecl(D, false);
 }
 
+void ASTDumper::VisitBuiltinTemplateDecl(const BuiltinTemplateDecl *D) {
+  dumpName(D);
+  dumpTemplateParameters(D->getTemplateParameters());
+}
+
 void ASTDumper::VisitVarTemplateSpecializationDecl(
     const VarTemplateSpecializationDecl *D) {
   dumpTemplateArgumentList(D->getTemplateArgs());
@@ -1354,20 +1371,23 @@ void ASTDumper::VisitTemplateTemplateParmDecl(
 
 void ASTDumper::VisitUsingDecl(const UsingDecl *D) {
   OS << ' ';
-  D->getQualifier()->print(OS, D->getASTContext().getPrintingPolicy());
+  if (D->getQualifier())
+    D->getQualifier()->print(OS, D->getASTContext().getPrintingPolicy());
   OS << D->getNameAsString();
 }
 
 void ASTDumper::VisitUnresolvedUsingTypenameDecl(
     const UnresolvedUsingTypenameDecl *D) {
   OS << ' ';
-  D->getQualifier()->print(OS, D->getASTContext().getPrintingPolicy());
+  if (D->getQualifier())
+    D->getQualifier()->print(OS, D->getASTContext().getPrintingPolicy());
   OS << D->getNameAsString();
 }
 
 void ASTDumper::VisitUnresolvedUsingValueDecl(const UnresolvedUsingValueDecl *D) {
   OS << ' ';
-  D->getQualifier()->print(OS, D->getASTContext().getPrintingPolicy());
+  if (D->getQualifier())
+    D->getQualifier()->print(OS, D->getASTContext().getPrintingPolicy());
   OS << D->getNameAsString();
   dumpType(D->getType());
 }
@@ -1942,6 +1962,9 @@ void ASTDumper::VisitSizeOfPackExpr(const SizeOfPackExpr *Node) {
   VisitExpr(Node);
   dumpPointer(Node->getPack());
   dumpName(Node->getPack());
+  if (Node->isPartiallySubstituted())
+    for (const auto &A : Node->getPartialArguments())
+      dumpTemplateArgument(A);
 }
 
 

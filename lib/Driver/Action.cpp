@@ -53,6 +53,24 @@ BindArchAction::BindArchAction(std::unique_ptr<Action> Input,
                                const char *_ArchName)
     : Action(BindArchClass, std::move(Input)), ArchName(_ArchName) {}
 
+void CudaDeviceAction::anchor() {}
+
+CudaDeviceAction::CudaDeviceAction(std::unique_ptr<Action> Input,
+                                   const char *ArchName, bool AtTopLevel)
+    : Action(CudaDeviceClass, std::move(Input)), GpuArchName(ArchName),
+      AtTopLevel(AtTopLevel) {}
+
+void CudaHostAction::anchor() {}
+
+CudaHostAction::CudaHostAction(std::unique_ptr<Action> Input,
+                               const ActionList &DeviceActions)
+    : Action(CudaHostClass, std::move(Input)), DeviceActions(DeviceActions) {}
+
+CudaHostAction::~CudaHostAction() {
+  for (auto &DA : DeviceActions)
+    delete DA;
+}
+
 void JobAction::anchor() {}
 
 JobAction::JobAction(ActionClass Kind, std::unique_ptr<Action> Input,
@@ -130,13 +148,6 @@ VerifyJobAction::VerifyJobAction(ActionClass Kind,
     : JobAction(Kind, std::move(Input), Type) {
   assert((Kind == VerifyDebugInfoJobClass || Kind == VerifyPCHJobClass) &&
          "ActionClass is not a valid VerifyJobAction");
-}
-
-VerifyJobAction::VerifyJobAction(ActionClass Kind, ActionList &Inputs,
-                                 types::ID Type)
-    : JobAction(Kind, Inputs, Type) {
-  assert((Kind == VerifyDebugInfoJobClass || Kind == VerifyPCHJobClass) &&
-           "ActionClass is not a valid VerifyJobAction");
 }
 
 void VerifyDebugInfoJobAction::anchor() {}

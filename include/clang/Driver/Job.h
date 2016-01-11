@@ -25,6 +25,7 @@ namespace driver {
 class Action;
 class Command;
 class Tool;
+class InputInfo;
 
 // Re-export this as clang::driver::ArgStringList.
 using llvm::opt::ArgStringList;
@@ -81,6 +82,9 @@ class Command : public Job {
   /// argument, which will be the executable).
   llvm::opt::ArgStringList Arguments;
 
+  /// The list of program arguments which are inputs.
+  llvm::opt::ArgStringList InputFilenames;
+
   /// Response file name, if this command is set to use one, or nullptr
   /// otherwise
   const char *ResponseFile;
@@ -106,8 +110,13 @@ class Command : public Job {
   void writeResponseFile(raw_ostream &OS) const;
 
 public:
-  Command(const Action &_Source, const Tool &_Creator, const char *_Executable,
-          const llvm::opt::ArgStringList &_Arguments);
+  Command(const Action &Source, const Tool &Creator, const char *Executable,
+          const llvm::opt::ArgStringList &Arguments,
+          ArrayRef<InputInfo> Inputs);
+  // FIXME: This really shouldn't be copyable, but is currently copied in some
+  // error handling in Driver::generateCompilationDiagnostics.
+  Command(const Command &) = default;
+  virtual ~Command() {}
 
   void Print(llvm::raw_ostream &OS, const char *Terminator, bool Quote,
              CrashReportInfo *CrashInfo = nullptr) const override;
@@ -146,6 +155,7 @@ class FallbackCommand : public Command {
 public:
   FallbackCommand(const Action &Source_, const Tool &Creator_,
                   const char *Executable_, const ArgStringList &Arguments_,
+                  ArrayRef<InputInfo> Inputs,
                   std::unique_ptr<Command> Fallback_);
 
   void Print(llvm::raw_ostream &OS, const char *Terminator, bool Quote,

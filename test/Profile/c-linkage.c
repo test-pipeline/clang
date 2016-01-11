@@ -1,10 +1,10 @@
 // Check the data structures emitted by instrumentation.
 // RUN: %clang_cc1 -triple x86_64-apple-macosx10.9 -main-file-name c-linkage.c %s -o - -emit-llvm -fprofile-instr-generate | FileCheck %s
 
-// CHECK: @__llvm_profile_name_foo = hidden constant [3 x i8] c"foo", section "__DATA,__llvm_prf_names", align 1
-// CHECK: @__llvm_profile_name_foo_weak = weak hidden constant [8 x i8] c"foo_weak", section "__DATA,__llvm_prf_names", align 1
-// CHECK: @__llvm_profile_name_main = hidden constant [4 x i8] c"main", section "__DATA,__llvm_prf_names", align 1
-// CHECK: @"__llvm_profile_name_c-linkage.c:foo_internal" = internal constant [24 x i8] c"c-linkage.c:foo_internal", section "__DATA,__llvm_prf_names", align 1
+// CHECK: @__profn_foo = private constant [3 x i8] c"foo"
+// CHECK: @__profn_foo_weak = weak hidden constant [8 x i8] c"foo_weak"
+// CHECK: @__profn_main = private constant [4 x i8] c"main"
+// CHECK: @__profn_c_linkage.c_foo_internal = private constant [24 x i8] c"c-linkage.c:foo_internal"
 
 // CHECK: @__llvm_profile_counters_foo = hidden global [1 x i64] zeroinitializer, section "__DATA,__llvm_prf_cnts", align 8
 // CHECK: @__llvm_profile_data_foo = hidden constant { i32, i32, i64, i8*, i64* } { i32 3, i32 1, i64 {{[0-9]+}}, i8* getelementptr inbounds ([3 x i8]* @__llvm_profile_name_foo, i32 0, i32 0), i64* getelementptr inbounds ([1 x i64]* @__llvm_profile_counters_foo, i32 0, i32 0) }, section "__DATA,__llvm_prf_data", align 8

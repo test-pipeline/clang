@@ -24,16 +24,17 @@
 
 using namespace clang;
 
-PCHGenerator::PCHGenerator(const Preprocessor &PP,
-                           StringRef OutputFile,
-                           clang::Module *Module,
-                           StringRef isysroot,
-                           raw_ostream *OS, bool AllowASTWithErrors)
-  : PP(PP), OutputFile(OutputFile), Module(Module), 
-    isysroot(isysroot.str()), Out(OS), 
-    SemaPtr(nullptr), Stream(Buffer), Writer(Stream),
-    AllowASTWithErrors(AllowASTWithErrors),
-    HasEmittedPCH(false) {
+PCHGenerator::PCHGenerator(
+  const Preprocessor &PP, StringRef OutputFile,
+  clang::Module *Module, StringRef isysroot,
+  std::shared_ptr<PCHBuffer> Buffer,
+  ArrayRef<llvm::IntrusiveRefCntPtr<ModuleFileExtension>> Extensions,
+  bool AllowASTWithErrors, bool IncludeTimestamps)
+    : PP(PP), OutputFile(OutputFile), Module(Module), isysroot(isysroot.str()),
+      SemaPtr(nullptr), Buffer(Buffer), Stream(Buffer->Data),
+      Writer(Stream, Extensions, IncludeTimestamps),
+      AllowASTWithErrors(AllowASTWithErrors) {
+  Buffer->IsComplete = false;
 }
 
 PCHGenerator::~PCHGenerator() {
@@ -50,7 +51,8 @@ void PCHGenerator::HandleTranslationUnit(ASTContext &Ctx) {
   
   // Emit the PCH file
   assert(SemaPtr && "No Sema?");
-  Writer.WriteAST(*SemaPtr, OutputFile, Module, isysroot, hasErrors);
+  Buffer->Signature =
+      Writer.WriteAST(*SemaPtr, OutputFile, Module, isysroot, hasErrors);
 
   // Write the generated bitstream to "Out".
   Out->write((char *)&Buffer.front(), Buffer.size());

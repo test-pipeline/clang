@@ -65,7 +65,7 @@ int foomain(int argc, char **argv) {
   I e(4); // expected-note {{'e' defined here}}
   I g(5); // expected-note {{'g' defined here}}
   int i;
-  int &j = i; // expected-note {{'j' defined here}}
+  int &j = i;
 #pragma omp parallel
 #pragma omp sections lastprivate // expected-error {{expected '(' after 'lastprivate'}}
   {
@@ -143,7 +143,7 @@ int foomain(int argc, char **argv) {
   }
 #pragma omp parallel shared(i)
 #pragma omp parallel private(i)
-#pragma omp sections lastprivate(j) // expected-error {{arguments of OpenMP clause 'lastprivate' cannot be of reference type}}
+#pragma omp sections lastprivate(j)
   {
     foo();
   }
@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
   S3 m;                  // expected-note 2 {{'m' defined here}}
   S6 n(2);
   int i;
-  int &j = i; // expected-note {{'j' defined here}}
+  int &j = i;
 #pragma omp parallel
 #pragma omp sections lastprivate // expected-error {{expected '(' after 'lastprivate'}}
   {
@@ -291,7 +291,7 @@ int main(int argc, char **argv) {
     foo();
   }
 #pragma omp parallel
-#pragma omp sections lastprivate(j) // expected-error {{arguments of OpenMP clause 'lastprivate' cannot be of reference type}}
+#pragma omp sections lastprivate(j)
   {
     foo();
   }
@@ -302,6 +302,11 @@ int main(int argc, char **argv) {
   }
 #pragma omp parallel
 #pragma omp sections lastprivate(n) firstprivate(n) // OK
+  {
+    foo();
+  }
+  static int r;
+#pragma omp sections lastprivate(r) // OK
   {
     foo();
   }

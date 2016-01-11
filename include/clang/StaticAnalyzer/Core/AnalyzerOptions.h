@@ -249,8 +249,43 @@ private:
   /// \sa getMaxTimesInlineLarge
   Optional<unsigned> MaxTimesInlineLarge;
 
+  /// \sa getMinCFGSizeTreatFunctionsAsLarge
+  Optional<unsigned> MinCFGSizeTreatFunctionsAsLarge;
+
   /// \sa getMaxNodesPerTopLevelFunction
   Optional<unsigned> MaxNodesPerTopLevelFunction;
+
+  /// \sa shouldInlineLambdas
+  Optional<bool> InlineLambdas;
+
+  /// \sa shouldWidenLoops
+  Optional<bool> WidenLoops;
+
+  /// A helper function that retrieves option for a given full-qualified
+  /// checker name.
+  /// Options for checkers can be specified via 'analyzer-config' command-line
+  /// option.
+  /// Example:
+  /// @code-analyzer-config unix.Malloc:OptionName=CheckerOptionValue @endcode
+  /// or @code-analyzer-config unix:OptionName=GroupOptionValue @endcode
+  /// for groups of checkers.
+  /// @param [in] CheckerName  Full-qualified checker name, like
+  /// alpha.unix.StreamChecker.
+  /// @param [in] OptionName  Name of the option to get.
+  /// @param [in] Default  Default value if no option is specified.
+  /// @param [in] SearchInParents If set to true and the searched option was not
+  /// specified for the given checker the options for the parent packages will
+  /// be searched as well. The inner packages take precedence over the outer
+  /// ones.
+  /// @retval CheckerOptionValue  An option for a checker if it was specified.
+  /// @retval GroupOptionValue  An option for group if it was specified and no
+  /// checker-specific options were found. The closer group to checker,
+  /// the more priority it has. For example, @c coregroup.subgroup has more
+  /// priority than @c coregroup for @c coregroup.subgroup.CheckerName checker.
+  /// @retval Default  If nor checker option, nor group option was found.
+  StringRef getCheckerOption(StringRef CheckerName, StringRef OptionName,
+                             StringRef Default,
+                             bool SearchInParents = false);
 
 public:
   /// Interprets an option's string value as a boolean.
@@ -414,12 +449,27 @@ public:
   /// This is controlled by the 'max-times-inline-large' config option.
   unsigned getMaxTimesInlineLarge();
 
+  /// Returns the number of basic blocks a function needs to have to be
+  /// considered large for the 'max-times-inline-large' config option.
+  ///
+  /// This is controlled by the 'min-cfg-size-treat-functions-as-large' config
+  /// option.
+  unsigned getMinCFGSizeTreatFunctionsAsLarge();
+
   /// Returns the maximum number of nodes the analyzer can generate while
   /// exploring a top level function (for each exploded graph).
   /// 150000 is default; 0 means no limit.
   ///
   /// This is controlled by the 'max-nodes' config option.
   unsigned getMaxNodesPerTopLevelFunction();
+
+  /// Returns true if lambdas should be inlined. Otherwise a sink node will be
+  /// generated each time a LambdaExpr is visited.
+  bool shouldInlineLambdas();
+
+  /// Returns true if the analysis should try to widen loops.
+  /// This is controlled by the 'widen-loops' config option.
+  bool shouldWidenLoops();
 
 public:
   AnalyzerOptions() :

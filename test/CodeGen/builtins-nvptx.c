@@ -104,17 +104,15 @@ int read_lanemasks() {
 
 }
 
-
-long read_clocks() {
+__device__ long long read_clocks() {
 
 // CHECK: call i32 @llvm.ptx.read.clock()
 // CHECK: call i64 @llvm.ptx.read.clock64()
 
   int a = __builtin_ptx_read_clock();
-  long b = __builtin_ptx_read_clock64();
+  long long b = __builtin_ptx_read_clock64();
 
-  return (long)a + b;
-
+  return a + b;
 }
 
 int read_pms() {
@@ -175,4 +173,99 @@ void nvvm_math(float f1, float f2, double d1, double d2) {
   __nvvm_membar_sys();
 // CHECK: call void @llvm.nvvm.barrier0()
   __nvvm_bar0();
+}
+
+__device__ int di;
+__shared__ int si;
+__device__ long dl;
+__shared__ long sl;
+__device__ long long dll;
+__shared__ long long sll;
+
+// Check for atomic intrinsics
+// CHECK-LABEL: nvvm_atom
+__device__ void nvvm_atom(float *fp, float f, int *ip, int i, long *lp, long l,
+                          long long *llp, long long ll) {
+  // CHECK: atomicrmw add
+  __nvvm_atom_add_gen_i(ip, i);
+  // CHECK: atomicrmw add
+  __nvvm_atom_add_gen_l(&dl, l);
+  // CHECK: atomicrmw add
+  __nvvm_atom_add_gen_ll(&sll, ll);
+
+  // CHECK: atomicrmw sub
+  __nvvm_atom_sub_gen_i(ip, i);
+  // CHECK: atomicrmw sub
+  __nvvm_atom_sub_gen_l(&dl, l);
+  // CHECK: atomicrmw sub
+  __nvvm_atom_sub_gen_ll(&sll, ll);
+
+  // CHECK: atomicrmw and
+  __nvvm_atom_and_gen_i(ip, i);
+  // CHECK: atomicrmw and
+  __nvvm_atom_and_gen_l(&dl, l);
+  // CHECK: atomicrmw and
+  __nvvm_atom_and_gen_ll(&sll, ll);
+
+  // CHECK: atomicrmw or
+  __nvvm_atom_or_gen_i(ip, i);
+  // CHECK: atomicrmw or
+  __nvvm_atom_or_gen_l(&dl, l);
+  // CHECK: atomicrmw or
+  __nvvm_atom_or_gen_ll(&sll, ll);
+
+  // CHECK: atomicrmw xor
+  __nvvm_atom_xor_gen_i(ip, i);
+  // CHECK: atomicrmw xor
+  __nvvm_atom_xor_gen_l(&dl, l);
+  // CHECK: atomicrmw xor
+  __nvvm_atom_xor_gen_ll(&sll, ll);
+
+  // CHECK: atomicrmw xchg
+  __nvvm_atom_xchg_gen_i(ip, i);
+  // CHECK: atomicrmw xchg
+  __nvvm_atom_xchg_gen_l(&dl, l);
+  // CHECK: atomicrmw xchg
+  __nvvm_atom_xchg_gen_ll(&sll, ll);
+
+  // CHECK: atomicrmw max i32*
+  __nvvm_atom_max_gen_i(ip, i);
+  // CHECK: atomicrmw umax i32*
+  __nvvm_atom_max_gen_ui((unsigned int *)ip, i);
+  // CHECK: atomicrmw max
+  __nvvm_atom_max_gen_l(&dl, l);
+  // CHECK: atomicrmw umax
+  __nvvm_atom_max_gen_ul((unsigned long *)&dl, l);
+  // CHECK: atomicrmw max i64*
+  __nvvm_atom_max_gen_ll(&sll, ll);
+  // CHECK: atomicrmw umax i64*
+  __nvvm_atom_max_gen_ull((unsigned long long *)&sll, ll);
+
+  // CHECK: atomicrmw min i32*
+  __nvvm_atom_min_gen_i(ip, i);
+  // CHECK: atomicrmw umin i32*
+  __nvvm_atom_min_gen_ui((unsigned int *)ip, i);
+  // CHECK: atomicrmw min
+  __nvvm_atom_min_gen_l(&dl, l);
+  // CHECK: atomicrmw umin
+  __nvvm_atom_min_gen_ul((unsigned long *)&dl, l);
+  // CHECK: atomicrmw min i64*
+  __nvvm_atom_min_gen_ll(&sll, ll);
+  // CHECK: atomicrmw umin i64*
+  __nvvm_atom_min_gen_ull((unsigned long long *)&sll, ll);
+
+  // CHECK: cmpxchg
+  // CHECK-NEXT: extractvalue { i32, i1 } {{%[0-9]+}}, 0
+  __nvvm_atom_cas_gen_i(ip, 0, i);
+  // CHECK: cmpxchg
+  // CHECK-NEXT: extractvalue { {{i32|i64}}, i1 } {{%[0-9]+}}, 0
+  __nvvm_atom_cas_gen_l(&dl, 0, l);
+  // CHECK: cmpxchg
+  // CHECK-NEXT: extractvalue { i64, i1 } {{%[0-9]+}}, 0
+  __nvvm_atom_cas_gen_ll(&sll, 0, ll);
+
+  // CHECK: call float @llvm.nvvm.atomic.load.add.f32.p0f32
+  __nvvm_atom_add_gen_f(fp, f);
+
+  // CHECK: ret
 }

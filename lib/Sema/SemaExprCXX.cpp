@@ -953,6 +953,11 @@ Sema::BuildCXXTypeConstructExpr(TypeSourceInfo *TInfo,
     return BuildCXXFunctionalCastExpr(TInfo, LParenLoc, Arg, RParenLoc);
   }
 
+  // C++14 [expr.type.conv]p2: The expression T(), where T is a
+  //   simple-type-specifier or typename-specifier for a non-array complete
+  //   object type or the (possibly cv-qualified) void type, creates a prvalue
+  //   of the specified type, whose value is that produced by value-initializing
+  //   an object of type T.
   QualType ElemTy = Ty;
   if (Ty->isArrayType()) {
     if (!ListInitialization)
@@ -960,6 +965,10 @@ Sema::BuildCXXTypeConstructExpr(TypeSourceInfo *TInfo,
                             diag::err_value_init_for_array_type) << FullRange);
     ElemTy = Context.getBaseElementType(Ty);
   }
+
+  if (!ListInitialization && Ty->isFunctionType())
+    return ExprError(Diag(TyBeginLoc, diag::err_value_init_for_function_type)
+                     << FullRange);
 
   if (!Ty->isVoidType() &&
       RequireCompleteType(TyBeginLoc, ElemTy,
@@ -2186,6 +2195,9 @@ FunctionDecl *Sema::FindUsualDeallocationFunction(SourceLocation StartLoc,
            "found an unexpected usual deallocation function");
   }
 
+  if (getLangOpts().CUDA && getLangOpts().CUDATargetOverloads)
+    EraseUnwantedCUDAMatches(dyn_cast<FunctionDecl>(CurContext), Matches);
+
   assert(Matches.size() == 1 &&
          "unexpectedly have multiple usual deallocation functions");
   return Matches.front();
@@ -2216,6 +2228,9 @@ bool Sema::FindDeallocationFunction(SourceLocation StartLoc, CXXRecordDecl *RD,
     if (cast<CXXMethodDecl>(ND)->isUsualDeallocationFunction())
       Matches.push_back(F.getPair());
   }
+
+  if (getLangOpts().CUDA && getLangOpts().CUDATargetOverloads)
+    EraseUnwantedCUDAMatches(dyn_cast<FunctionDecl>(CurContext), Matches);
 
   // There's exactly one suitable operator;  pick it.
   if (Matches.size() == 1) {
@@ -2266,6 +2281,262 @@ bool Sema::FindDeallocationFunction(SourceLocation StartLoc, CXXRecordDecl *RD,
 
   Operator = nullptr;
   return false;
+}
+
+namespace {
+/// \brief Checks whether delete-expression, and new-expression used for
+///  initializing deletee have the same array form.
+class MismatchingNewDeleteDetector {
+public:
+  enum MismatchResult {
+    /// Indicates that there is no mismatch or a mismatch cannot be proven.
+    NoMismatch,
+    /// Indicates that variable is initialized with mismatching form of \a new.
+    VarInitMismatches,
+    /// Indicates that member is initialized with mismatching form of \a new.
+    MemberInitMismatches,
+    /// Indicates that 1 or more constructors' definitions could not been
+    /// analyzed, and they will be checked again at the end of translation unit.
+    AnalyzeLater
+  };
+
+  /// \param EndOfTU True, if this is the final analysis at the end of
+  /// translation unit. False, if this is the initial analysis at the point
+  /// delete-expression was encountered.
+  explicit MismatchingNewDeleteDetector(bool EndOfTU)
+      : IsArrayForm(false), Field(nullptr), EndOfTU(EndOfTU),
+        HasUndefinedConstructors(false) {}
+
+  /// \brief Checks whether pointee of a delete-expression is initialized with
+  /// matching form of new-expression.
+  ///
+  /// If return value is \c VarInitMismatches or \c MemberInitMismatches at the
+  /// point where delete-expression is encountered, then a warning will be
+  /// issued immediately. If return value is \c AnalyzeLater at the point where
+  /// delete-expression is seen, then member will be analyzed at the end of
+  /// translation unit. \c AnalyzeLater is returned iff at least one constructor
+  /// couldn't be analyzed. If at least one constructor initializes the member
+  /// with matching type of new, the return value is \c NoMismatch.
+  MismatchResult analyzeDeleteExpr(const CXXDeleteExpr *DE);
+  /// \brief Analyzes a class member.
+  /// \param Field Class member to analyze.
+  /// \param DeleteWasArrayForm Array form-ness of the delete-expression used
+  /// for deleting the \p Field.
+  MismatchResult analyzeField(FieldDecl *Field, bool DeleteWasArrayForm);
+  /// List of mismatching new-expressions used for initialization of the pointee
+  llvm::SmallVector<const CXXNewExpr *, 4> NewExprs;
+  /// Indicates whether delete-expression was in array form.
+  bool IsArrayForm;
+  FieldDecl *Field;
+
+private:
+  const bool EndOfTU;
+  /// \brief Indicates that there is at least one constructor without body.
+  bool HasUndefinedConstructors;
+  /// \brief Returns \c CXXNewExpr from given initialization expression.
+  /// \param E Expression used for initializing pointee in delete-expression.
+  /// E can be a single-element \c InitListExpr consisting of new-expression.
+  const CXXNewExpr *getNewExprFromInitListOrExpr(const Expr *E);
+  /// \brief Returns whether member is initialized with mismatching form of
+  /// \c new either by the member initializer or in-class initialization.
+  ///
+  /// If bodies of all constructors are not visible at the end of translation
+  /// unit or at least one constructor initializes member with the matching
+  /// form of \c new, mismatch cannot be proven, and this function will return
+  /// \c NoMismatch.
+  MismatchResult analyzeMemberExpr(const MemberExpr *ME);
+  /// \brief Returns whether variable is initialized with mismatching form of
+  /// \c new.
+  ///
+  /// If variable is initialized with matching form of \c new or variable is not
+  /// initialized with a \c new expression, this function will return true.
+  /// If variable is initialized with mismatching form of \c new, returns false.
+  /// \param D Variable to analyze.
+  bool hasMatchingVarInit(const DeclRefExpr *D);
+  /// \brief Checks whether the constructor initializes pointee with mismatching
+  /// form of \c new.
+  ///
+  /// Returns true, if member is initialized with matching form of \c new in
+  /// member initializer list. Returns false, if member is initialized with the
+  /// matching form of \c new in this constructor's initializer or given
+  /// constructor isn't defined at the point where delete-expression is seen, or
+  /// member isn't initialized by the constructor.
+  bool hasMatchingNewInCtor(const CXXConstructorDecl *CD);
+  /// \brief Checks whether member is initialized with matching form of
+  /// \c new in member initializer list.
+  bool hasMatchingNewInCtorInit(const CXXCtorInitializer *CI);
+  /// Checks whether member is initialized with mismatching form of \c new by
+  /// in-class initializer.
+  MismatchResult analyzeInClassInitializer();
+};
+}
+
+MismatchingNewDeleteDetector::MismatchResult
+MismatchingNewDeleteDetector::analyzeDeleteExpr(const CXXDeleteExpr *DE) {
+  NewExprs.clear();
+  assert(DE && "Expected delete-expression");
+  IsArrayForm = DE->isArrayForm();
+  const Expr *E = DE->getArgument()->IgnoreParenImpCasts();
+  if (const MemberExpr *ME = dyn_cast<const MemberExpr>(E)) {
+    return analyzeMemberExpr(ME);
+  } else if (const DeclRefExpr *D = dyn_cast<const DeclRefExpr>(E)) {
+    if (!hasMatchingVarInit(D))
+      return VarInitMismatches;
+  }
+  return NoMismatch;
+}
+
+const CXXNewExpr *
+MismatchingNewDeleteDetector::getNewExprFromInitListOrExpr(const Expr *E) {
+  assert(E != nullptr && "Expected a valid initializer expression");
+  E = E->IgnoreParenImpCasts();
+  if (const InitListExpr *ILE = dyn_cast<const InitListExpr>(E)) {
+    if (ILE->getNumInits() == 1)
+      E = dyn_cast<const CXXNewExpr>(ILE->getInit(0)->IgnoreParenImpCasts());
+  }
+
+  return dyn_cast_or_null<const CXXNewExpr>(E);
+}
+
+bool MismatchingNewDeleteDetector::hasMatchingNewInCtorInit(
+    const CXXCtorInitializer *CI) {
+  const CXXNewExpr *NE = nullptr;
+  if (Field == CI->getMember() &&
+      (NE = getNewExprFromInitListOrExpr(CI->getInit()))) {
+    if (NE->isArray() == IsArrayForm)
+      return true;
+    else
+      NewExprs.push_back(NE);
+  }
+  return false;
+}
+
+bool MismatchingNewDeleteDetector::hasMatchingNewInCtor(
+    const CXXConstructorDecl *CD) {
+  if (CD->isImplicit())
+    return false;
+  const FunctionDecl *Definition = CD;
+  if (!CD->isThisDeclarationADefinition() && !CD->isDefined(Definition)) {
+    HasUndefinedConstructors = true;
+    return EndOfTU;
+  }
+  for (const auto *CI : cast<const CXXConstructorDecl>(Definition)->inits()) {
+    if (hasMatchingNewInCtorInit(CI))
+      return true;
+  }
+  return false;
+}
+
+MismatchingNewDeleteDetector::MismatchResult
+MismatchingNewDeleteDetector::analyzeInClassInitializer() {
+  assert(Field != nullptr && "This should be called only for members");
+  const Expr *InitExpr = Field->getInClassInitializer();
+  if (!InitExpr)
+    return EndOfTU ? NoMismatch : AnalyzeLater;
+  if (const CXXNewExpr *NE = getNewExprFromInitListOrExpr(InitExpr)) {
+    if (NE->isArray() != IsArrayForm) {
+      NewExprs.push_back(NE);
+      return MemberInitMismatches;
+    }
+  }
+  return NoMismatch;
+}
+
+MismatchingNewDeleteDetector::MismatchResult
+MismatchingNewDeleteDetector::analyzeField(FieldDecl *Field,
+                                           bool DeleteWasArrayForm) {
+  assert(Field != nullptr && "Analysis requires a valid class member.");
+  this->Field = Field;
+  IsArrayForm = DeleteWasArrayForm;
+  const CXXRecordDecl *RD = cast<const CXXRecordDecl>(Field->getParent());
+  for (const auto *CD : RD->ctors()) {
+    if (hasMatchingNewInCtor(CD))
+      return NoMismatch;
+  }
+  if (HasUndefinedConstructors)
+    return EndOfTU ? NoMismatch : AnalyzeLater;
+  if (!NewExprs.empty())
+    return MemberInitMismatches;
+  return Field->hasInClassInitializer() ? analyzeInClassInitializer()
+                                        : NoMismatch;
+}
+
+MismatchingNewDeleteDetector::MismatchResult
+MismatchingNewDeleteDetector::analyzeMemberExpr(const MemberExpr *ME) {
+  assert(ME != nullptr && "Expected a member expression");
+  if (FieldDecl *F = dyn_cast<FieldDecl>(ME->getMemberDecl()))
+    return analyzeField(F, IsArrayForm);
+  return NoMismatch;
+}
+
+bool MismatchingNewDeleteDetector::hasMatchingVarInit(const DeclRefExpr *D) {
+  const CXXNewExpr *NE = nullptr;
+  if (const VarDecl *VD = dyn_cast<const VarDecl>(D->getDecl())) {
+    if (VD->hasInit() && (NE = getNewExprFromInitListOrExpr(VD->getInit())) &&
+        NE->isArray() != IsArrayForm) {
+      NewExprs.push_back(NE);
+    }
+  }
+  return NewExprs.empty();
+}
+
+static void
+DiagnoseMismatchedNewDelete(Sema &SemaRef, SourceLocation DeleteLoc,
+                            const MismatchingNewDeleteDetector &Detector) {
+  SourceLocation EndOfDelete = SemaRef.getLocForEndOfToken(DeleteLoc);
+  FixItHint H;
+  if (!Detector.IsArrayForm)
+    H = FixItHint::CreateInsertion(EndOfDelete, "[]");
+  else {
+    SourceLocation RSquare = Lexer::findLocationAfterToken(
+        DeleteLoc, tok::l_square, SemaRef.getSourceManager(),
+        SemaRef.getLangOpts(), true);
+    if (RSquare.isValid())
+      H = FixItHint::CreateRemoval(SourceRange(EndOfDelete, RSquare));
+  }
+  SemaRef.Diag(DeleteLoc, diag::warn_mismatched_delete_new)
+      << Detector.IsArrayForm << H;
+
+  for (const auto *NE : Detector.NewExprs)
+    SemaRef.Diag(NE->getExprLoc(), diag::note_allocated_here)
+        << Detector.IsArrayForm;
+}
+
+void Sema::AnalyzeDeleteExprMismatch(const CXXDeleteExpr *DE) {
+  if (Diags.isIgnored(diag::warn_mismatched_delete_new, SourceLocation()))
+    return;
+  MismatchingNewDeleteDetector Detector(/*EndOfTU=*/false);
+  switch (Detector.analyzeDeleteExpr(DE)) {
+  case MismatchingNewDeleteDetector::VarInitMismatches:
+  case MismatchingNewDeleteDetector::MemberInitMismatches: {
+    DiagnoseMismatchedNewDelete(*this, DE->getLocStart(), Detector);
+    break;
+  }
+  case MismatchingNewDeleteDetector::AnalyzeLater: {
+    DeleteExprs[Detector.Field].push_back(
+        std::make_pair(DE->getLocStart(), DE->isArrayForm()));
+    break;
+  }
+  case MismatchingNewDeleteDetector::NoMismatch:
+    break;
+  }
+}
+
+void Sema::AnalyzeDeleteExprMismatch(FieldDecl *Field, SourceLocation DeleteLoc,
+                                     bool DeleteWasArrayForm) {
+  MismatchingNewDeleteDetector Detector(/*EndOfTU=*/true);
+  switch (Detector.analyzeField(Field, DeleteWasArrayForm)) {
+  case MismatchingNewDeleteDetector::VarInitMismatches:
+    llvm_unreachable("This analysis should have been done for class members.");
+  case MismatchingNewDeleteDetector::AnalyzeLater:
+    llvm_unreachable("Analysis cannot be postponed any point beyond end of "
+                     "translation unit.");
+  case MismatchingNewDeleteDetector::MemberInitMismatches:
+    DiagnoseMismatchedNewDelete(*this, DeleteLoc, Detector);
+    break;
+  case MismatchingNewDeleteDetector::NoMismatch:
+    break;
+  }
 }
 
 /// ActOnCXXDelete - Parsed a C++ 'delete' expression (C++ 5.3.5), as in:
@@ -2376,6 +2647,8 @@ Sema::ActOnCXXDelete(SourceLocation StartLoc, bool UseGlobal,
       return ExprError(Diag(StartLoc, diag::err_delete_operand)
         << Type << Ex.get()->getSourceRange());
     } else if (!Pointee->isDependentType()) {
+      // FIXME: This can result in errors if the definition was imported from a
+      // module but is hidden.
       if (!RequireCompleteType(StartLoc, Pointee,
                                diag::warn_delete_incomplete, Ex.get())) {
         if (const RecordType *RT = PointeeElem->getAs<RecordType>())
@@ -2392,7 +2665,7 @@ Sema::ActOnCXXDelete(SourceLocation StartLoc, bool UseGlobal,
     if (Pointee->isArrayType() && !ArrayForm) {
       Diag(StartLoc, diag::warn_delete_array_type)
           << Type << Ex.get()->getSourceRange()
-          << FixItHint::CreateInsertion(PP.getLocForEndOfToken(StartLoc), "[]");
+          << FixItHint::CreateInsertion(getLocForEndOfToken(StartLoc), "[]");
       ArrayForm = true;
     }
 
@@ -2457,7 +2730,7 @@ Sema::ActOnCXXDelete(SourceLocation StartLoc, bool UseGlobal,
     if (!OperatorDelete)
       // Look for a global declaration.
       OperatorDelete = FindUsualDeallocationFunction(
-          StartLoc, !RequireCompleteType(StartLoc, Pointee, 0) &&
+          StartLoc, isCompleteType(StartLoc, Pointee) &&
                     (!ArrayForm || UsualArrayDeleteWantsSize ||
                      Pointee.isDestructedType()),
           DeleteName);
@@ -2777,6 +3050,7 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
     ToType = ToAtomic->getValueType();
   }
 
+  QualType InitialFromType = FromType;
   // Perform the first implicit conversion.
   switch (SCS.First) {
   case ICK_Identity:
@@ -2966,10 +3240,10 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
 
     // We may not have been able to figure out what this member pointer resolved
     // to up until this exact point.  Attempt to lock-in it's inheritance model.
-    QualType FromType = From->getType();
-    if (FromType->isMemberPointerType())
-      if (Context.getTargetInfo().getCXXABI().isMicrosoft())
-        RequireCompleteType(From->getExprLoc(), FromType, 0);
+    if (Context.getTargetInfo().getCXXABI().isMicrosoft()) {
+      (void)isCompleteType(From->getExprLoc(), From->getType());
+      (void)isCompleteType(From->getExprLoc(), ToType);
+    }
 
     From = ImpCastExprToType(From, ToType, Kind, VK_RValue, &BasePath, CCK)
              .get();
@@ -3096,6 +3370,7 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
   case ICK_Function_To_Pointer:
   case ICK_Qualification:
   case ICK_Num_Conversion_Kinds:
+  case ICK_C_Only_Conversion:
     llvm_unreachable("Improper second standard conversion");
   }
 
@@ -3135,6 +3410,12 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
     From = ImpCastExprToType(From, ToAtomicType, CK_NonAtomicToAtomic,
                              VK_RValue, nullptr, CCK).get();
   }
+
+  // If this conversion sequence succeeded and involved implicitly converting a
+  // _Nullable type to a _Nonnull one, complain.
+  if (CCK == CCK_ImplicitConversion)
+    diagnoseNullableToNonnullConversion(ToType, InitialFromType,
+                                        From->getLocStart());
 
   return From;
 }
@@ -3198,26 +3479,42 @@ static bool CheckUnaryTypeTraitTypeCompleteness(Sema &S, TypeTrait UTT,
   case UTT_IsVolatile:
   case UTT_IsSigned:
   case UTT_IsUnsigned:
+
+  // This type trait always returns false, checking the type is moot.
+  case UTT_IsInterfaceClass:
     return true;
 
-    // C++0x [meta.unary.prop] Table 49 requires the following traits to be
-    // applied to a complete type.
+  // C++14 [meta.unary.prop]:
+  //   If T is a non-union class type, T shall be a complete type.
+  case UTT_IsEmpty:
+  case UTT_IsPolymorphic:
+  case UTT_IsAbstract:
+    if (const auto *RD = ArgTy->getAsCXXRecordDecl())
+      if (!RD->isUnion())
+        return !S.RequireCompleteType(
+            Loc, ArgTy, diag::err_incomplete_type_used_in_type_trait_expr);
+    return true;
+
+  // C++14 [meta.unary.prop]:
+  //   If T is a class type, T shall be a complete type.
+  case UTT_IsFinal:
+  case UTT_IsSealed:
+    if (ArgTy->getAsCXXRecordDecl())
+      return !S.RequireCompleteType(
+          Loc, ArgTy, diag::err_incomplete_type_used_in_type_trait_expr);
+    return true;
+
+  // C++0x [meta.unary.prop] Table 49 requires the following traits to be
+  // applied to a complete type.
   case UTT_IsTrivial:
   case UTT_IsTriviallyCopyable:
   case UTT_IsStandardLayout:
   case UTT_IsPOD:
   case UTT_IsLiteral:
-  case UTT_IsEmpty:
-  case UTT_IsPolymorphic:
-  case UTT_IsAbstract:
-  case UTT_IsInterfaceClass:
+
   case UTT_IsDestructible:
   case UTT_IsNothrowDestructible:
     // Fall-through
-
-  // These traits require a complete type.
-  case UTT_IsFinal:
-  case UTT_IsSealed:
 
     // These trait expressions are designed to help implement predicates in
     // [meta.unary.prop] despite not being named the same. They are specified
@@ -3362,39 +3659,36 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
   case UTT_IsVolatile:
     return T.isVolatileQualified();
   case UTT_IsTrivial:
-    return T.isTrivialType(Self.Context);
+    return T.isTrivialType(C);
   case UTT_IsTriviallyCopyable:
-    return T.isTriviallyCopyableType(Self.Context);
+    return T.isTriviallyCopyableType(C);
   case UTT_IsStandardLayout:
     return T->isStandardLayoutType();
   case UTT_IsPOD:
-    return T.isPODType(Self.Context);
+    return T.isPODType(C);
   case UTT_IsLiteral:
-    return T->isLiteralType(Self.Context);
+    return T->isLiteralType(C);
   case UTT_IsEmpty:
     if (const CXXRecordDecl *RD = T->getAsCXXRecordDecl())
       return !RD->isUnion() && RD->isEmpty();
     return false;
   case UTT_IsPolymorphic:
     if (const CXXRecordDecl *RD = T->getAsCXXRecordDecl())
-      return RD->isPolymorphic();
+      return !RD->isUnion() && RD->isPolymorphic();
     return false;
   case UTT_IsAbstract:
     if (const CXXRecordDecl *RD = T->getAsCXXRecordDecl())
-      return RD->isAbstract();
+      return !RD->isUnion() && RD->isAbstract();
     return false;
+  // __is_interface_class only returns true when CL is invoked in /CLR mode and
+  // even then only when it is used with the 'interface struct ...' syntax
+  // Clang doesn't support /CLR which makes this type trait moot.
   case UTT_IsInterfaceClass:
-    if (const CXXRecordDecl *RD = T->getAsCXXRecordDecl())
-      return RD->isInterface();
     return false;
   case UTT_IsFinal:
-    if (const CXXRecordDecl *RD = T->getAsCXXRecordDecl())
-      return RD->hasAttr<FinalAttr>();
-    return false;
   case UTT_IsSealed:
     if (const CXXRecordDecl *RD = T->getAsCXXRecordDecl())
-      if (FinalAttr *FA = RD->getAttr<FinalAttr>())
-        return FA->isSpelledAsSealed();
+      return RD->hasAttr<FinalAttr>();
     return false;
   case UTT_IsSigned:
     return T->isSignedIntegerType();
@@ -3421,7 +3715,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
     //   If __is_pod (type) is true then the trait is true, else if type is
     //   a cv class or union type (or array thereof) with a trivial default
     //   constructor ([class.ctor]) then the trait is true, else it is false.
-    if (T.isPODType(Self.Context))
+    if (T.isPODType(C))
       return true;
     if (CXXRecordDecl *RD = C.getBaseElementType(T)->getAsCXXRecordDecl())
       return RD->hasTrivialDefaultConstructor() &&
@@ -3431,7 +3725,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
     //  This trait is implemented by MSVC 2012 and needed to parse the
     //  standard library headers. Specifically this is used as the logic
     //  behind std::is_trivially_move_constructible (20.9.4.3).
-    if (T.isPODType(Self.Context))
+    if (T.isPODType(C))
       return true;
     if (CXXRecordDecl *RD = C.getBaseElementType(T)->getAsCXXRecordDecl())
       return RD->hasTrivialMoveConstructor() && !RD->hasNonTrivialMoveConstructor();
@@ -3442,7 +3736,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
     //   the trait is true, else if type is a cv class or union type
     //   with a trivial copy constructor ([class.copy]) then the trait
     //   is true, else it is false.
-    if (T.isPODType(Self.Context) || T->isReferenceType())
+    if (T.isPODType(C) || T->isReferenceType())
       return true;
     if (CXXRecordDecl *RD = T->getAsCXXRecordDecl())
       return RD->hasTrivialCopyConstructor() &&
@@ -3452,7 +3746,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
     //  This trait is implemented by MSVC 2012 and needed to parse the
     //  standard library headers. Specifically it is used as the logic
     //  behind std::is_trivially_move_assignable (20.9.4.3)
-    if (T.isPODType(Self.Context))
+    if (T.isPODType(C))
       return true;
     if (CXXRecordDecl *RD = C.getBaseElementType(T)->getAsCXXRecordDecl())
       return RD->hasTrivialMoveAssignment() && !RD->hasNonTrivialMoveAssignment();
@@ -3472,7 +3766,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
 
     if (T.isConstQualified())
       return false;
-    if (T.isPODType(Self.Context))
+    if (T.isPODType(C))
       return true;
     if (CXXRecordDecl *RD = T->getAsCXXRecordDecl())
       return RD->hasTrivialCopyAssignment() &&
@@ -3480,8 +3774,47 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
     return false;
   case UTT_IsDestructible:
   case UTT_IsNothrowDestructible:
-    // FIXME: Implement UTT_IsDestructible and UTT_IsNothrowDestructible.
-    // For now, let's fall through.
+    // C++14 [meta.unary.prop]:
+    //   For reference types, is_destructible<T>::value is true.
+    if (T->isReferenceType())
+      return true;
+
+    // Objective-C++ ARC: autorelease types don't require destruction.
+    if (T->isObjCLifetimeType() &&
+        T.getObjCLifetime() == Qualifiers::OCL_Autoreleasing)
+      return true;
+
+    // C++14 [meta.unary.prop]:
+    //   For incomplete types and function types, is_destructible<T>::value is
+    //   false.
+    if (T->isIncompleteType() || T->isFunctionType())
+      return false;
+
+    // C++14 [meta.unary.prop]:
+    //   For object types and given U equal to remove_all_extents_t<T>, if the
+    //   expression std::declval<U&>().~U() is well-formed when treated as an
+    //   unevaluated operand (Clause 5), then is_destructible<T>::value is true
+    if (auto *RD = C.getBaseElementType(T)->getAsCXXRecordDecl()) {
+      CXXDestructorDecl *Destructor = Self.LookupDestructor(RD);
+      if (!Destructor)
+        return false;
+      //  C++14 [dcl.fct.def.delete]p2:
+      //    A program that refers to a deleted function implicitly or
+      //    explicitly, other than to declare it, is ill-formed.
+      if (Destructor->isDeleted())
+        return false;
+      if (C.getLangOpts().AccessControl && Destructor->getAccess() != AS_public)
+        return false;
+      if (UTT == UTT_IsNothrowDestructible) {
+        const FunctionProtoType *CPT =
+            Destructor->getType()->getAs<FunctionProtoType>();
+        CPT = Self.ResolveExceptionSpec(KeyLoc, CPT);
+        if (!CPT || !CPT->isNothrow(C))
+          return false;
+      }
+    }
+    return true;
+
   case UTT_HasTrivialDestructor:
     // http://gcc.gnu.org/onlinedocs/gcc/Type-Traits.html
     //   If __is_pod (type) is true or type is a reference type
@@ -3489,7 +3822,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
     //   type (or array thereof) with a trivial destructor
     //   ([class.dtor]) then the trait is true, else it is
     //   false.
-    if (T.isPODType(Self.Context) || T->isReferenceType())
+    if (T.isPODType(C) || T->isReferenceType())
       return true;
       
     // Objective-C++ ARC: autorelease types don't require destruction.
@@ -3513,7 +3846,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
       return false;
     if (T->isReferenceType())
       return false;
-    if (T.isPODType(Self.Context) || T->isObjCLifetimeType())
+    if (T.isPODType(C) || T->isObjCLifetimeType())
       return true;
 
     if (const RecordType *RT = T->getAs<RecordType>())
@@ -3526,7 +3859,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
     //  This trait is implemented by MSVC 2012 and needed to parse the
     //  standard library headers. Specifically this is used as the logic
     //  behind std::is_nothrow_move_assignable (20.9.4.3).
-    if (T.isPODType(Self.Context))
+    if (T.isPODType(C))
       return true;
 
     if (const RecordType *RT = C.getBaseElementType(T)->getAs<RecordType>())
@@ -3550,15 +3883,13 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
 
       bool FoundConstructor = false;
       unsigned FoundTQs;
-      DeclContext::lookup_result R = Self.LookupConstructors(RD);
-      for (DeclContext::lookup_iterator Con = R.begin(),
-           ConEnd = R.end(); Con != ConEnd; ++Con) {
+      for (const auto *ND : Self.LookupConstructors(RD)) {
         // A template constructor is never a copy constructor.
         // FIXME: However, it may actually be selected at the actual overload
         // resolution point.
-        if (isa<FunctionTemplateDecl>(*Con))
+        if (isa<FunctionTemplateDecl>(ND))
           continue;
-        CXXConstructorDecl *Constructor = cast<CXXConstructorDecl>(*Con);
+        const CXXConstructorDecl *Constructor = cast<CXXConstructorDecl>(ND);
         if (Constructor->isCopyConstructor(FoundTQs)) {
           FoundConstructor = true;
           const FunctionProtoType *CPT
@@ -3568,7 +3899,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
             return false;
           // TODO: check whether evaluating default arguments can throw.
           // For now, we'll be conservative and assume that they can throw.
-          if (!CPT->isNothrow(Self.Context) || CPT->getNumParams() > 1)
+          if (!CPT->isNothrow(C) || CPT->getNumParams() > 1)
             return false;
         }
       }
@@ -3590,13 +3921,11 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
         return true;
 
       bool FoundConstructor = false;
-      DeclContext::lookup_result R = Self.LookupConstructors(RD);
-      for (DeclContext::lookup_iterator Con = R.begin(),
-           ConEnd = R.end(); Con != ConEnd; ++Con) {
+      for (const auto *ND : Self.LookupConstructors(RD)) {
         // FIXME: In C++0x, a constructor template can be a default constructor.
-        if (isa<FunctionTemplateDecl>(*Con))
+        if (isa<FunctionTemplateDecl>(ND))
           continue;
-        CXXConstructorDecl *Constructor = cast<CXXConstructorDecl>(*Con);
+        const CXXConstructorDecl *Constructor = cast<CXXConstructorDecl>(ND);
         if (Constructor->isDefaultConstructor()) {
           FoundConstructor = true;
           const FunctionProtoType *CPT
@@ -3606,7 +3935,7 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
             return false;
           // FIXME: check whether evaluating default arguments can throw.
           // For now, we'll be conservative and assume that they can throw.
-          if (!CPT->isNothrow(Self.Context) || CPT->getNumParams() > 0)
+          if (!CPT->isNothrow(C) || CPT->getNumParams() > 0)
             return false;
         }
       }
@@ -3687,8 +4016,8 @@ static bool evaluateTypeTrait(Sema &S, TypeTrait Kind, SourceLocation KWLoc,
     // Precondition: T and all types in the parameter pack Args shall be
     // complete types, (possibly cv-qualified) void, or arrays of
     // unknown bound.
-    for (unsigned I = 0, N = Args.size(); I != N; ++I) {
-      QualType ArgTy = Args[I]->getType();
+    for (const auto *TSI : Args) {
+      QualType ArgTy = TSI->getType();
       if (ArgTy->isVoidType() || ArgTy->isIncompleteArrayType())
         continue;
 
@@ -3697,12 +4026,13 @@ static bool evaluateTypeTrait(Sema &S, TypeTrait Kind, SourceLocation KWLoc,
         return false;
     }
 
-    // Make sure the first argument is a complete type.
-    if (Args[0]->getType()->isIncompleteType())
+    // Make sure the first argument is not incomplete nor a function type.
+    QualType T = Args[0]->getType();
+    if (T->isIncompleteType() || T->isFunctionType())
       return false;
 
     // Make sure the first argument is not an abstract type.
-    CXXRecordDecl *RD = Args[0]->getType()->getAsCXXRecordDecl();
+    CXXRecordDecl *RD = T->getAsCXXRecordDecl();
     if (RD && RD->isAbstract())
       return false;
 
@@ -3710,13 +4040,13 @@ static bool evaluateTypeTrait(Sema &S, TypeTrait Kind, SourceLocation KWLoc,
     SmallVector<Expr *, 2> ArgExprs;
     ArgExprs.reserve(Args.size() - 1);
     for (unsigned I = 1, N = Args.size(); I != N; ++I) {
-      QualType T = Args[I]->getType();
-      if (T->isObjectType() || T->isFunctionType())
-        T = S.Context.getRValueReferenceType(T);
+      QualType ArgTy = Args[I]->getType();
+      if (ArgTy->isObjectType() || ArgTy->isFunctionType())
+        ArgTy = S.Context.getRValueReferenceType(ArgTy);
       OpaqueArgExprs.push_back(
-        OpaqueValueExpr(Args[I]->getTypeLoc().getLocStart(),
-                        T.getNonLValueExprType(S.Context),
-                        Expr::getValueKindForType(T)));
+          OpaqueValueExpr(Args[I]->getTypeLoc().getLocStart(),
+                          ArgTy.getNonLValueExprType(S.Context),
+                          Expr::getValueKindForType(ArgTy)));
     }
     for (Expr &E : OpaqueArgExprs)
       ArgExprs.push_back(&E);
@@ -3747,7 +4077,7 @@ static bool evaluateTypeTrait(Sema &S, TypeTrait Kind, SourceLocation KWLoc,
       // Under Objective-C ARC, if the destination has non-trivial Objective-C
       // lifetime, this is a non-trivial construction.
       if (S.getLangOpts().ObjCAutoRefCount &&
-          hasNontrivialObjCLifetime(Args[0]->getType().getNonReferenceType()))
+          hasNontrivialObjCLifetime(T.getNonReferenceType()))
         return false;
 
       // The initialization succeeded; now make sure there are no non-trivial
@@ -3883,8 +4213,7 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT, QualType LhsT,
       return LhsT->isVoidType();
 
     // A function definition requires a complete, non-abstract return type.
-    if (Self.RequireCompleteType(KeyLoc, RhsT, 0) ||
-        Self.RequireNonAbstractType(KeyLoc, RhsT, 0))
+    if (!Self.isCompleteType(KeyLoc, RhsT) || Self.isAbstractType(KeyLoc, RhsT))
       return false;
 
     // Compute the result of add_rvalue_reference.
@@ -4170,7 +4499,7 @@ QualType Sema::CheckPointerToMemberOperands(ExprResult &LHS, ExprResult &RHS,
       return QualType();
     }
 
-    if (!IsDerivedFrom(LHSType, Class)) {
+    if (!IsDerivedFrom(Loc, LHSType, Class)) {
       Diag(Loc, diag::err_bad_memptr_lhs) << OpSpelling
         << (int)isIndirect << LHS.get()->getType();
       return QualType();
@@ -4298,9 +4627,9 @@ static bool TryClassUnification(Sema &Self, Expr *From, Expr *To,
   const RecordType *FRec = FTy->getAs<RecordType>();
   const RecordType *TRec = TTy->getAs<RecordType>();
   bool FDerivedFromT = FRec && TRec && FRec != TRec &&
-                       Self.IsDerivedFrom(FTy, TTy);
-  if (FRec && TRec &&
-      (FRec == TRec || FDerivedFromT || Self.IsDerivedFrom(TTy, FTy))) {
+                       Self.IsDerivedFrom(QuestionLoc, FTy, TTy);
+  if (FRec && TRec && (FRec == TRec || FDerivedFromT ||
+                       Self.IsDerivedFrom(QuestionLoc, TTy, FTy))) {
     //         E1 can be converted to match E2 if the class of T2 is the
     //         same type as, or a base class of, the class of T1, and
     //         [cv2 > cv1].
@@ -4616,7 +4945,9 @@ QualType Sema::CXXCheckConditionalOperands(ExprResult &Cond, ExprResult &LHS,
 
   // Extension: conditional operator involving vector types.
   if (LTy->isVectorType() || RTy->isVectorType())
-    return CheckVectorOperands(LHS, RHS, QuestionLoc, /*isCompAssign*/false);
+    return CheckVectorOperands(LHS, RHS, QuestionLoc, /*isCompAssign*/false,
+                               /*AllowBothBool*/true,
+                               /*AllowBoolConversions*/false);
 
   //   -- The second and third operands have arithmetic or enumeration type;
   //      the usual arithmetic conversions are performed to bring them to a
@@ -5333,9 +5664,14 @@ ExprResult Sema::ActOnStartCXXMemberReference(Scope *S, Expr *Base,
   //
   // This also indicates that we could be parsing a pseudo-destructor-name.
   // Note that Objective-C class and object types can be pseudo-destructor
-  // expressions or normal member (ivar or property) access expressions.
+  // expressions or normal member (ivar or property) access expressions, and
+  // it's legal for the type to be incomplete if this is a pseudo-destructor
+  // call.  We'll do more incomplete-type checks later in the lookup process,
+  // so just skip this check for ObjC types.
   if (BaseType->isObjCObjectOrInterfaceType()) {
+    ObjectType = ParsedType::make(BaseType);
     MayBePseudoDestructor = true;
+    return Base;
   } else if (!BaseType->isRecordType()) {
     ObjectType = ParsedType();
     MayBePseudoDestructor = true;
@@ -6004,7 +6340,7 @@ static ExprResult attemptRecovery(Sema &SemaRef,
   else if (SS && !TC.WillReplaceSpecifier())
     NewSS = *SS;
 
-  if (auto *ND = TC.getCorrectionDecl()) {
+  if (auto *ND = TC.getFoundDecl()) {
     R.setLookupName(ND->getDeclName());
     R.addDecl(ND);
     if (ND->isCXXClassMember()) {
@@ -6037,7 +6373,7 @@ static ExprResult attemptRecovery(Sema &SemaRef,
       if (MightBeImplicitMember)
         return SemaRef.BuildPossibleImplicitMemberExpr(
             NewSS, /*TemplateKWLoc*/ SourceLocation(), R,
-            /*TemplateArgs*/ nullptr);
+            /*TemplateArgs*/ nullptr, /*S*/ nullptr);
     } else if (auto *Ivar = dyn_cast<ObjCIvarDecl>(ND)) {
       return SemaRef.LookupInObjCMethod(R, Consumer.getScope(),
                                         Ivar->getIdentifier());
@@ -6123,9 +6459,9 @@ class TransformTypos : public TreeTransform<TransformTypos> {
     if (!E)
       return nullptr;
     if (auto *DRE = dyn_cast<DeclRefExpr>(E))
-      return DRE->getDecl();
+      return DRE->getFoundDecl();
     if (auto *ME = dyn_cast<MemberExpr>(E))
-      return ME->getMemberDecl();
+      return ME->getFoundDecl();
     // FIXME: Add any other expr types that could be be seen by the delayed typo
     // correction TreeTransform for which the corresponding TypoCorrection could
     // contain multiple decls.
@@ -6164,6 +6500,8 @@ public:
   }
 
   ExprResult TransformLambdaExpr(LambdaExpr *E) { return Owned(E); }
+
+  ExprResult TransformBlockExpr(BlockExpr *E) { return Owned(E); }
 
   ExprResult Transform(Expr *E) {
     ExprResult Res;
@@ -6222,6 +6560,8 @@ public:
     // For the first TypoExpr and an uncached TypoExpr, find the next likely
     // typo correction and return it.
     while (TypoCorrection TC = State.Consumer->getNextCorrection()) {
+      if (InitDecl && TC.getFoundDecl() == InitDecl)
+        continue;
       ExprResult NE = State.RecoveryHandler ?
           State.RecoveryHandler(SemaRef, E, TC) :
           attemptRecovery(SemaRef, *State.Consumer, TC);

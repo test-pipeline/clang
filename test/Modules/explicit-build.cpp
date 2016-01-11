@@ -125,7 +125,7 @@
 // RUN:            -fmodule-map-file=%S/Inputs/explicit-build/module.modulemap \
 // RUN:            %s 2>&1 | FileCheck --check-prefix=CHECK-MULTIPLE-AS %s
 //
-// CHECK-MULTIPLE-AS: error: module 'a' is defined in both '{{.*}}/a{{.*}}.pcm' and '{{.*[/\\]}}a{{.*}}.pcm'
+// CHECK-MULTIPLE-AS: error: module 'a' is defined in both '{{.*[/\\]}}a{{.*}}.pcm' and '{{.*[/\\]}}a{{.*}}.pcm'
 
 // -------------------------------
 // Try to import a PCH with -fmodule-file=
@@ -152,7 +152,10 @@
 // RUN:            -fmodule-file=%t/nonexistent.pcm \
 // RUN:            %s 2>&1 | FileCheck --check-prefix=CHECK-BAD-FILE %s
 //
-// CHECK-BAD-FILE: fatal error: file '{{.*}}t.pcm' is not a precompiled module file
+// CHECK-NO-FILE-INDIRECT:      error: module file '{{.*}}a.pcm' not found
+// CHECK-NO-FILE-INDIRECT-NEXT: note: imported by module 'b' in '{{.*}}b.pcm'
+// CHECK-NO-FILE-INDIRECT-NEXT: note: imported by module 'c' in '{{.*}}c.pcm'
+// CHECK-NO-FILE-INDIRECT-NOT:  note:
 
 // -------------------------------
 // Check that we don't get upset if B's timestamp is newer than C's.
@@ -172,4 +175,6 @@
 // RUN:            -fmodule-file=%t/c.pcm \
 // RUN:            %s -DHAVE_A -DHAVE_B -DHAVE_C 2>&1 | FileCheck --check-prefix=CHECK-MISMATCHED-B %s
 //
-// CHECK-MISMATCHED-B: fatal error: malformed or corrupted AST file: {{.*}}b.pcm": module file out of date
+// CHECK-MISMATCHED-B:      fatal error: module file '{{.*}}b.pcm' is out of date and needs to be rebuilt
+// CHECK-MISMATCHED-B-NEXT: note: imported by module 'c'
+// CHECK-MISMATCHED-B-NOT:  note:

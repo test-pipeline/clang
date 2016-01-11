@@ -20,13 +20,9 @@
  *
  *===-----------------------------------------------------------------------===
  */
- 
+
 #ifndef __XMMINTRIN_H
 #define __XMMINTRIN_H
- 
-#ifndef __SSE__
-#error "SSE instruction set not enabled"
-#else
 
 #include <mmintrin.h>
 
@@ -577,7 +573,13 @@ _mm_loadr_ps(const float *__p)
   return __builtin_shufflevector(__a, __a, 3, 2, 1, 0);
 }
 
-static __inline__ __m128 __attribute__((__always_inline__, __nodebug__))
+static __inline__ __m128 __DEFAULT_FN_ATTRS
+_mm_undefined_ps()
+{
+  return (__m128)__builtin_ia32_undef128();
+}
+
+static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_set_ss(float __w)
 {
   return (__m128){ __w, 0, 0, 0 };
@@ -749,8 +751,7 @@ _mm_mulhi_pu16(__m64 __a, __m64 __b)
 }
 
 #define _mm_shuffle_pi16(a, n) __extension__ ({ \
-  __m64 __a = (a); \
-  (__m64)__builtin_ia32_pshufw((__v4hi)__a, (n)); })
+  (__m64)__builtin_ia32_pshufw((__v4hi)(__m64)(a), (n)); })
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__))
 _mm_maskmove_si64(__m64 __d, __m64 __n, char *__p)
@@ -789,9 +790,7 @@ _mm_setcsr(unsigned int __i)
 }
 
 #define _mm_shuffle_ps(a, b, mask) __extension__ ({ \
-  __m128 __a = (a); \
-  __m128 __b = (b); \
-  (__m128)__builtin_shufflevector((__v4sf)__a, (__v4sf)__b, \
+  (__m128)__builtin_shufflevector((__v4sf)(__m128)(a), (__v4sf)(__m128)(b), \
                                   (mask) & 0x3, ((mask) & 0xc) >> 2, \
                                   (((mask) & 0x30) >> 4) + 4, \
                                   (((mask) & 0xc0) >> 6) + 4); })
@@ -865,7 +864,7 @@ static __inline__ __m128 __attribute__((__always_inline__, __nodebug__))
 _mm_cvtpi8_ps(__m64 __a)
 {
   __m64 __b;
-  
+
   __b = _mm_setzero_si64();
   __b = _mm_cmpgt_pi8(__b, __a);
   __b = _mm_unpacklo_pi8(__a, __b);
@@ -877,7 +876,7 @@ static __inline__ __m128 __attribute__((__always_inline__, __nodebug__))
 _mm_cvtpu8_ps(__m64 __a)
 {
   __m64 __b;
-  
+
   __b = _mm_setzero_si64();
   __b = _mm_unpacklo_pi8(__a, __b);
 
@@ -888,7 +887,7 @@ static __inline__ __m128 __attribute__((__always_inline__, __nodebug__))
 _mm_cvtpi32x2_ps(__m64 __a, __m64 __b)
 {
   __m128 __c;
-  
+
   __c = _mm_setzero_ps();
   __c = _mm_cvtpi32_ps(__c, __b);
   __c = _mm_movelh_ps(__c, __c);
@@ -900,11 +899,11 @@ static __inline__ __m64 __attribute__((__always_inline__, __nodebug__))
 _mm_cvtps_pi16(__m128 __a)
 {
   __m64 __b, __c;
-  
+
   __b = _mm_cvtps_pi32(__a);
   __a = _mm_movehl_ps(__a, __a);
   __c = _mm_cvtps_pi32(__a);
-  
+
   return _mm_packs_pi32(__b, __c);
 }
 
@@ -912,10 +911,10 @@ static __inline__ __m64 __attribute__((__always_inline__, __nodebug__))
 _mm_cvtps_pi8(__m128 __a)
 {
   __m64 __b, __c;
-  
+
   __b = _mm_cvtps_pi16(__a);
   __c = _mm_setzero_si64();
-  
+
   return _mm_packs_pi16(__b, __c);
 }
 
@@ -924,6 +923,11 @@ _mm_movemask_ps(__m128 __a)
 {
   return __builtin_ia32_movmskps(__a);
 }
+
+
+#ifdef _MSC_VER
+#define _MM_ALIGN16 __declspec(align(16))
+#endif
 
 #define _MM_SHUFFLE(z, y, x, w) (((z) << 6) | ((y) << 4) | ((x) << 2) | (w))
 

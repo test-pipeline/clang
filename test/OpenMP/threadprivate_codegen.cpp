@@ -1,6 +1,11 @@
-// RUN: %clang_cc1 -verify -fopenmp=libiomp5 -DBODY -triple x86_64-unknown-unknown -x c++ -emit-llvm %s -fexceptions -fcxx-exceptions -o - | FileCheck %s
-// RUN: %clang_cc1 -fopenmp=libiomp5 -x c++ -std=c++11 -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -emit-pch -o %t %s
-// RUN: %clang_cc1 -fopenmp=libiomp5 -DBODY -x c++ -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -g -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck --check-prefix=CHECK-DEBUG %s
+// RUN: %clang_cc1 -verify -fopenmp -fnoopenmp-use-tls -DBODY -triple x86_64-unknown-unknown -x c++ -emit-llvm %s -fexceptions -fcxx-exceptions -o - | FileCheck %s
+// RUN: %clang_cc1 -fopenmp -fnoopenmp-use-tls -x c++ -std=c++11 -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -emit-pch -o %t %s
+// RUN: %clang_cc1 -fopenmp -fnoopenmp-use-tls -DBODY -x c++ -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -debug-info-kind=limited -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck --check-prefix=CHECK-DEBUG %s
+
+// RUN: %clang_cc1 -verify -fopenmp -DBODY -triple x86_64-unknown-unknown -x c++ -emit-llvm %s -fexceptions -fcxx-exceptions -o - | FileCheck %s --check-prefix=CHECK-TLS
+// RUN: %clang_cc1 -fopenmp -x c++ -std=c++11 -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -emit-pch -o %t %s
+// RUN: %clang_cc1 -fopenmp -DBODY -x c++ -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -debug-info-kind=limited -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck --check-prefix=CHECK-TLS %s
+
 // expected-no-diagnostics
 #ifndef HEADER
 #define HEADER
@@ -132,26 +137,44 @@ struct S5 {
 // CHECK-DEBUG-DAG: [[ST_INT_ST:@.+]] = linkonce_odr global i32 23
 // CHECK-DEBUG-DAG: [[ST_FLOAT_ST:@.+]] = linkonce_odr global float 2.300000e+01
 // CHECK-DEBUG-DAG: [[ST_S4_ST:@.+]] = linkonce_odr global %struct.S4 zeroinitializer
-// CHECK-DEBUG-DAG: [[LOC1:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;;162;9;;\00"
-// CHECK-DEBUG-DAG: [[LOC2:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;;216;9;;\00"
-// CHECK-DEBUG-DAG: [[LOC3:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;;303;19;;\00"
-// CHECK-DEBUG-DAG: [[LOC4:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;328;9;;\00"
-// CHECK-DEBUG-DAG: [[LOC5:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;341;9;;\00"
-// CHECK-DEBUG-DAG: [[LOC6:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;358;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC7:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;375;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC8:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;401;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC9:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;422;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC10:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;437;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC11:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;454;27;;\00"
-// CHECK-DEBUG-DAG: [[LOC12:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;471;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC13:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;550;9;;\00"
-// CHECK-DEBUG-DAG: [[LOC14:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;567;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC15:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;593;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC16:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;614;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC17:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;629;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC18:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;646;27;;\00"
-// CHECK-DEBUG-DAG: [[LOC19:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;663;10;;\00"
-// CHECK-DEBUG-DAG: [[LOC20:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;;275;9;;\00"
+// CHECK-DEBUG-DAG: [[LOC1:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;;192;9;;\00"
+// CHECK-DEBUG-DAG: [[LOC2:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;;247;9;;\00"
+// CHECK-DEBUG-DAG: [[LOC3:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;;334;19;;\00"
+// CHECK-DEBUG-DAG: [[LOC4:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;371;9;;\00"
+// CHECK-DEBUG-DAG: [[LOC5:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;388;9;;\00"
+// CHECK-DEBUG-DAG: [[LOC6:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;410;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC7:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;433;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC8:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;469;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC9:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;498;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC10:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;518;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC11:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;541;27;;\00"
+// CHECK-DEBUG-DAG: [[LOC12:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;main;564;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC13:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;684;9;;\00"
+// CHECK-DEBUG-DAG: [[LOC14:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;707;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC15:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;743;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC16:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;772;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC17:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;792;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC18:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;815;27;;\00"
+// CHECK-DEBUG-DAG: [[LOC19:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;foobar;838;10;;\00"
+// CHECK-DEBUG-DAG: [[LOC20:@.*]] = private unnamed_addr constant [{{[0-9]+}} x i8] c";{{.*}}threadprivate_codegen.cpp;;306;9;;\00"
+// CHECK-TLS-DAG:  [[GS1:@.+]] = internal thread_local global [[S1]] zeroinitializer
+// CHECK-TLS-DAG:  [[GS2:@.+]] = internal global [[S2]] zeroinitializer
+// CHECK-TLS-DAG:  [[ARR_X:@.+]] = thread_local global [2 x [3 x [[S1]]]] zeroinitializer
+// CHECK-TLS-DAG:  [[SM:@.+]] = internal thread_local global [[SMAIN]] zeroinitializer
+// CHECK-TLS-DAG:  [[SM_GUARD:@_ZGVZ4mainE2sm]] = internal thread_local global i8 0
+// CHECK-TLS-DAG:  [[STATIC_S:@.+]] = external thread_local global [[S3]]
+// CHECK-TLS-DAG:  [[GS3:@.+]] = external thread_local global [[S5]]
+// CHECK-TLS-DAG:  [[ST_INT_ST:@.+]] = linkonce_odr thread_local global i32 23
+// CHECK-TLS-DAG:  [[ST_FLOAT_ST:@.+]] = linkonce_odr thread_local global float 2.300000e+01
+// CHECK-TLS-DAG:  [[ST_S4_ST:@.+]] = linkonce_odr thread_local global %struct.S4 zeroinitializer
+// CHECK-TLS-DAG:  [[ST_S4_ST_GUARD:@_ZGVN2STI2S4E2stE]] = linkonce_odr thread_local global i64 0
+// CHECK-TLS-DAG:  @__tls_guard = internal thread_local global i8 0
+// CHECK-TLS-DAG:  @__dso_handle = external global i8
+// CHECK-TLS-DAG:  [[GS1_TLS_INIT:@_ZTHL3gs1]] = internal alias void (), void ()* @__tls_init
+// CHECK-TLS-DAG:  [[ARR_X_TLS_INIT:@_ZTH5arr_x]] = alias void (), void ()* @__tls_init
+// CHECK-TLS-DAG:  [[ST_INT_ST_TLS_INIT:@_ZTHN2STIiE2stE]] = linkonce_odr alias void (), void ()* @__tls_init
+// CHECK-TLS-DAG:  [[ST_FLOAT_ST_TLS_INIT:@_ZTHN2STIfE2stE]] = linkonce_odr alias void (), void ()* @__tls_init
+// CHECK-TLS-DAG:  [[ST_S4_ST_TLS_INIT:@_ZTHN2STI2S4E2stE]] = linkonce_odr alias void (), void ()* @__tls_init
 
 struct Static {
   static S3 s;
@@ -705,3 +728,71 @@ int foobar() {
 // CHECK:      ret void
 // CHECK-DEBUG:      define internal {{.*}}void {{@.*}}()
 // CHECK-DEBUG:      ret void
+
+// CHECK-TLS: define internal void [[GS1_CXX_INIT:@.*]]()
+// CHECK-TLS: call void [[GS1_CTOR1:@.*]]([[S1]]* [[GS1]], i32 5)
+// CHECK-TLS: call i32 @__cxa_thread_atexit(void (i8*)* bitcast (void ([[S1]]*)* [[GS1_DTOR1:.*]] to void (i8*)*), i8* bitcast ([[S1]]* [[GS1]] to i8*)
+// CHECK-TLS: }
+// CHECK-TLS: define {{.*}}void [[GS1_CTOR1]]([[S1]]* {{.*}}, i32 {{.*}})
+// CHECK-TLS: call void [[GS1_CTOR2:@.*]]([[S1]]* {{.*}}, i32 {{.*}})
+// CHECK-TLS: }
+// CHECK-TLS: define {{.*}}void [[GS1_DTOR1]]([[S1]]* {{.*}})
+// CHECK-TLS: call void [[GS1_DTOR2:@.*]]([[S1]]* {{.*}})
+// CHECK-TLS: }
+// CHECK-TLS: define {{.*}}void [[GS1_CTOR2]]([[S1]]* {{.*}}, i32 {{.*}})
+// CHECK-TLS: define {{.*}}void [[GS1_DTOR2]]([[S1]]* {{.*}})
+
+// CHECK-TLS: define internal void [[GS2_CXX_INIT:@.*]]()
+// CHECK-TLS: call void [[GS2_CTOR1:@.*]]([[S2]]* [[GS2]], i32 27)
+// CHECK-TLS: call i32 @__cxa_atexit(void (i8*)* bitcast (void ([[S2]]*)* [[GS2_DTOR1:.*]] to void (i8*)*), i8* bitcast ([[S2]]* [[GS2]] to i8*)
+// CHECK-TLS: }
+// CHECK-TLS: define {{.*}}void [[GS2_CTOR1]]([[S2]]* {{.*}}, i32 {{.*}})
+// CHECK-TLS: call void [[GS2_CTOR2:@.*]]([[S2]]* {{.*}}, i32 {{.*}})
+// CHECK-TLS: }
+// CHECK-TLS: define {{.*}}void [[GS2_DTOR1]]([[S2]]* {{.*}})
+// CHECK-TLS: call void [[GS2_DTOR2:@.*]]([[S2]]* {{.*}})
+// CHECK-TLS: }
+// CHECK-TLS: define {{.*}}void [[GS2_CTOR2]]([[S2]]* {{.*}}, i32 {{.*}})
+// CHECK-TLS: define {{.*}}void [[GS2_DTOR2]]([[S2]]* {{.*}})
+
+// CHECK-TLS: define internal void [[ARR_X_CXX_INIT:@.*]]()
+// CHECK-TLS: invoke void [[GS1_CTOR1]]([[S1]]* getelementptr inbounds ([2 x [3 x [[S1]]]], [2 x [3 x [[S1]]]]* [[ARR_X]], i{{.*}} 0, i{{.*}} 0, i{{.*}} 0), i{{.*}} 1)
+// CHECK-TLS: invoke void [[GS1_CTOR1]]([[S1]]* getelementptr inbounds ([2 x [3 x [[S1]]]], [2 x [3 x [[S1]]]]* [[ARR_X]], i{{.*}} 0, i{{.*}} 0, i{{.*}} 1), i{{.*}} 2)
+// CHECK-TLS: invoke void [[GS1_CTOR1]]([[S1]]* getelementptr inbounds ([2 x [3 x [[S1]]]], [2 x [3 x [[S1]]]]* [[ARR_X]], i{{.*}} 0, i{{.*}} 0, i{{.*}} 2), i{{.*}} 3)
+// CHECK-TLS: invoke void [[GS1_CTOR1]]([[S1]]* getelementptr inbounds ([2 x [3 x [[S1]]]], [2 x [3 x [[S1]]]]* [[ARR_X]], i{{.*}} 0, i{{.*}} 1, i{{.*}} 0), i{{.*}} 4)
+// CHECK-TLS: invoke void [[GS1_CTOR1]]([[S1]]* getelementptr inbounds ([2 x [3 x [[S1]]]], [2 x [3 x [[S1]]]]* [[ARR_X]], i{{.*}} 0, i{{.*}} 1, i{{.*}} 1), i{{.*}} 5)
+// CHECK-TLS: invoke void [[GS1_CTOR1]]([[S1]]* getelementptr inbounds ([2 x [3 x [[S1]]]], [2 x [3 x [[S1]]]]* [[ARR_X]], i{{.*}} 0, i{{.*}} 1, i{{.*}} 2), i{{.*}} 6)
+// CHECK-TLS: call i32 @__cxa_thread_atexit(void (i8*)* [[ARR_X_CXX_DTOR:@[^,]+]]
+// CHECK-TLS: define internal void [[ARR_X_CXX_DTOR]](i8*)
+// CHECK-TLS: void [[GS1_DTOR1]]([[S1]]* {{.*}})
+
+// CHECK-TLS: define {{.*}}void [[SM_CTOR2]]([[SMAIN]]* {{.*}}, i32 {{.*}})
+// CHECK-TLS: define {{.*}}void [[SM_DTOR2]]([[SMAIN]]* {{.*}})
+
+// CHECK-TLS: define internal void [[ST_S4_ST_CXX_INIT:@.*]]()
+// CHECK-TLS: call void [[ST_S4_ST_CTOR1:@.*]]([[S4]]* [[ST_S4_ST]], i32 23)
+// CHECK-TLS: call i32 @__cxa_thread_atexit(void (i8*)* bitcast (void ([[S4]]*)* [[ST_S4_ST_DTOR1:.*]] to void (i8*)*), i8* bitcast ([[S4]]* [[ST_S4_ST]] to i8*)
+// CHECK-TLS: }
+// CHECK-TLS: define {{.*}}void [[ST_S4_ST_CTOR1]]([[S4]]* {{.*}}, i32 {{.*}})
+// CHECK-TLS: call void [[ST_S4_ST_CTOR2:@.*]]([[S4]]* {{.*}}, i32 {{.*}})
+// CHECK-TLS: }
+// CHECK-TLS: define {{.*}}void [[ST_S4_ST_DTOR1]]([[S4]]* {{.*}})
+// CHECK-TLS: call void [[ST_S4_ST_DTOR2:@.*]]([[S4]]* {{.*}})
+// CHECK-TLS: }
+// CHECK-TLS: define {{.*}}void [[ST_S4_ST_CTOR2]]([[S4]]* {{.*}}, i32 {{.*}})
+// CHECK-TLS: define {{.*}}void [[ST_S4_ST_DTOR2]]([[S4]]* {{.*}})
+
+// CHECK-TLS:      define internal void @__tls_init()
+// CHECK-TLS:      [[GRD:%.*]] = load i8, i8* @__tls_guard
+// CHECK-TLS-NEXT: [[IS_INIT:%.*]] = icmp eq i8 [[GRD]], 0
+// CHECK-TLS-NEXT: br i1 [[IS_INIT]], label %[[INIT_LABEL:[^,]+]], label %[[DONE_LABEL:[^,]+]]{{.*}}
+// CHECK-TLS:      [[INIT_LABEL]]
+// CHECK-TLS-NEXT: store i8 1, i8* @__tls_guard
+// CHECK-TLS:      call void [[GS1_CXX_INIT]]
+// CHECK-TLS-NOT:  call void [[GS2_CXX_INIT]]
+// CHECK-TLS:      call void [[ARR_X_CXX_INIT]]
+// CHECK-TLS:      call void [[ST_S4_ST_CXX_INIT]]
+// CHECK-TLS:      [[DONE_LABEL]]
+
+// CHECK-TLS:      declare {{.*}} void [[GS3_TLS_INIT]]
+// CHECK-TLS:      declare {{.*}} void [[STATIC_S_TLS_INIT]]

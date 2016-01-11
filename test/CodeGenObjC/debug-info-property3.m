@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -S -emit-llvm -g %s -o - | FileCheck %s
+// RUN: %clang_cc1 -S -emit-llvm -debug-info-kind=limited %s -o - | FileCheck %s
 
 // CHECK:  !"0x4200\00p1\005\00\00\002316", {{.*}}} ; [ DW_TAG_APPLE_property ]
 @interface I1

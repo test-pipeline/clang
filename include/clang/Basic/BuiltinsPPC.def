@@ -17,6 +17,8 @@
 
 // The format of this database matches clang/Basic/Builtins.def.
 
+BUILTIN(__builtin_ppc_get_timebase, "ULLi", "n")
+
 // This is just a placeholder, the types and attributes are wrong.
 BUILTIN(__builtin_altivec_vaddcuw, "V4UiV4UiV4Ui", "")
 
@@ -222,6 +224,106 @@ BUILTIN(__builtin_vsx_xsmindp, "ddd", "")
 
 BUILTIN(__builtin_vsx_xvdivdp, "V2dV2dV2d", "")
 BUILTIN(__builtin_vsx_xvdivsp, "V4fV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvrdpip, "V2dV2d", "")
+BUILTIN(__builtin_vsx_xvrspip, "V4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvcmpeqdp, "V2ULLiV2dV2d", "")
+BUILTIN(__builtin_vsx_xvcmpeqsp, "V4UiV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvcmpeqdp_p, "iiV2dV2d", "")
+BUILTIN(__builtin_vsx_xvcmpeqsp_p, "iiV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvcmpgedp, "V2ULLiV2dV2d", "")
+BUILTIN(__builtin_vsx_xvcmpgesp, "V4UiV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvcmpgedp_p, "iiV2dV2d", "")
+BUILTIN(__builtin_vsx_xvcmpgesp_p, "iiV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvcmpgtdp, "V2ULLiV2dV2d", "")
+BUILTIN(__builtin_vsx_xvcmpgtsp, "V4UiV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvcmpgtdp_p, "iiV2dV2d", "")
+BUILTIN(__builtin_vsx_xvcmpgtsp_p, "iiV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvrdpim, "V2dV2d", "")
+BUILTIN(__builtin_vsx_xvrspim, "V4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvrdpi, "V2dV2d", "")
+BUILTIN(__builtin_vsx_xvrspi, "V4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvrdpic, "V2dV2d", "")
+BUILTIN(__builtin_vsx_xvrspic, "V4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvrdpiz, "V2dV2d", "")
+BUILTIN(__builtin_vsx_xvrspiz, "V4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvmaddadp, "V2dV2dV2dV2d", "")
+BUILTIN(__builtin_vsx_xvmaddasp, "V4fV4fV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvmsubadp, "V2dV2dV2dV2d", "")
+BUILTIN(__builtin_vsx_xvmsubasp, "V4fV4fV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvmuldp, "V2dV2dV2d", "")
+BUILTIN(__builtin_vsx_xvmulsp, "V4fV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvnmaddadp, "V2dV2dV2dV2d", "")
+BUILTIN(__builtin_vsx_xvnmaddasp, "V4fV4fV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvnmsubadp, "V2dV2dV2dV2d", "")
+BUILTIN(__builtin_vsx_xvnmsubasp, "V4fV4fV4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvredp, "V2dV2d", "")
+BUILTIN(__builtin_vsx_xvresp, "V4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvrsqrtedp, "V2dV2d", "")
+BUILTIN(__builtin_vsx_xvrsqrtesp, "V4fV4f", "")
+
+BUILTIN(__builtin_vsx_xvsqrtdp, "V2dV2d", "")
+BUILTIN(__builtin_vsx_xvsqrtsp, "V4fV4f", "")
+
+BUILTIN(__builtin_vsx_xxleqv, "V4UiV4UiV4Ui", "")
+
+BUILTIN(__builtin_vsx_xvcpsgndp, "V2dV2dV2d", "")
+BUILTIN(__builtin_vsx_xvcpsgnsp, "V4fV4fV4f", "")
+
+// HTM builtins
+BUILTIN(__builtin_tbegin, "UiUIi", "")
+BUILTIN(__builtin_tend, "UiUIi", "")
+
+BUILTIN(__builtin_tabort, "UiUi", "")
+BUILTIN(__builtin_tabortdc, "UiUiUiUi", "")
+BUILTIN(__builtin_tabortdci, "UiUiUii", "")
+BUILTIN(__builtin_tabortwc, "UiUiUiUi", "")
+BUILTIN(__builtin_tabortwci, "UiUiUii", "")
+
+BUILTIN(__builtin_tcheck, "Ui", "")
+BUILTIN(__builtin_treclaim, "UiUi", "")
+BUILTIN(__builtin_trechkpt, "Ui", "")
+BUILTIN(__builtin_tsr, "UiUi", "")
+
+BUILTIN(__builtin_tendall, "Ui", "")
+BUILTIN(__builtin_tresume, "Ui", "")
+BUILTIN(__builtin_tsuspend, "Ui", "")
+
+BUILTIN(__builtin_get_texasr, "LUi", "c")
+BUILTIN(__builtin_get_texasru, "LUi", "c")
+BUILTIN(__builtin_get_tfhar, "LUi", "c")
+BUILTIN(__builtin_get_tfiar, "LUi", "c")
+
+BUILTIN(__builtin_set_texasr, "vLUi", "c")
+BUILTIN(__builtin_set_texasru, "vLUi", "c")
+BUILTIN(__builtin_set_tfhar, "vLUi", "c")
+BUILTIN(__builtin_set_tfiar, "vLUi", "c")
+
+BUILTIN(__builtin_ttest, "LUi", "")
+
+// Scalar built-ins
+BUILTIN(__builtin_divwe, "SiSiSi", "")
+BUILTIN(__builtin_divweu, "UiUiUi", "")
+BUILTIN(__builtin_divde, "SLLiSLLiSLLi", "")
+BUILTIN(__builtin_divdeu, "ULLiULLiULLi", "")
+BUILTIN(__builtin_bpermd, "SLLiSLLiSLLi", "")
 
 // FIXME: Obviously incomplete.
 

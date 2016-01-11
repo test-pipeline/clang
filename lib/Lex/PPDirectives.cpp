@@ -616,6 +616,8 @@ const FileEntry *Preprocessor::LookupFile(
     SmallVectorImpl<char> *RelativePath,
     ModuleMap::KnownHeader *SuggestedModule,
     bool SkipCache) {
+  Module *RequestingModule = getModuleForLocation(FilenameLoc); 
+
   // If the header lookup mechanism may be relative to the current inclusion
   // stack, record the parent #includes.
   SmallVector<std::pair<const FileEntry *, const DirectoryEntry *>, 16>
@@ -653,8 +655,7 @@ const FileEntry *Preprocessor::LookupFile(
       for (unsigned i = 0, e = IncludeMacroStack.size(); i != e; ++i) {
         IncludeStackInfo &ISEntry = IncludeMacroStack[e - i - 1];
         if (IsFileLexer(ISEntry))
-          if ((FileEnt = SourceMgr.getFileEntryForID(
-                   ISEntry.ThePPLexer->getFileID())))
+          if ((FileEnt = ISEntry.ThePPLexer->getFileEntry()))
             Includers.push_back(std::make_pair(FileEnt, FileEnt->getDir()));
       }
     }
@@ -669,8 +670,8 @@ const FileEntry *Preprocessor::LookupFile(
     const DirectoryLookup *TmpFromDir = nullptr;
     while (const FileEntry *FE = HeaderInfo.LookupFile(
                Filename, FilenameLoc, isAngled, TmpFromDir, TmpCurDir,
-               Includers, SearchPath, RelativePath, SuggestedModule,
-               SkipCache)) {
+               Includers, SearchPath, RelativePath, RequestingModule,
+               SuggestedModule, SkipCache)) {
       // Keep looking as if this file did a #include_next.
       TmpFromDir = TmpCurDir;
       ++TmpFromDir;
@@ -686,11 +687,11 @@ const FileEntry *Preprocessor::LookupFile(
   // Do a standard file entry lookup.
   const FileEntry *FE = HeaderInfo.LookupFile(
       Filename, FilenameLoc, isAngled, FromDir, CurDir, Includers, SearchPath,
-      RelativePath, SuggestedModule, SkipCache);
+      RelativePath, RequestingModule, SuggestedModule, SkipCache);
   if (FE) {
     if (SuggestedModule && !LangOpts.AsmPreprocessor)
       HeaderInfo.getModuleMap().diagnoseHeaderInclusion(
-          getModuleForLocation(FilenameLoc), FilenameLoc, Filename, FE);
+          RequestingModule, FilenameLoc, Filename, FE);
     return FE;
   }
 
@@ -699,13 +700,14 @@ const FileEntry *Preprocessor::LookupFile(
   // to one of the headers on the #include stack.  Walk the list of the current
   // headers on the #include stack and pass them to HeaderInfo.
   if (IsFileLexer()) {
-    if ((CurFileEnt = SourceMgr.getFileEntryForID(CurPPLexer->getFileID()))) {
+    if ((CurFileEnt = CurPPLexer->getFileEntry())) {
       if ((FE = HeaderInfo.LookupSubframeworkHeader(Filename, CurFileEnt,
                                                     SearchPath, RelativePath,
+                                                    RequestingModule,
                                                     SuggestedModule))) {
         if (SuggestedModule && !LangOpts.AsmPreprocessor)
           HeaderInfo.getModuleMap().diagnoseHeaderInclusion(
-              getModuleForLocation(FilenameLoc), FilenameLoc, Filename, FE);
+              RequestingModule, FilenameLoc, Filename, FE);
         return FE;
       }
     }
@@ -714,14 +716,13 @@ const FileEntry *Preprocessor::LookupFile(
   for (unsigned i = 0, e = IncludeMacroStack.size(); i != e; ++i) {
     IncludeStackInfo &ISEntry = IncludeMacroStack[e-i-1];
     if (IsFileLexer(ISEntry)) {
-      if ((CurFileEnt =
-           SourceMgr.getFileEntryForID(ISEntry.ThePPLexer->getFileID()))) {
+      if ((CurFileEnt = ISEntry.ThePPLexer->getFileEntry())) {
         if ((FE = HeaderInfo.LookupSubframeworkHeader(
                 Filename, CurFileEnt, SearchPath, RelativePath,
-                SuggestedModule))) {
+                RequestingModule, SuggestedModule))) {
           if (SuggestedModule && !LangOpts.AsmPreprocessor)
             HeaderInfo.getModuleMap().diagnoseHeaderInclusion(
-                getModuleForLocation(FilenameLoc), FilenameLoc, Filename, FE);
+                RequestingModule, FilenameLoc, Filename, FE);
           return FE;
         }
       }
@@ -1628,7 +1629,30 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
   // do so now.
   if (SuggestedModule && getLangOpts().Modules &&
       SuggestedModule.getModule()->getTopLevelModuleName() !=
-      getLangOpts().ImplementationOfModule) {
+          getLangOpts().ImplementationOfModule) {
+
+    // If this include corresponds to a module but that module is
+    // unavailable, diagnose the situation and bail out.
+    if (!SuggestedModule.getModule()->isAvailable()) {
+      clang::Module::Requirement Requirement;
+      clang::Module::UnresolvedHeaderDirective MissingHeader;
+      Module *M = SuggestedModule.getModule();
+      // Identify the cause.
+      (void)M->isAvailable(getLangOpts(), getTargetInfo(), Requirement,
+                           MissingHeader);
+      if (MissingHeader.FileNameLoc.isValid()) {
+        Diag(MissingHeader.FileNameLoc, diag::err_module_header_missing)
+            << MissingHeader.IsUmbrella << MissingHeader.FileName;
+      } else {
+        Diag(M->DefinitionLoc, diag::err_module_unavailable)
+            << M->getFullModuleName() << Requirement.second << Requirement.first;
+      }
+      Diag(FilenameTok.getLocation(),
+           diag::note_implicit_top_level_module_import_here)
+          << M->getTopLevelModuleName();
+      return;
+    }
+
     // Compute the module access path corresponding to this module.
     // FIXME: Should we have a second loadModule() overload to avoid this
     // extra lookup step?
@@ -1767,7 +1791,7 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
   if (IncludePos.isMacroID())
     IncludePos = SourceMgr.getExpansionRange(IncludePos).second;
   FileID FID = SourceMgr.createFileID(File, IncludePos, FileCharacter);
-  assert(!FID.isInvalid() && "Expected valid file ID");
+  assert(FID.isValid() && "Expected valid file ID");
 
   // Determine if we're switching to building a new submodule, and which one.
   ModuleMap::KnownHeader BuildingModule;
@@ -1918,7 +1942,7 @@ bool Preprocessor::ReadMacroDefinitionArgList(MacroInfo *MI, Token &Tok) {
       // Add the __VA_ARGS__ identifier as an argument.
       Arguments.push_back(Ident__VA_ARGS__);
       MI->setIsC99Varargs();
-      MI->setArgumentList(&Arguments[0], Arguments.size(), BP);
+      MI->setArgumentList(Arguments, BP);
       return false;
     case tok::eod:  // #define X(
       Diag(Tok, diag::err_pp_missing_rparen_in_macro_def);
@@ -1952,7 +1976,7 @@ bool Preprocessor::ReadMacroDefinitionArgList(MacroInfo *MI, Token &Tok) {
         Diag(Tok, diag::err_pp_expected_comma_in_arg_list);
         return true;
       case tok::r_paren: // #define X(A)
-        MI->setArgumentList(&Arguments[0], Arguments.size(), BP);
+        MI->setArgumentList(Arguments, BP);
         return false;
       case tok::comma:  // #define X(A,
         break;
@@ -1968,7 +1992,7 @@ bool Preprocessor::ReadMacroDefinitionArgList(MacroInfo *MI, Token &Tok) {
         }
 
         MI->setIsGNUVarargs();
-        MI->setArgumentList(&Arguments[0], Arguments.size(), BP);
+        MI->setArgumentList(Arguments, BP);
         return false;
       }
     }
@@ -2012,13 +2036,9 @@ static bool isConfigurationPattern(Token &MacroName, MacroInfo *MI,
   }
 
   // #define inline
-  if ((MacroName.is(tok::kw_extern) || MacroName.is(tok::kw_inline) ||
-       MacroName.is(tok::kw_static) || MacroName.is(tok::kw_const)) &&
-      MI->getNumTokens() == 0) {
-    return true;
-  }
-
-  return false;
+  return MacroName.isOneOf(tok::kw_extern, tok::kw_inline, tok::kw_static,
+                           tok::kw_const) &&
+         MI->getNumTokens() == 0;
 }
 
 /// HandleDefineDirective - Implements \#define.  This consumes the entire macro
@@ -2233,6 +2253,30 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok,
   // Finally, if this identifier already had a macro defined for it, verify that
   // the macro bodies are identical, and issue diagnostics if they are not.
   if (const MacroInfo *OtherMI=getMacroInfo(MacroNameTok.getIdentifierInfo())) {
+    // In Objective-C, ignore attempts to directly redefine the builtin
+    // definitions of the ownership qualifiers.  It's still possible to
+    // #undef them.
+    auto isObjCProtectedMacro = [](const IdentifierInfo *II) -> bool {
+      return II->isStr("__strong") ||
+             II->isStr("__weak") ||
+             II->isStr("__unsafe_unretained") ||
+             II->isStr("__autoreleasing");
+    };
+   if (getLangOpts().ObjC1 &&
+        SourceMgr.getFileID(OtherMI->getDefinitionLoc())
+          == getPredefinesFileID() &&
+        isObjCProtectedMacro(MacroNameTok.getIdentifierInfo())) {
+      // Warn if it changes the tokens.
+      if ((!getDiagnostics().getSuppressSystemWarnings() ||
+           !SourceMgr.isInSystemHeader(DefineTok.getLocation())) &&
+          !MI->isIdenticalTo(*OtherMI, *this,
+                             /*Syntactic=*/LangOpts.MicrosoftExt)) {
+        Diag(MI->getDefinitionLoc(), diag::warn_pp_objc_macro_redef_ignored);
+      }
+      assert(!OtherMI->isWarnIfUnused());
+      return;
+    }
+
     // It is very common for system headers to have tons of macro redefinitions
     // and for warnings to be disabled in system headers.  If this is the case,
     // then don't bother calling MacroInfo::isIdenticalTo.

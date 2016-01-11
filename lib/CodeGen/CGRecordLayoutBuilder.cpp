@@ -439,7 +439,8 @@ void CGRecordLowering::accumulateBases() {
     if (Base.isVirtual())
       continue;
     const CXXRecordDecl *BaseDecl = Base.getType()->getAsCXXRecordDecl();
-    if (!BaseDecl->isEmpty())
+    if (!BaseDecl->isEmpty() &&
+        !Context.getASTRecordLayout(BaseDecl).getNonVirtualSize().isZero())
       Members.push_back(MemberInfo(Layout.getBaseClassOffset(BaseDecl),
           MemberInfo::Base, getStorageType(BaseDecl), BaseDecl));
   }

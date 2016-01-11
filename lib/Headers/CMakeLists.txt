@@ -9,9 +9,13 @@ set(files
   avx512fintrin.h
   avx512vlbwintrin.h
   avx512vlintrin.h
+  avx512dqintrin.h
+  avx512vldqintrin.h
+  pkuintrin.h
   avxintrin.h
   bmi2intrin.h
   bmiintrin.h
+  __clang_cuda_runtime_wrapper.h
   cpuid.h
   emmintrin.h
   f16cintrin.h
@@ -50,12 +54,18 @@ set(files
   unwind.h
   vadefs.h
   varargs.h
+  vecintrin.h
   __wmmintrin_aes.h
   wmmintrin.h
   __wmmintrin_pclmul.h
   x86intrin.h
   xmmintrin.h
   xopintrin.h
+  xsaveintrin.h
+  xsaveoptintrin.h
+  xsavecintrin.h
+  xsavesintrin.h
+  xtestintrin.h
   )
 
 set(output_dir ${LLVM_LIBRARY_OUTPUT_INTDIR}/clang/${CLANG_VERSION}/include)
@@ -86,5 +96,14 @@ set_target_properties(clang-headers PROPERTIES FOLDER "Misc")
 
 install(
   FILES ${files} ${CMAKE_CURRENT_BINARY_DIR}/arm_neon.h
+  COMPONENT clang-headers
   PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
   DESTINATION lib${LLVM_LIBDIR_SUFFIX}/clang/${CLANG_VERSION}/include)
+
+if (NOT CMAKE_CONFIGURATION_TYPES) # don't add this for IDE's.
+  add_custom_target(install-clang-headers
+    DEPENDS
+    COMMAND "${CMAKE_COMMAND}"
+            -DCMAKE_INSTALL_COMPONENT=clang-headers
+            -P "${CMAKE_BINARY_DIR}/cmake_install.cmake")
+endif()

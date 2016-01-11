@@ -47,7 +47,7 @@ class TargetCodeGenInfo {
 
 public:
   // WARNING: Acquires the ownership of ABIInfo.
-  TargetCodeGenInfo(ABIInfo *info = 0) : Info(info) {}
+  TargetCodeGenInfo(ABIInfo *info = nullptr) : Info(info) {}
   virtual ~TargetCodeGenInfo();
 
   /// getABIInfo() - Returns ABI info helper for the target.
@@ -226,6 +226,6 @@ public:
     return 0;
   }
 };
-}
+} // namespace clang
 
-#endif
+#endif // LLVM_CLANG_LIB_CODEGEN_TARGETINFO_H

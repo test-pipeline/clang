@@ -106,12 +106,13 @@ class Parser : public CodeCompletionHandler {
   /// Ident_super - IdentifierInfo for "super", to support fast
   /// comparison.
   IdentifierInfo *Ident_super;
-  /// Ident_vector, Ident_pixel, Ident_bool - cached IdentifierInfo's
-  /// for "vector", "pixel", and "bool" fast comparison.  Only present
-  /// if AltiVec enabled.
+  /// Ident_vector, Ident_bool - cached IdentifierInfos for "vector" and
+  /// "bool" fast comparison.  Only present if AltiVec or ZVector are enabled.
   IdentifierInfo *Ident_vector;
-  IdentifierInfo *Ident_pixel;
   IdentifierInfo *Ident_bool;
+  /// Ident_pixel - cached IdentifierInfos for "pixel" fast comparison.
+  /// Only present if AltiVec enabled.
+  IdentifierInfo *Ident_pixel;
 
   /// Objective-C contextual keywords.
   mutable IdentifierInfo *Ident_instancetype;
@@ -160,6 +161,7 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> MSConstSeg;
   std::unique_ptr<PragmaHandler> MSCodeSeg;
   std::unique_ptr<PragmaHandler> MSSection;
+  std::unique_ptr<PragmaHandler> MSRuntimeChecks;
   std::unique_ptr<PragmaHandler> OptimizeHandler;
   std::unique_ptr<PragmaHandler> LoopHintHandler;
   std::unique_ptr<PragmaHandler> UnrollHintHandler;
@@ -597,10 +599,12 @@ private:
   bool TryAltiVecToken(DeclSpec &DS, SourceLocation Loc,
                        const char *&PrevSpec, unsigned &DiagID,
                        bool &isInvalid) {
-    if (!getLangOpts().AltiVec ||
-        (Tok.getIdentifierInfo() != Ident_vector &&
-         Tok.getIdentifierInfo() != Ident_pixel &&
-         Tok.getIdentifierInfo() != Ident_bool))
+    if (!getLangOpts().AltiVec && !getLangOpts().ZVector)
+      return false;
+
+    if (Tok.getIdentifierInfo() != Ident_vector &&
+        Tok.getIdentifierInfo() != Ident_bool &&
+        (!getLangOpts().AltiVec || Tok.getIdentifierInfo() != Ident_pixel))
       return false;
 
     return TryAltiVecTokenOutOfLine(DS, Loc, PrevSpec, DiagID, isInvalid);
@@ -610,7 +614,7 @@ private:
   /// identifier token, replacing it with the non-context-sensitive __vector.
   /// This returns true if the token was replaced.
   bool TryAltiVecVectorToken() {
-    if (!getLangOpts().AltiVec ||
+    if ((!getLangOpts().AltiVec && !getLangOpts().ZVector) ||
         Tok.getIdentifierInfo() != Ident_vector) return false;
     return TryAltiVecVectorTokenOutOfLine();
   }
@@ -1216,6 +1220,7 @@ private:
                                                 ParsingDeclSpec &DS,
                                                 AccessSpecifier AS);
 
+  void SkipFunctionBody();
   Decl *ParseFunctionDefinition(ParsingDeclarator &D,
                  const ParsedTemplateInfo &TemplateInfo = ParsedTemplateInfo(),
                  LateParsedAttrList *LateParsedAttrs = nullptr);
@@ -1231,6 +1236,13 @@ private:
   DeclGroupPtrTy ParseObjCAtClassDeclaration(SourceLocation atLoc);
   Decl *ParseObjCAtInterfaceDeclaration(SourceLocation AtLoc,
                                         ParsedAttributes &prefixAttrs);
+  class ObjCTypeParamListScope;
+  ObjCTypeParamList *parseObjCTypeParamList();
+  ObjCTypeParamList *parseObjCTypeParamListOrProtocolRefs(
+      ObjCTypeParamListScope &Scope, SourceLocation &lAngleLoc,
+      SmallVectorImpl<IdentifierLocPair> &protocolIdents,
+      SourceLocation &rAngleLoc, bool mayBeProtocolList = true);
+
   void HelperActionsForIvarDeclarations(Decl *interfaceDecl, SourceLocation atLoc,
                                         BalancedDelimiterTracker &T,
                                         SmallVectorImpl<Decl *> &AllIvarDecls,
@@ -1508,7 +1520,9 @@ private:
                          SourceLocation Loc, bool ConvertToBoolean);
 
   //===--------------------------------------------------------------------===//
-  // C++ types
+  // C++ Coroutines
+
+  ExprResult ParseCoyieldExpression();
 
   //===--------------------------------------------------------------------===//
   // C99 6.7.8: Initialization.
@@ -2085,7 +2099,14 @@ private:
   }
   void ParseMicrosoftAttributes(ParsedAttributes &attrs,
                                 SourceLocation *endLoc = nullptr);
-  void ParseMicrosoftDeclSpec(ParsedAttributes &Attrs);
+  void MaybeParseMicrosoftDeclSpecs(ParsedAttributes &Attrs,
+                                    SourceLocation *End = nullptr) {
+    const auto &LO = getLangOpts();
+    if (LO.DeclSpecKeyword && Tok.is(tok::kw___declspec))
+      ParseMicrosoftDeclSpecs(Attrs, End);
+  }
+  void ParseMicrosoftDeclSpecs(ParsedAttributes &Attrs,
+                               SourceLocation *End = nullptr);
   bool ParseMicrosoftDeclSpecArgs(IdentifierInfo *AttrName,
                                   SourceLocation AttrNameLoc,
                                   ParsedAttributes &Attrs);
@@ -2247,8 +2268,8 @@ private:
 
   void DiagnoseUnexpectedNamespace(NamedDecl *Context);
 
-  Decl *ParseNamespace(unsigned Context, SourceLocation &DeclEnd,
-                       SourceLocation InlineLoc = SourceLocation());
+  DeclGroupPtrTy ParseNamespace(unsigned Context, SourceLocation &DeclEnd,
+                                SourceLocation InlineLoc = SourceLocation());
   void ParseInnerNamespace(std::vector<SourceLocation>& IdentLoc,
                            std::vector<IdentifierInfo*>& Ident,
                            std::vector<SourceLocation>& NamespaceLoc,
@@ -2295,9 +2316,15 @@ private:
                                                  VirtSpecifiers &VS,
                                                  ExprResult &BitfieldSize,
                                                  LateParsedAttrList &LateAttrs);
-  void ParseCXXClassMemberDeclaration(AccessSpecifier AS, AttributeList *Attr,
-                  const ParsedTemplateInfo &TemplateInfo = ParsedTemplateInfo(),
-                  ParsingDeclRAIIObject *DiagsFromTParams = nullptr);
+  void MaybeParseAndDiagnoseDeclSpecAfterCXX11VirtSpecifierSeq(Declarator &D,
+                                                               VirtSpecifiers &VS);
+  DeclGroupPtrTy ParseCXXClassMemberDeclaration(
+      AccessSpecifier AS, AttributeList *Attr,
+      const ParsedTemplateInfo &TemplateInfo = ParsedTemplateInfo(),
+      ParsingDeclRAIIObject *DiagsFromTParams = nullptr);
+  DeclGroupPtrTy ParseCXXClassMemberDeclarationWithPragmas(
+      AccessSpecifier &AS, ParsedAttributesWithRange &AccessAttrs,
+      DeclSpec::TST TagType, Decl *TagDecl);
   void ParseConstructorInitializer(Decl *ConstructorDecl);
   MemInitResult ParseMemInitializer(Decl *ConstructorDecl);
   void HandleMemberFunctionDeclDelays(Declarator& DeclaratorInfo,
@@ -2378,7 +2405,9 @@ private:
   ///
   /// \param Kind Kind of current clause.
   ///
-  OMPClause *ParseOpenMPVarListClause(OpenMPClauseKind Kind);
+  OMPClause *ParseOpenMPVarListClause(OpenMPDirectiveKind DKind,
+                                      OpenMPClauseKind Kind);
+
 public:
   bool ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
                           bool AllowDestructorName,
@@ -2456,6 +2485,14 @@ private:
   //===--------------------------------------------------------------------===//
   // Modules
   DeclGroupPtrTy ParseModuleImport(SourceLocation AtLoc);
+  bool parseMisplacedModuleImport();
+  bool tryParseMisplacedModuleImport() {
+    tok::TokenKind Kind = Tok.getKind();
+    if (Kind == tok::annot_module_begin || Kind == tok::annot_module_end ||
+        Kind == tok::annot_module_include)
+      return parseMisplacedModuleImport();
+    return false;
+  }
 
   //===--------------------------------------------------------------------===//
   // C++11/G++: Type Traits [Type-Traits.html in the GCC manual]

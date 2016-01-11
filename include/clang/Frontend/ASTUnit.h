@@ -56,6 +56,8 @@ class FileEntry;
 class FileManager;
 class HeaderSearch;
 class Preprocessor;
+class PCHContainerOperations;
+class PCHContainerReader;
 class SourceManager;
 class TargetInfo;
 class ASTFrontendAction;
@@ -715,14 +717,17 @@ public:
   ///
   /// \param Filename - The AST file to load.
   ///
+  /// \param PCHContainerRdr - The PCHContainerOperations to use for loading and
+  /// creating modules.
   /// \param Diags - The diagnostics engine to use for reporting errors; its
   /// lifetime is expected to extend past that of the returned ASTUnit.
   ///
   /// \returns - The initialized ASTUnit or null if the AST failed to load.
   static std::unique_ptr<ASTUnit> LoadFromASTFile(
-      const std::string &Filename, IntrusiveRefCntPtr<DiagnosticsEngine> Diags,
-      const FileSystemOptions &FileSystemOpts, bool OnlyLocalDecls = false,
-      ArrayRef<RemappedFile> RemappedFiles = None,
+      const std::string &Filename, const PCHContainerReader &PCHContainerRdr,
+      IntrusiveRefCntPtr<DiagnosticsEngine> Diags,
+      const FileSystemOptions &FileSystemOpts, bool UseDebugInfo = false,
+      bool OnlyLocalDecls = false, ArrayRef<RemappedFile> RemappedFiles = None,
       bool CaptureDiagnostics = false, bool AllowPCHWithCompilerErrors = false,
       bool UserFilesAreVolatile = false);
 
@@ -730,13 +735,16 @@ private:
   /// \brief Helper function for \c LoadFromCompilerInvocation() and
   /// \c LoadFromCommandLine(), which loads an AST from a compiler invocation.
   ///
-  /// \param PrecompilePreamble Whether to precompile the preamble of this
-  /// translation unit, to improve the performance of reparsing.
+  /// \param PrecompilePreambleAfterNParses After how many parses the preamble
+  /// of this translation unit should be precompiled, to improve the performance
+  /// of reparsing. Set to zero to disable preambles.
   ///
   /// \returns \c true if a catastrophic failure occurred (which means that the
   /// \c ASTUnit itself is invalid), or \c false otherwise.
-  bool LoadFromCompilerInvocation(bool PrecompilePreamble);
-  
+  bool LoadFromCompilerInvocation(
+      std::shared_ptr<PCHContainerOperations> PCHContainerOps,
+      unsigned PrecompilePreambleAfterNParses);
+
 public:
   
   /// \brief Create an ASTUnit from a source file, via a CompilerInvocation
@@ -769,7 +777,8 @@ public:
       ASTFrontendAction *Action = nullptr, ASTUnit *Unit = nullptr,
       bool Persistent = true, StringRef ResourceFilesPath = StringRef(),
       bool OnlyLocalDecls = false, bool CaptureDiagnostics = false,
-      bool PrecompilePreamble = false, bool CacheCodeCompletionResults = false,
+      unsigned PrecompilePreambleAfterNParses = 0,
+      bool CacheCodeCompletionResults = false,
       bool IncludeBriefCommentsInCodeCompletion = false,
       bool UserFilesAreVolatile = false,
       std::unique_ptr<ASTUnit> *ErrAST = nullptr);
@@ -786,9 +795,12 @@ public:
   // FIXME: Move OnlyLocalDecls, UseBumpAllocator to setters on the ASTUnit, we
   // shouldn't need to specify them at construction time.
   static std::unique_ptr<ASTUnit> LoadFromCompilerInvocation(
-      CompilerInvocation *CI, IntrusiveRefCntPtr<DiagnosticsEngine> Diags,
+      CompilerInvocation *CI,
+      std::shared_ptr<PCHContainerOperations> PCHContainerOps,
+      IntrusiveRefCntPtr<DiagnosticsEngine> Diags, FileManager *FileMgr,
       bool OnlyLocalDecls = false, bool CaptureDiagnostics = false,
-      bool PrecompilePreamble = false, TranslationUnitKind TUKind = TU_Complete,
+      unsigned PrecompilePreambleAfterNParses = 0,
+      TranslationUnitKind TUKind = TU_Complete,
       bool CacheCodeCompletionResults = false,
       bool IncludeBriefCommentsInCodeCompletion = false,
       bool UserFilesAreVolatile = false);
@@ -805,6 +817,8 @@ public:
   ///
   /// \param ResourceFilesPath - The path to the compiler resource files.
   ///
+  /// \param ModuleFormat - If provided, uses the specific module format.
+  ///
   /// \param ErrAST - If non-null and parsing failed without any AST to return
   /// (e.g. because the PCH could not be loaded), this accepts the ASTUnit
   /// mainly to allow the caller to see the diagnostics.
@@ -817,11 +831,13 @@ public:
       bool OnlyLocalDecls = false, bool CaptureDiagnostics = false,
       ArrayRef<RemappedFile> RemappedFiles = None,
       bool RemappedFilesKeepOriginalName = true,
-      bool PrecompilePreamble = false, TranslationUnitKind TUKind = TU_Complete,
+      unsigned PrecompilePreambleAfterNParses = 0,
+      TranslationUnitKind TUKind = TU_Complete,
       bool CacheCodeCompletionResults = false,
       bool IncludeBriefCommentsInCodeCompletion = false,
       bool AllowPCHWithCompilerErrors = false, bool SkipFunctionBodies = false,
       bool UserFilesAreVolatile = false, bool ForSerialization = false,
+      llvm::Optional<StringRef> ModuleFormat = llvm::None,
       std::unique_ptr<ASTUnit> *ErrAST = nullptr);
 
   /// \brief Reparse the source files using the same command-line options that
@@ -885,7 +901,7 @@ public:
   GlobalModuleIndex *loadGlobalModuleIndex(SourceLocation TriggerLoc) override
     { return nullptr; }
   bool lookupMissingImports(StringRef Name, SourceLocation TriggerLoc) override
-    { return 0; };
+    { return 0; }
 };
 
 } // namespace clang

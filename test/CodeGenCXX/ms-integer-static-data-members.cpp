@@ -32,4 +32,20 @@ const int S::x = 5;
 // CHECK-OUTOFLINE: @"\01?x@S@@2HB" = constant i32 5, align 4
 
 // No initialization.
-// CHECK: @"\01?x@S@@2HB" = external constant i32
+// CHECK-DAG: @"\01?NoInit_Ref@S@@2HB" = external constant i32
+
+// Inline initialization, no real definiton, not referenced.
+// CHECK-NOT: @"\01?Inline_NotDef_NotRef@S@@2HB" = {{.*}} constant i32 5
+
+// Inline initialization, no real definiton, referenced.
+// CHECK-DAG: @"\01?Inline_NotDef_Ref@S@@2HB" = linkonce_odr constant i32 5, comdat, align 4
+
+// Inline initialization, real definiton, not referenced.
+// CHECK-NOT: @"\01?Inline_Def_NotRef@S@@2HB" = constant i32 5, align 4
+
+// Inline initialization, real definiton, referenced.
+// CHECK-DAG: @"\01?Inline_Def_Ref@S@@2HB" = linkonce_odr constant i32 5, comdat, align 4
+
+// Out-of-line initialization.
+// CHECK-DAG: @"\01?OutOfLine_Def_NotRef@S@@2HB" = constant i32 5, align 4
+// CHECK-DAG: @"\01?OutOfLine_Def_Ref@S@@2HB" = constant i32 5, align 4

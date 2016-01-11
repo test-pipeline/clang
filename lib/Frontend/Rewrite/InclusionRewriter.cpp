@@ -156,10 +156,9 @@ void InclusionRewriter::FileChanged(SourceLocation Loc,
 void InclusionRewriter::FileSkipped(const FileEntry &/*ParentFile*/,
                                     const Token &/*FilenameTok*/,
                                     SrcMgr::CharacteristicKind /*FileType*/) {
-  assert(LastInsertedFileChange != FileChanges.end() && "A file, that wasn't "
-    "found via an inclusion directive, was skipped");
-  FileChanges.erase(LastInsertedFileChange);
-  LastInsertedFileChange = FileChanges.end();
+  assert(LastInclusionLocation.isValid() &&
+         "A file, that wasn't found via an inclusion directive, was skipped");
+  LastInclusionLocation = SourceLocation();
 }
 
 /// This should be called whenever the preprocessor encounters include
@@ -373,9 +372,10 @@ bool InclusionRewriter::HandleHasInclude(
   SmallVector<std::pair<const FileEntry *, const DirectoryEntry *>, 1>
       Includers;
   Includers.push_back(std::make_pair(FileEnt, FileEnt->getDir()));
+  // FIXME: Why don't we call PP.LookupFile here?
   const FileEntry *File = PP.getHeaderSearchInfo().LookupFile(
       Filename, SourceLocation(), isAngled, nullptr, CurDir, Includers, nullptr,
-      nullptr, nullptr, false);
+      nullptr, nullptr, nullptr, false);
 
   FileExists = File != nullptr;
   return true;

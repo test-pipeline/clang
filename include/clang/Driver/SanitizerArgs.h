@@ -26,13 +26,15 @@ class SanitizerArgs {
   SanitizerSet RecoverableSanitizers;
 
   std::vector<std::string> BlacklistFiles;
-  int SanitizeCoverage;
+  std::vector<std::string> ExtraDeps;
+  int CoverageFeatures;
   int MsanTrackOrigins;
+  bool MsanUseAfterDtor;
+  bool CfiCrossDso;
   int AsanFieldPadding;
-  bool AsanZeroBaseShadow;
-  bool UbsanTrapOnError;
   bool AsanSharedRuntime;
   bool LinkCXXRuntimes;
+  bool NeedPIE;
 
  public:
   /// Parses the sanitizer arguments from an argument list.
@@ -48,6 +50,11 @@ class SanitizerArgs {
   }
   bool needsUbsanRt() const;
   bool needsDfsanRt() const { return Sanitizers.has(SanitizerKind::DataFlow); }
+  bool needsSafeStackRt() const {
+    return Sanitizers.has(SanitizerKind::SafeStack);
+  }
+  bool needsCfiRt() const;
+  bool needsCfiDiagRt() const;
 
   bool requiresPIE() const;
   bool needsUnwindTables() const;

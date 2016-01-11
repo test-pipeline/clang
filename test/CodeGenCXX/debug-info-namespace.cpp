@@ -1,6 +1,6 @@
-// RUN: %clang_cc1 -g -fno-standalone-debug -S -emit-llvm %s -o - | FileCheck %s
-// RUN: %clang_cc1 -g -gline-tables-only    -S -emit-llvm %s -o - | FileCheck -check-prefix=CHECK-GMLT %s
-// RUN: %clang_cc1 -g -fstandalone-debug    -S -emit-llvm %s -o - | FileCheck -check-prefix=CHECK-NOLIMIT %s
+// RUN: %clang_cc1 -debug-info-kind=limited -S -emit-llvm %s -o - | FileCheck %s
+// RUN: %clang_cc1 -debug-info-kind=line-tables-only -S -emit-llvm %s -o - | FileCheck -check-prefix=CHECK-GMLT %s
+// RUN: %clang_cc1 -debug-info-kind=standalone -S -emit-llvm %s -o - | FileCheck -check-prefix=CHECK-NOLIMIT %s
 
 namespace A {
 #line 1 "foo.cpp"
@@ -55,19 +55,26 @@ void B::func_fwd() {}
 // This should work even if 'i' and 'func' were declarations & not definitions,
 // but it doesn't yet.
 
-// CHECK: [[CU:![0-9]*]] = !{!"0x11\00{{.*}}\001"{{.*}}, [[MODULES:![0-9]*]]} ; [ DW_TAG_compile_unit ]
-// CHECK: [[FOO:![0-9]*]] {{.*}} ; [ DW_TAG_structure_type ] [foo] [line 5, size 0, align 0, offset 0] [decl] [from ]
-// CHECK: [[FOOCPP:![0-9]*]] = !{!"foo.cpp", {{.*}}
-// CHECK: [[NS:![0-9]*]] = !{!"0x39\00B\001", [[FILE2:![0-9]*]], [[CTXT:![0-9]*]]} ; [ DW_TAG_namespace ] [B] [line 1]
-// CHECK: [[CTXT]] = !{!"0x39\00A\005", [[FILE:![0-9]*]], null} ; [ DW_TAG_namespace ] [A] [line 5]
-// CHECK: [[FILE]] {{.*}}debug-info-namespace.cpp"
-// CHECK: [[BAR:![0-9]*]] {{.*}} ; [ DW_TAG_structure_type ] [bar] [line 6, {{.*}}] [decl] [from ]
-// CHECK: [[F1:![0-9]*]] {{.*}} ; [ DW_TAG_subprogram ] [line 4] [def] [f1]
-// CHECK: [[FILE2]]} ; [ DW_TAG_file_type ] [{{.*}}foo.cpp]
-// CHECK: [[FUNC:![0-9]*]] {{.*}} ; [ DW_TAG_subprogram ] {{.*}} [def] [func]
-// CHECK: [[FUNC_FWD:![0-9]*]] {{.*}} [ DW_TAG_subprogram ] [line 47] [def] [func_fwd]
-// CHECK: [[I:![0-9]*]] = !{!"0x34\00i\00{{.*}}", [[NS]], {{.*}} ; [ DW_TAG_variable ] [i]
-// CHECK: [[VAR_FWD:![0-9]*]] = !{!"0x34\00var_fwd\00{{.*}}", [[NS]], {{.*}}} ; [ DW_TAG_variable ] [var_fwd] [line 44] [def]
+// CHECK: [[CU:![0-9]+]] = distinct !DICompileUnit(
+// CHECK-SAME:                            imports: [[MODULES:![0-9]*]]
+// CHECK: [[FOO:![0-9]+]] = !DICompositeType(tag: DW_TAG_structure_type, name: "foo",
+// CHECK-SAME:                               line: 5
+// CHECK-SAME:                               DIFlagFwdDecl
+// CHECK: [[FOOCPP:![0-9]+]] = !DIFile(filename: "foo.cpp"
+// CHECK: [[NS:![0-9]+]] = !DINamespace(name: "B", scope: [[CTXT:![0-9]+]], file: [[FOOCPP]], line: 1)
+// CHECK: [[CTXT]] = !DINamespace(name: "A", scope: null, file: [[FILE:![0-9]+]], line: 5)
+// CHECK: [[FILE]] = !DIFile(filename: "{{.*}}debug-info-namespace.cpp",
+// CHECK: [[BAR:![0-9]+]] = !DICompositeType(tag: DW_TAG_structure_type, name: "bar",
+// CHECK-SAME:                               line: 6
+// CHECK-SAME:                               DIFlagFwdDecl
+// CHECK: [[F1:![0-9]+]] = distinct !DISubprogram(name: "f1",{{.*}} line: 4
+// CHECK-SAME:                           isDefinition: true
+// CHECK: [[FUNC:![0-9]+]] = distinct !DISubprogram(name: "func",{{.*}} isDefinition: true
+// CHECK: [[FUNC_FWD:![0-9]+]] = distinct !DISubprogram(name: "func_fwd",{{.*}} line: 47,{{.*}} isDefinition: true
+// CHECK: [[I:![0-9]+]] = !DIGlobalVariable(name: "i",{{.*}} scope: [[NS]],
+// CHECK: [[VAR_FWD:![0-9]+]] = !DIGlobalVariable(name: "var_fwd",{{.*}} scope: [[NS]],
+// CHECK-SAME:                                    line: 44
+// CHECK-SAME:                                    isDefinition: true
 
 // CHECK: [[MODULES]] = !{[[M1:![0-9]*]], [[M2:![0-9]*]], [[M3:![0-9]*]], [[M4:![0-9]*]], [[M5:![0-9]*]], [[M6:![0-9]*]], [[M7:![0-9]*]], [[M8:![0-9]*]], [[M9:![0-9]*]], [[M10:![0-9]*]], [[M11:![0-9]*]], [[M12:![0-9]*]], [[M13:![0-9]*]], [[M14:![0-9]*]], [[M15:![0-9]*]], [[M16:![0-9]*]], [[M17:![0-9]*]]}
 // CHECK: [[M1]] = !{!"0x3a\0015\00", [[CTXT]], [[NS]]} ; [ DW_TAG_imported_module ]
@@ -97,5 +104,4 @@ void B::func_fwd() {}
 
 // CHECK-NOLIMIT: ; [ DW_TAG_structure_type ] [bar] [line 6, {{.*}}] [def] [from ]
 
-// REQUIRES: shell-preserves-root
 // REQUIRES: dw2

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple %itanium_abi_triple -emit-llvm -g %s -o - | FileCheck %s
+// RUN: %clang_cc1 -triple %itanium_abi_triple -emit-llvm -debug-info-kind=limited %s -o - | FileCheck %s
 
 // CHECK: !"0x11\00{{.*}}", {{[^,]*}}, [[ENUMS:![0-9]*]], {{.*}}} ; [ DW_TAG_compile_unit ]
 // CHECK: [[ENUMS]] = !{[[E1:![0-9]*]], [[E2:![0-9]*]], [[E3:![0-9]*]]}

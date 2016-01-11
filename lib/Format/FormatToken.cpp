@@ -13,8 +13,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include "FormatToken.h"
 #include "ContinuationIndenter.h"
+#include "FormatToken.h"
 #include "clang/Format/Format.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
@@ -64,9 +64,10 @@ unsigned CommaSeparatedList::formatAfterToken(LineState &State,
     return 0;
 
   // Ensure that we start on the opening brace.
-  const FormatToken *LBrace = State.NextToken->Previous->Previous;
-  if (LBrace->isNot(tok::l_brace) || LBrace->BlockKind == BK_Block ||
-      LBrace->Type == TT_DictLiteral ||
+  const FormatToken *LBrace =
+      State.NextToken->Previous->getPreviousNonComment();
+  if (!LBrace || !LBrace->isOneOf(tok::l_brace, TT_ArrayInitializerLSquare) ||
+      LBrace->BlockKind == BK_Block || LBrace->Type == TT_DictLiteral ||
       LBrace->Next->Type == TT_DesignatedInitializerPeriod)
     return 0;
 
@@ -129,7 +130,8 @@ static unsigned CodePointsBetween(const FormatToken *Begin,
 
 void CommaSeparatedList::precomputeFormattingInfos(const FormatToken *Token) {
   // FIXME: At some point we might want to do this for other lists, too.
-  if (!Token->MatchingParen || Token->isNot(tok::l_brace))
+  if (!Token->MatchingParen ||
+      !Token->isOneOf(tok::l_brace, TT_ArrayInitializerLSquare))
     return;
 
   // In C++11 braced list style, we should not format in columns unless they
@@ -139,8 +141,14 @@ void CommaSeparatedList::precomputeFormattingInfos(const FormatToken *Token) {
       Commas.size() < 19)
     return;
 
+  // Limit column layout for JavaScript array initializers to 20 or more items
+  // for now to introduce it carefully. We can become more aggressive if this
+  // necessary.
+  if (Token->is(TT_ArrayInitializerLSquare) && Commas.size() < 19)
+    return;
+
   // Column format doesn't really make sense if we don't align after brackets.
-  if (!Style.AlignAfterOpenBracket)
+  if (Style.AlignAfterOpenBracket == FormatStyle::BAS_DontAlign)
     return;
 
   FormatToken *ItemBegin = Token->Next;
@@ -166,7 +174,8 @@ void CommaSeparatedList::precomputeFormattingInfos(const FormatToken *Token) {
       ItemEnd = Token->MatchingParen;
       const FormatToken *NonCommentEnd = ItemEnd->getPreviousNonComment();
       ItemLengths.push_back(CodePointsBetween(ItemBegin, NonCommentEnd));
-      if (Style.Cpp11BracedListStyle) {
+      if (Style.Cpp11BracedListStyle &&
+          !ItemEnd->Previous->isTrailingComment()) {
         // In Cpp11 braced list style, the } and possibly other subsequent
         // tokens will need to stay on a line with the last element.
         while (ItemEnd->Next && !ItemEnd->Next->CanBreakBefore)
@@ -195,12 +204,12 @@ void CommaSeparatedList::precomputeFormattingInfos(const FormatToken *Token) {
     ItemBegin = ItemEnd->Next;
   }
 
-  // If this doesn't have a nested list, we require at least 6 elements in order
-  // create a column layout. If it has a nested list, column layout ensures one
-  // list element per line. If the difference between the shortest and longest
-  // element is too large, column layout would create too much whitespace.
-  if (HasNestedBracedList || Commas.size() < 5 || Token->NestingLevel != 0 ||
-      MaxItemLength - MinItemLength > 10)
+  // Don't use column layout for lists with few elements and in presence of
+  // separating comments.
+  if (Commas.size() < 5 || HasSeparatingComment)
+    return;
+
+  if (Token->NestingLevel != 0 && Token->is(tok::l_brace) && Commas.size() < 19)
     return;
 
   // We can never place more than ColumnLimit / 3 items in a row (because of the

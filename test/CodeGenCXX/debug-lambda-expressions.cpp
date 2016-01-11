@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple x86_64-apple-darwin10.0.0 -emit-llvm -o - %s -fexceptions -std=c++11 -g | FileCheck %s
+// RUN: %clang_cc1 -triple x86_64-apple-darwin10.0.0 -emit-llvm -o - %s -fexceptions -std=c++11 -debug-info-kind=limited | FileCheck %s
 
 auto var = [](int i) { return i+1; };
 void *use = &var;
@@ -18,16 +18,16 @@ int d(int x) { D y[10]; return [x,y] { return y[x].x; }(); }
 // CHECK: [[FILE:.*]] = {{.*}} [ DW_TAG_file_type ] [{{.*}}debug-lambda-expressions.cpp]
 
 // A: 10
-// CHECK: [[A_FUNC:.*]] = {{.*}} [ DW_TAG_subprogram ] [line [[A_LINE:.*]]] [def] [a]
+// CHECK: ![[A_FUNC:.*]] = distinct !DISubprogram(name: "a"{{.*}}, line: [[A_LINE:[0-9]+]]{{.*}}, isDefinition: true
 
 // B: 14
-// CHECK: [[B_FUNC:.*]] = {{.*}} [ DW_TAG_subprogram ] [line [[B_LINE:.*]]] [def] [b]
+// CHECK: ![[B_FUNC:.*]] = distinct !DISubprogram(name: "b"{{.*}}, line: [[B_LINE:[0-9]+]]{{.*}}, isDefinition: true
 
 // C: 17
-// CHECK: [[C_FUNC:.*]] = {{.*}} [ DW_TAG_subprogram ] [line [[C_LINE:.*]]] [def] [c]
+// CHECK: ![[C_FUNC:.*]] = distinct !DISubprogram(name: "c"{{.*}}, line: [[C_LINE:[0-9]+]]{{.*}}, isDefinition: true
 
 // D: 18
-// CHECK: [[D_FUNC:.*]] = {{.*}} [ DW_TAG_subprogram ] [line [[D_LINE:.*]]] [def] [d]
+// CHECK: ![[D_FUNC:.*]] = distinct !DISubprogram(name: "d"{{.*}}, line: [[D_LINE:[0-9]+]]{{.*}}, isDefinition: true
 
 
 // Back to A. -- 78

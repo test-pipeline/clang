@@ -18,7 +18,7 @@ void test1() {
   }
   // CHECK-1: %struct.anon = type { i32* }
   //
-  // CHECK-1: test1
+  // CHECK-1: @test1(
   // CHECK-1: alloca %struct.anon
   // CHECK-1: getelementptr inbounds %struct.anon*
   // CHECK-1: store i32* %i
@@ -40,7 +40,7 @@ void test2(int x) {
     for (i = 0; i < x; i++)
       foo();
   }
-  // CHECK-2: test2
+  // CHECK-2: @test2(
   // CHECK-2-NOT: %i
   // CHECK-2: call void @[[HelperName:__captured_stmt[0-9]+]]
 }
@@ -57,7 +57,7 @@ void test3(int size) {
   {
     arr[2] = vla_arr[size - 1];
   }
-  // CHECK-3: test3
+  // CHECK-3: @test3(
   // CHECK-3: alloca [5 x i32]
   // CHECK-3: call void @__captured_stmt
 }

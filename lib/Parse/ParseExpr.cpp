@@ -163,6 +163,8 @@ ExprResult Parser::ParseAssignmentExpression(TypeCastState isTypeCast) {
 
   if (Tok.is(tok::kw_throw))
     return ParseThrowExpression();
+  if (Tok.is(tok::kw_co_yield))
+    return ParseCoyieldExpression();
 
   ExprResult LHS = ParseCastExpression(/*isUnaryExpression=*/false,
                                        /*isAddressOfOperand=*/false,
@@ -497,6 +499,7 @@ class CastExpressionIdValidator : public CorrectionCandidateCallback {
 ///         postfix-expression
 ///         '++' unary-expression
 ///         '--' unary-expression
+/// [Coro]  'co_await' cast-expression
 ///         unary-operator cast-expression
 ///         'sizeof' unary-expression
 ///         'sizeof' '(' type-name ')'
@@ -1012,6 +1015,14 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
     return Res;
   }
 
+  case tok::kw_co_await: {  // unary-expression: 'co_await' cast-expression
+    SourceLocation CoawaitLoc = ConsumeToken();
+    Res = ParseCastExpression(false);
+    if (!Res.isInvalid())
+      Res = Actions.ActOnCoawaitExpr(getCurScope(), CoawaitLoc, Res.get());
+    return Res;
+  }
+
   case tok::kw___extension__:{//unary-expression:'__extension__' cast-expr [GNU]
     // __extension__ silences extension warnings in the subexpression.
     ExtensionRAIIObject O(Diags);  // Use RAII to do this.
@@ -1292,8 +1303,23 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
     return ExprError();
   }
 
+  // Check to see whether Res is a function designator only. If it is and we
+  // are compiling for OpenCL, we need to return an error as this implies
+  // that the address of the function is being taken, which is illegal in CL.
+
   // These can be followed by postfix-expr pieces.
-  return ParsePostfixExpressionSuffix(Res);
+  Res = ParsePostfixExpressionSuffix(Res);
+  if (getLangOpts().OpenCL)
+    if (Expr *PostfixExpr = Res.get()) {
+      QualType Ty = PostfixExpr->getType();
+      if (!Ty.isNull() && Ty->isFunctionType()) {
+        Diag(PostfixExpr->getExprLoc(),
+             diag::err_opencl_taking_function_address_parser);
+        return ExprError();
+      }
+    }
+
+  return Res;
 }
 
 /// \brief Once the leading part of a postfix-expression is parsed, this
@@ -1365,21 +1391,42 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
       BalancedDelimiterTracker T(*this, tok::l_square);
       T.consumeOpen();
       Loc = T.getOpenLocation();
-      ExprResult Idx;
+      ExprResult Idx, Length;
+      SourceLocation ColonLoc;
       if (getLangOpts().CPlusPlus11 && Tok.is(tok::l_brace)) {
         Diag(Tok, diag::warn_cxx98_compat_generalized_initializer_lists);
         Idx = ParseBraceInitializer();
+      } else if (getLangOpts().OpenMP) {
+        ColonProtectionRAIIObject RAII(*this);
+        // Parse [: or [ expr or [ expr :
+        if (!Tok.is(tok::colon)) {
+          // [ expr
+          Idx = ParseExpression();
+        }
+        if (Tok.is(tok::colon)) {
+          // Consume ':'
+          ColonLoc = ConsumeToken();
+          if (Tok.isNot(tok::r_square))
+            Length = ParseExpression();
+        }
       } else
         Idx = ParseExpression();
 
       SourceLocation RLoc = Tok.getLocation();
 
-      if (!LHS.isInvalid() && !Idx.isInvalid() && Tok.is(tok::r_square)) {
-        LHS = Actions.ActOnArraySubscriptExpr(getCurScope(), LHS.get(), Loc,
-                                              Idx.get(), RLoc);
+      if (!LHS.isInvalid() && !Idx.isInvalid() && !Length.isInvalid() &&
+          Tok.is(tok::r_square)) {
+        if (ColonLoc.isValid()) {
+          LHS = Actions.ActOnOMPArraySectionExpr(LHS.get(), Loc, Idx.get(),
+                                                 ColonLoc, Length.get(), RLoc);
+        } else {
+          LHS = Actions.ActOnArraySubscriptExpr(getCurScope(), LHS.get(), Loc,
+                                                Idx.get(), RLoc);
+        }
       } else {
         (void)Actions.CorrectDelayedTyposInExpr(LHS);
         (void)Actions.CorrectDelayedTyposInExpr(Idx);
+        (void)Actions.CorrectDelayedTyposInExpr(Length);
         LHS = ExprError();
         Idx = ExprError();
       }
@@ -1919,7 +1966,7 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
         } else {
           PT.consumeClose();
           Res = Actions.ActOnBuiltinOffsetOf(getCurScope(), StartLoc, TypeLoc,
-                                             Ty.get(), &Comps[0], Comps.size(),
+                                             Ty.get(), Comps,
                                              PT.getCloseLocation());
         }
         break;
@@ -2686,7 +2733,7 @@ ExprResult Parser::ParseBlockLiteralExpression() {
                                              /*RestrictQualifierLoc=*/NoLoc,
                                              /*MutableLoc=*/NoLoc,
                                              EST_None,
-                                             /*ESpecLoc=*/NoLoc,
+                                             /*ESpecRange=*/SourceRange(),
                                              /*Exceptions=*/nullptr,
                                              /*ExceptionRanges=*/nullptr,
                                              /*NumExceptions=*/0,

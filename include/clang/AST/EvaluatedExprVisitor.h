@@ -85,8 +85,8 @@ public:
 
   void VisitLambdaExpr(LambdaExpr *LE) {
     // Only visit the capture initializers, and not the body.
-    for (LambdaExpr::capture_init_iterator I = LE->capture_init_begin(),
-                                           E = LE->capture_init_end();
+    for (LambdaExpr::const_capture_init_iterator I = LE->capture_init_begin(),
+                                                 E = LE->capture_init_end();
          I != E; ++I)
       if (*I)
         this->Visit(*I);

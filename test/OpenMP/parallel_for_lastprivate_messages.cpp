@@ -15,7 +15,9 @@ class S2 {
 public:
   S2() : a(0) {}
   S2(S2 &s2) : a(s2.a) {}
-  static float S2s;
+  S2 &operator=(const S2 &);
+  const S2 &operator=(const S2 &) const;
+  static float S2s; // expected-note {{static data member is predetermined as shared}}
   static const float S2sc;
 };
 const float S2::S2sc = 0; // expected-note {{static data member is predetermined as shared}}
@@ -65,7 +67,7 @@ int foomain(int argc, char **argv) {
   I e(4); // expected-note {{'e' defined here}}
   I g(5); // expected-note {{'g' defined here}}
   int i;
-  int &j = i;                        // expected-note {{'j' defined here}}
+  int &j = i;
 #pragma omp parallel for lastprivate // expected-error {{expected '(' after 'lastprivate'}}
   for (int k = 0; k < argc; ++k)
     ++k;
@@ -102,9 +104,6 @@ int foomain(int argc, char **argv) {
 #pragma omp parallel for lastprivate(h) // expected-error {{threadprivate or thread local variable cannot be lastprivate}}
   for (int k = 0; k < argc; ++k)
     ++k;
-#pragma omp parallel for linear(i) // expected-error {{unexpected OpenMP clause 'linear' in directive '#pragma omp parallel for'}}
-  for (int k = 0; k < argc; ++k)
-    ++k;
 #pragma omp parallel
   {
     int v = 0;
@@ -117,7 +116,7 @@ int foomain(int argc, char **argv) {
   }
 #pragma omp parallel shared(i)
 #pragma omp parallel private(i)
-#pragma omp parallel for lastprivate(j) // expected-error {{arguments of OpenMP clause 'lastprivate' cannot be of reference type}}
+#pragma omp parallel for lastprivate(j)
   for (int k = 0; k < argc; ++k)
     ++k;
 #pragma omp parallel for lastprivate(i)
@@ -134,7 +133,7 @@ int main(int argc, char **argv) {
   S3 m;                  // expected-note 2 {{'m' defined here}}
   S6 n(2);
   int i;
-  int &j = i;                        // expected-note {{'j' defined here}}
+  int &j = i;
 #pragma omp parallel for lastprivate // expected-error {{expected '(' after 'lastprivate'}}
   for (i = 0; i < argc; ++i)
     foo();
@@ -181,7 +180,7 @@ int main(int argc, char **argv) {
 #pragma omp parallel for lastprivate(xa) // OK
   for (i = 0; i < argc; ++i)
     foo();
-#pragma omp parallel for lastprivate(S2::S2s)
+#pragma omp parallel for lastprivate(S2::S2s) // expected-error {{shared variable cannot be lastprivate}}
   for (i = 0; i < argc; ++i)
     foo();
 #pragma omp parallel for lastprivate(S2::S2sc) // expected-error {{shared variable cannot be lastprivate}}
@@ -213,7 +212,7 @@ int main(int argc, char **argv) {
 #pragma omp parallel for lastprivate(xa)
   for (i = 0; i < argc; ++i)
     foo();
-#pragma omp parallel for lastprivate(j) // expected-error {{arguments of OpenMP clause 'lastprivate' cannot be of reference type}}
+#pragma omp parallel for lastprivate(j)
   for (i = 0; i < argc; ++i)
     foo();
 #pragma omp parallel for firstprivate(m) lastprivate(m) // expected-error {{lastprivate variable must have an accessible, unambiguous copy assignment operator}}
@@ -222,5 +221,10 @@ int main(int argc, char **argv) {
 #pragma omp parallel for lastprivate(n) firstprivate(n) // OK
   for (i = 0; i < argc; ++i)
     foo();
+  static int si;
+#pragma omp parallel for lastprivate(si) // OK
+  for (i = 0; i < argc; ++i)
+    si = i + 2;
+
   return foomain<S4, S5>(argc, argv); // expected-note {{in instantiation of function template specialization 'foomain<S4, S5>' requested here}}
 }

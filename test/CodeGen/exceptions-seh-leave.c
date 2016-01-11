@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 %s -triple x86_64-pc-win32 -fms-extensions -emit-llvm -o - | FileCheck %s
+// RUN: %clang_cc1 %s -triple x86_64-pc-win32 -fms-extensions -fnew-ms-eh -emit-llvm -o - | opt -instnamer -S | FileCheck %s
 
 // FIXME: Rewrite CHECKs for unnamed BBs and Insts.
 // REQUIRES: asserts
@@ -161,13 +161,17 @@ int nested___except___finally() {
 // CHECK-NEXT: invoke void bitcast (void (...)* @g to void ()*)() #3
 // CHECK-NEXT:       to label %[[g2_cont:.*]] unwind label %[[g2_lpad:.*]]
 
-// CHECK: [[g2_cont]]:
-// CHECK-NOT: store i32 23
-// CHECK: br label %__try.__leave
+// CHECK: [[g1_lpad]]
+// CHECK-NEXT: cleanuppad
+// CHECK-NEXT: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK-NEXT: invoke void @"\01?fin$0@0@nested___except___finally@@"(i8 1, i8* %[[fp]])
+// CHECK-NEXT:       to label %[[g1_resume:.*]] unwind label %[[g2_lpad]]
+// CHECK: cleanupret {{.*}} unwind label %[[g2_lpad]]
 
-// CHECK: [[g1_lpad]]:
-// CHECK: store i8 1, i8* %abnormal.termination.slot
-// CHECK-NEXT:  br label %__finally
+// CHECK: [[g2_lpad]]
+// CHECK: catchpad {{.*}} [i8* null]
+// CHECK: catchret
+// CHECK: br label %[[trycont]]
 
 // CHECK: [[g2_lpad]]:
 // CHECK-NOT: %abnormal.termination.slot
@@ -203,30 +207,142 @@ int nested___except___except() {
 // CHECK-LABEL: invoke void bitcast (void (...)* @g to void ()*)()
 // CHECK-NEXT:       to label %[[g1_cont:.*]] unwind label %[[g1_lpad:.*]]
 
-// CHECK: [[g1_cont]]:
-// CHECK: store i32 16, i32* %myres
-// CHECK-NEXT: br label %__try.cont
-
-// CHECK: [[g1_lpad]]:
-// CHECK:  br label %__except
-
-// CHECK-LABEL: __except:
-// CHECK-NEXT: invoke void bitcast (void (...)* @g to void ()*)() #3
+// CHECK: [[g1_lpad]]
+// CHECK: catchpad {{.*}} [i8* null]
+// CHECK: catchret {{.*}} to label %[[except:[^ ]*]]
+// CHECK: [[except]]
+// CHECK: invoke void @g()
 // CHECK-NEXT:       to label %[[g2_cont:.*]] unwind label %[[g2_lpad:.*]]
 
-// CHECK: [[g2_cont]]:
-// CHECK-NOT: store i32 23
-// CHECK: br label %__try.__leave
-
-// CHECK: [[g2_lpad]]:
-// CHECK: br label %__except3
+// CHECK: [[g2_lpad]]
+// CHECK: catchpad {{.*}} [i8* null]
+// CHECK: catchret
+// CHECK: br label %[[trycont4:[^ ]*]]
 
 // CHECK-LABEL: __except3:
 // CHECK-NEXT: br label %__try.cont4
 
-// CHECK-LABEL: __try.cont:
+// CHECK: [[g2_cont]]
+// CHECK-NEXT: br label %[[tryleave:[^ ]*]]
+// CHECK-NOT: store i32 23
+
+// CHECK: [[g1_cont]]
+// CHECK: store i32 16, i32* %myres
+// CHECK-NEXT: br label %[[trycont:[^ ]*]]
+
+// CHECK: [[trycont]]
 // CHECK-NEXT: store i32 51, i32* %myres
-// CHECK-NEXT: br label %__try.__leave
+// CHECK-NEXT: br label %[[tryleave]]
+
+// CHECK: [[tryleave]]
+// CHECK-NEXT: br label %[[trycont4]]
+
+int nested___finally___except() {
+  int myres = 0;
+  __try {
+    __try {
+      g();
+    } __except (1) {
+      g();
+      __leave;  // Refers to the outer __try, not the __except!
+      myres = 23;
+      return 0;
+    }
+
+    myres = 51;
+  } __finally {
+  }
+  return 1;
+}
+// The order of basic blocks in the below doesn't matter.
+// CHECK-LABEL: define i32 @nested___finally___except()
+
+// CHECK-LABEL: invoke void @g()
+// CHECK-NEXT:       to label %[[g1_cont:.*]] unwind label %[[g1_lpad:.*]]
+
+// CHECK: [[g1_lpad]]
+// CHECK: catchpad
+// CHECK: catchret
+// CHECK: invoke void @g()
+// CHECK-NEXT:       to label %[[g2_cont:.*]] unwind label %[[g2_lpad:.*]]
+
+// CHECK: [[g2_cont]]
+// CHECK: br label %[[tryleave:[^ ]*]]
+// CHECK-NOT: 23
+
+// CHECK: [[g1_cont]]
+// CHECK-NEXT: br label %[[trycont:[^ ]*]]
+
+// CHECK: [[trycont]]
+// CHECK: store i32 51, i32* %
+// CHECK-NEXT: br label %[[tryleave]]
+
+// CHECK: [[tryleave]]
+// CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK-NEXT: call void @"\01?fin$0@0@nested___finally___except@@"(i8 0, i8* %[[fp]])
+// CHECK-NEXT: ret i32 1
+
+// CHECK: [[g2_lpad]]
+// CHECK: cleanuppad
+// CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK-NEXT: call void @"\01?fin$0@0@nested___finally___except@@"(i8 1, i8* %[[fp]])
+// CHECK: cleanupret {{.*}} unwind to caller
+
+// CHECK-LABEL: define internal void @"\01?fin$0@0@nested___finally___except@@"(i8 %abnormal_termination, i8* %frame_pointer)
+// CHECK: ret void
+
+int nested___finally___finally() {
+  int myres = 0;
+  __try {
+    __try {
+      g();
+      myres = 16;
+    } __finally {
+      g();
+      __leave;  // Refers to the outer __try, not the __finally we're in!
+      myres = 23;
+      return 0;
+    }
+
+    myres = 51;
+  } __finally {
+  }
+  return 1;
+}
+// The order of basic blocks in the below doesn't matter.
+// CHECK-LABEL: define i32 @nested___finally___finally()
+
+// CHECK: invoke void @g()
+// CHECK-NEXT:       to label %[[g1_cont:.*]] unwind label %[[g1_lpad:.*]]
+
+// CHECK: [[g1_cont]]
+// CHECK: store i32 16, i32* %[[myres:[^ ]*]],
+// CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK-NEXT: invoke void @"\01?fin$1@0@nested___finally___finally@@"(i8 0, i8* %[[fp]])
+// CHECK-NEXT:       to label %[[finally_cont:.*]] unwind label %[[g2_lpad:.*]]
+
+// CHECK: [[finally_cont]]
+// CHECK: store i32 51, i32* %[[myres]]
+// CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK-NEXT: call void @"\01?fin$0@0@nested___finally___finally@@"(i8 0, i8* %[[fp]])
+// CHECK-NEXT: ret i32 1
+
+// CHECK: [[g1_lpad]]
+// CHECK-NEXT: %[[padtoken:[^ ]*]] = cleanuppad within none []
+// CHECK-NEXT: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK-NEXT: invoke void @"\01?fin$1@0@nested___finally___finally@@"(i8 1, i8* %[[fp]])
+// CHECK-NEXT:       to label %[[finally_cont2:.*]] unwind label %[[g2_lpad]]
+// CHECK: [[finally_cont2]]
+// CHECK: cleanupret from %[[padtoken]] unwind label %[[g2_lpad]]
+
+// CHECK: [[g2_lpad]]
+// CHECK-NEXT: %[[padtoken:[^ ]*]] = cleanuppad within none []
+// CHECK-NEXT: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK-NEXT: call void @"\01?fin$0@0@nested___finally___finally@@"(i8 1, i8* %[[fp]])
+// CHECK: cleanupret from %[[padtoken]] unwind to caller
+
+// CHECK-LABEL: define internal void @"\01?fin$0@0@nested___finally___finally@@"(i8 %abnormal_termination, i8* %frame_pointer)
+// CHECK: ret void
 
 // CHECK-LABEL: __try.__leave:
 // CHECK-NEXT: br label %__try.cont4

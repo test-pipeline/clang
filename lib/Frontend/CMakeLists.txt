@@ -34,6 +34,7 @@ add_clang_library(clangFrontend
   PrintPreprocessedOutput.cpp
   SerializedDiagnosticPrinter.cpp
   SerializedDiagnosticReader.cpp
+  TestModuleFileExtension.cpp
   TextDiagnostic.cpp
   TextDiagnosticBuffer.cpp
   TextDiagnosticPrinter.cpp
@@ -41,6 +42,7 @@ add_clang_library(clangFrontend
 
   DEPENDS
   ClangDriverOptions
+  intrinsics_gen
 
   LINK_LIBS
   clangAST

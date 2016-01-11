@@ -349,7 +349,8 @@ namespace VirtualMembers {
   struct nsMemoryImpl {
     virtual void f();
   };
-  // CHECK: @_ZN14VirtualMembersL13sGlobalMemoryE = internal global { i8** } { i8** getelementptr inbounds ([3 x i8*]* @_ZTVN14VirtualMembers12nsMemoryImplE, i64 0, i64 2) }
+  // CHECK: @_ZN14VirtualMembersL13sGlobalMemoryE = internal global { i8** } { i8** getelementptr inbounds ([3 x i8*], [3 x i8*]* @_ZTVN14VirtualMembers12nsMemoryImplE, i64 0, i64 2) }
+  __attribute__((used))
   static nsMemoryImpl sGlobalMemory;
 
   template<class T>

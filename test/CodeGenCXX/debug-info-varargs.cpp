@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple %itanium_abi_triple -emit-llvm -g %s -o - | FileCheck %s
+// RUN: %clang_cc1 -triple %itanium_abi_triple -emit-llvm -debug-info-kind=limited %s -o - | FileCheck %s
 
 struct A
 {
@@ -16,7 +16,9 @@ void b(int c, ...) {
 
   A a;
 
-  // CHECK:  !"0x100\00fptr\00[[@LINE+1]]\000"{{, [^,]+, [^,]+}}, ![[PST:[0-9]+]]} ; [ DW_TAG_auto_variable ] [fptr] [line [[@LINE+1]]]
+  // CHECK: !DILocalVariable(name: "fptr"
+  // CHECK-SAME:             line: [[@LINE+2]]
+  // CHECK-SAME:             type: ![[PST:[0-9]+]]
   void (*fptr)(int, ...) = b;
   // CHECK: ![[PST]] ={{.*}} ![[BTY]]} ; [ DW_TAG_pointer_type ]
 }

@@ -25,21 +25,21 @@ N: Doug Gregor
 E: dgregor@apple.com
 D: All parts of Clang not covered by someone else
 
+N: Manuel Klimek
+E: klimek@google.com
+D: AST matchers, LibTooling
+
 N: Anton Korobeynikov
 E: anton@korobeynikov.info
 D: Exception handling, Windows codegen, ARM EABI
 
-N: Ted Kremenek
-E: kremenek@apple.com
+N: Anna Zaks
+E: ganna@apple.com
 D: Clang Static Analyzer
 
 N: John McCall
 E: rjmccall@apple.com
 D: Clang LLVM IR generation
-
-N: Chad Rosier
-E: mcrosier@codeaurora.org
-D: Compiler driver
 
 N: Richard Smith
 E: richard@metafoo.co.uk

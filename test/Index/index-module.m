@@ -6,6 +6,8 @@ int glob;
 // RUN: rm -rf %t.cache
 // RUN: c-index-test -index-file %s -fmodules-cache-path=%t.cache -fmodules -F %S/../Modules/Inputs \
 // RUN:      -Xclang -fdisable-module-hash | FileCheck %s
+// RUN: c-index-test -index-file %s -fmodules-cache-path=%t.cache -fmodules -gmodules -F %S/../Modules/Inputs \
+// RUN:      -Xclang -fdisable-module-hash | FileCheck %s
 
 // CHECK-NOT: [indexDeclaration]
 // CHECK: [importedASTFile]: [[PCM:.*[/\\]DependsOnModule\.pcm]] | loc: 2:2 | name: "DependsOnModule" | isImplicit: 1

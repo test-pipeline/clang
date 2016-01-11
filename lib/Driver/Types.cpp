@@ -122,6 +122,29 @@ bool types::isCXX(ID Id) {
   case TY_ObjCXX: case TY_PP_ObjCXX: case TY_PP_ObjCXX_Alias:
   case TY_CXXHeader: case TY_PP_CXXHeader:
   case TY_ObjCXXHeader: case TY_PP_ObjCXXHeader:
+  case TY_CUDA: case TY_PP_CUDA: case TY_CUDA_DEVICE:
+    return true;
+  }
+}
+
+bool types::isLLVMIR(ID Id) {
+  switch (Id) {
+  default:
+    return false;
+
+  case TY_LLVM_IR:
+  case TY_LLVM_BC:
+  case TY_LTO_IR:
+  case TY_LTO_BC:
+    return true;
+  }
+}
+
+bool types::isCuda(ID Id) {
+  switch (Id) {
+  default:
+    return false;
+
   case TY_CUDA:
     return true;
   }

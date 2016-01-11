@@ -156,6 +156,10 @@ struct PragmaUnrollHintHandler : public PragmaHandler {
                     Token &FirstToken) override;
 };
 
+struct PragmaMSRuntimeChecksHandler : public EmptyPragmaHandler {
+  PragmaMSRuntimeChecksHandler() : EmptyPragmaHandler("runtime_checks") {}
+};
+
 }  // end namespace
 
 void Parser::initializePragmaHandlers() {
@@ -219,9 +223,8 @@ void Parser::initializePragmaHandlers() {
     PP.AddPragmaHandler(MSCodeSeg.get());
     MSSection.reset(new PragmaMSPragma("section"));
     PP.AddPragmaHandler(MSSection.get());
-  } else if (getTargetInfo().getTriple().isPS4()) {
-    MSCommentHandler.reset(new PragmaCommentHandler(Actions));
-    PP.AddPragmaHandler(MSCommentHandler.get());
+    MSRuntimeChecks.reset(new PragmaMSRuntimeChecksHandler());
+    PP.AddPragmaHandler(MSRuntimeChecks.get());
   }
 
   OptimizeHandler.reset(new PragmaOptimizeHandler(Actions));
@@ -285,9 +288,8 @@ void Parser::resetPragmaHandlers() {
     MSCodeSeg.reset();
     PP.RemovePragmaHandler(MSSection.get());
     MSSection.reset();
-  } else if (getTargetInfo().getTriple().isPS4()) {
-    PP.RemovePragmaHandler(MSCommentHandler.get());
-    MSCommentHandler.reset();
+    PP.RemovePragmaHandler(MSRuntimeChecks.get());
+    MSRuntimeChecks.reset();
   }
 
   PP.RemovePragmaHandler("STDC", FPContractHandler.get());
@@ -326,6 +328,7 @@ void Parser::HandlePragmaVisibility() {
   Actions.ActOnPragmaVisibility(VisType, VisLoc);
 }
 
+namespace {
 struct PragmaPackInfo {
   Sema::PragmaPackKind Kind;
   IdentifierInfo *Name;
@@ -333,6 +336,7 @@ struct PragmaPackInfo {
   SourceLocation LParenLoc;
   SourceLocation RParenLoc;
 };
+} // end anonymous namespace
 
 void Parser::HandlePragmaPack() {
   assert(Tok.is(tok::annot_pragma_pack));
@@ -742,13 +746,13 @@ bool Parser::HandlePragmaMSInitSeg(StringRef PragmaName,
   return true;
 }
 
+namespace {
 struct PragmaLoopHintInfo {
   Token PragmaName;
   Token Option;
-  Token *Toks;
-  size_t TokSize;
-  PragmaLoopHintInfo() : Toks(nullptr), TokSize(0) {}
+  ArrayRef<Token> Toks;
 };
+} // end anonymous namespace
 
 static std::string PragmaLoopHintString(Token PragmaName, Token Option) {
   std::string PragmaString;
@@ -780,8 +784,8 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
   Hint.OptionLoc = IdentifierLoc::create(
       Actions.Context, Info->Option.getLocation(), OptionInfo);
 
-  Token *Toks = Info->Toks;
-  size_t TokSize = Info->TokSize;
+  const Token *Toks = Info->Toks.data();
+  size_t TokSize = Info->Toks.size();
 
   // Return a valid hint if pragma unroll or nounroll were specified
   // without an argument.
@@ -822,9 +826,10 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
     bool OptionUnroll = OptionInfo->isStr("unroll");
     SourceLocation StateLoc = Toks[0].getLocation();
     IdentifierInfo *StateInfo = Toks[0].getIdentifierInfo();
-    if (!StateInfo || ((OptionUnroll ? !StateInfo->isStr("full")
-                                     : !StateInfo->isStr("enable")) &&
-                       !StateInfo->isStr("disable"))) {
+    if (!StateInfo ||
+        (!StateInfo->isStr("enable") && !StateInfo->isStr("disable") &&
+         ((OptionUnroll && !StateInfo->isStr("full")) ||
+          (!OptionUnroll && !StateInfo->isStr("assume_safety"))))) {
       Diag(Toks[0].getLocation(), diag::err_pragma_invalid_keyword)
           << /*FullKeyword=*/OptionUnroll;
       return false;
@@ -1898,11 +1903,7 @@ static bool ParseLoopHintValue(Preprocessor &PP, Token &Tok, Token PragmaName,
   EOFTok.setLocation(Tok.getLocation());
   ValueList.push_back(EOFTok); // Terminates expression for parsing.
 
-  Token *TokenArray = (Token *)PP.getPreprocessorAllocator().Allocate(
-      ValueList.size() * sizeof(Token), llvm::alignOf<Token>());
-  std::copy(ValueList.begin(), ValueList.end(), TokenArray);
-  Info.Toks = TokenArray;
-  Info.TokSize = ValueList.size();
+  Info.Toks = llvm::makeArrayRef(ValueList).copy(PP.getPreprocessorAllocator());
 
   Info.PragmaName = PragmaName;
   Info.Option = Option;
@@ -1928,8 +1929,9 @@ static bool ParseLoopHintValue(Preprocessor &PP, Token &Tok, Token PragmaName,
 ///    'disable'
 ///
 ///  unroll-hint-keyword:
-///    'full'
+///    'enable'
 ///    'disable'
+///    'full'
 ///
 ///  loop-hint-value:
 ///    constant-expression
@@ -1945,10 +1947,13 @@ static bool ParseLoopHintValue(Preprocessor &PP, Token &Tok, Token PragmaName,
 /// only works on inner loops.
 ///
 /// The unroll and unroll_count directives control the concatenation
-/// unroller. Specifying unroll(full) instructs llvm to try to
-/// unroll the loop completely, and unroll(disable) disables unrolling
-/// for the loop. Specifying unroll_count(_value_) instructs llvm to
-/// try to unroll the loop the number of times indicated by the value.
+/// unroller. Specifying unroll(enable) instructs llvm to unroll the loop
+/// completely if the trip count is known at compile time and unroll partially
+/// if the trip count is not known.  Specifying unroll(full) is similar to
+/// unroll(enable) but will unroll the loop only if the trip count is known at
+/// compile time.  Specifying unroll(disable) disables unrolling for the
+/// loop. Specifying unroll_count(_value_) instructs llvm to try to unroll the
+/// loop the number of times indicated by the value.
 void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
                                          PragmaIntroducerKind Introducer,
                                          Token &Tok) {

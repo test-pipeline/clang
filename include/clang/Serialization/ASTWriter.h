@@ -56,6 +56,8 @@ class OpaqueValueExpr;
 class OpenCLOptions;
 class ASTReader;
 class Module;
+class ModuleFileExtension;
+class ModuleFileExtensionWriter;
 class PreprocessedEntity;
 class PreprocessingRecord;
 class Preprocessor;
@@ -80,6 +82,7 @@ class ASTWriter : public ASTDeserializationListener,
 public:
   typedef SmallVector<uint64_t, 64> RecordData;
   typedef SmallVectorImpl<uint64_t> RecordDataImpl;
+  typedef ArrayRef<uint64_t> RecordDataRef;
 
   friend class ASTDeclWriter;
   friend class ASTStmtWriter;
@@ -114,6 +117,12 @@ private:
 
   /// \brief The base directory for any relative paths we emit.
   std::string BaseDirectory;
+
+  /// \brief Indicates whether timestamps should be written to the produced
+  /// module file. This is the case for files implicitly written to the
+  /// module cache, where we need the timestamps to determine if the module
+  /// file is up to date, but not otherwise.
+  bool IncludeTimestamps;
 
   /// \brief Indicates when the AST writing is actively performing
   /// serialization, rather than just queueing updates.
@@ -357,10 +366,6 @@ private:
   /// coming from another AST file.
   SmallVector<const Decl *, 16> UpdatingVisibleDecls;
 
-  typedef llvm::SmallPtrSet<const Decl *, 16> DeclsToRewriteTy;
-  /// \brief Decls that will be replaced in the current dependent AST file.
-  DeclsToRewriteTy DeclsToRewrite;
-
   /// \brief The set of Objective-C class that have categories we
   /// should serialize.
   llvm::SetVector<ObjCInterfaceDecl *> ObjCClassesWithCategories;
@@ -386,8 +391,11 @@ private:
                  
   /// \brief The set of declarations that may have redeclaration chains that
   /// need to be serialized.
-  llvm::SetVector<Decl *, SmallVector<Decl *, 4>,
-                  llvm::SmallPtrSet<Decl *, 4> > Redeclarations;
+  llvm::SmallVector<const Decl *, 16> Redeclarations;
+
+  /// \brief A cache of the first local declaration for "interesting"
+  /// redeclaration chains.
+  llvm::DenseMap<const Decl *, const Decl *> FirstLocalDeclCache;
                                       
   /// \brief Statements that we've encountered while serializing a
   /// declaration or type.
@@ -446,20 +454,23 @@ private:
   /// \brief A mapping from each known submodule to its ID number, which will
   /// be a positive integer.
   llvm::DenseMap<Module *, unsigned> SubmoduleIDs;
-                    
+
+  /// \brief A list of the module file extension writers.
+  std::vector<std::unique_ptr<ModuleFileExtensionWriter>>
+    ModuleFileExtensionWriters;
+
   /// \brief Retrieve or create a submodule ID for this module.
   unsigned getSubmoduleID(Module *Mod);
-                    
+
   /// \brief Write the given subexpression to the bitstream.
   void WriteSubStmt(Stmt *S,
                     llvm::DenseMap<Stmt *, uint64_t> &SubStmtEntries,
                     llvm::DenseSet<Stmt *> &ParentStmts);
 
   void WriteBlockInfoBlock();
-  void WriteControlBlock(Preprocessor &PP, ASTContext &Context,
-                         StringRef isysroot, const std::string &OutputFile);
-  void WriteInputFiles(SourceManager &SourceMgr,
-                       HeaderSearchOptions &HSOpts,
+  uint64_t WriteControlBlock(Preprocessor &PP, ASTContext &Context,
+                             StringRef isysroot, const std::string &OutputFile);
+  void WriteInputFiles(SourceManager &SourceMgr, HeaderSearchOptions &HSOpts,
                        bool Modules);
   void WriteSourceManagerBlock(SourceManager &SourceMgr,
                                const Preprocessor &PP);
@@ -477,8 +488,11 @@ private:
   void WriteTypeAbbrevs();
   void WriteType(QualType T);
 
-  uint32_t GenerateNameLookupTable(const DeclContext *DC,
-                                   llvm::SmallVectorImpl<char> &LookupTable);
+  bool isLookupResultExternal(StoredDeclsList &Result, DeclContext *DC);
+  bool isLookupResultEntirelyExternal(StoredDeclsList &Result, DeclContext *DC);
+
+  void GenerateNameLookupTable(const DeclContext *DC,
+                               llvm::SmallVectorImpl<char> &LookupTable);
   uint64_t WriteDeclContextLexicalBlock(ASTContext &Context, DeclContext *DC);
   uint64_t WriteDeclContextVisibleBlock(ASTContext &Context, DeclContext *DC);
   void WriteTypeDeclOffsets();
@@ -495,10 +509,10 @@ private:
   void WriteFPPragmaOptions(const FPOptions &Opts);
   void WriteOpenCLExtensions(Sema &SemaRef);
   void WriteObjCCategories();
-  void WriteRedeclarations();
-  void WriteMergedDecls();
   void WriteLateParsedTemplates(Sema &SemaRef);
   void WriteOptimizePragmaOptions(Sema &SemaRef);
+  void WriteModuleFileExtension(Sema &SemaRef,
+                                ModuleFileExtensionWriter &Writer);
 
   unsigned DeclParmVarAbbrev;
   unsigned DeclContextLexicalAbbrev;
@@ -521,17 +535,24 @@ private:
   void WriteDecl(ASTContext &Context, Decl *D);
   void AddFunctionDefinition(const FunctionDecl *FD, RecordData &Record);
 
-  void WriteASTCore(Sema &SemaRef,
-                    StringRef isysroot, const std::string &OutputFile,
-                    Module *WritingModule);
+  uint64_t WriteASTCore(Sema &SemaRef,
+                        StringRef isysroot, const std::string &OutputFile,
+                        Module *WritingModule);
 
 public:
   /// \brief Create a new precompiled header writer that outputs to
   /// the given bitstream.
-  ASTWriter(llvm::BitstreamWriter &Stream);
-  ~ASTWriter();
+  ASTWriter(llvm::BitstreamWriter &Stream,
+            ArrayRef<llvm::IntrusiveRefCntPtr<ModuleFileExtension>> Extensions,
+            bool IncludeTimestamps = true);
+  ~ASTWriter() override;
 
   const LangOptions &getLangOpts() const;
+
+  /// \brief Get a timestamp for output into the AST file. The actual timestamp
+  /// of the specified file may be ignored if we have been instructed to not
+  /// include timestamps in the output file.
+  time_t getTimestampForOutput(const FileEntry *E) const;
 
   /// \brief Write a precompiled header for the given semantic analysis.
   ///
@@ -544,10 +565,12 @@ public:
   /// \param isysroot if non-empty, write a relocatable file whose headers
   /// are relative to the given system root. If we're writing a module, its
   /// build directory will be used in preference to this if both are available.
-  void WriteAST(Sema &SemaRef,
-                const std::string &OutputFile,
-                Module *WritingModule, StringRef isysroot,
-                bool hasErrors = false);
+  ///
+  /// \return the module signature, which eventually will be a hash of
+  /// the module but currently is merely a random 32-bit number.
+  uint64_t WriteAST(Sema &SemaRef, const std::string &OutputFile,
+                    Module *WritingModule, StringRef isysroot,
+                    bool hasErrors = false);
 
   /// \brief Emit a token.
   void AddToken(const Token &Tok, RecordDataImpl &Record);
@@ -630,6 +653,10 @@ public:
                           const ASTTemplateArgumentListInfo *ASTTemplArgList,
                           RecordDataImpl &Record);
 
+  /// \brief Find the first local declaration of a given local redeclarable
+  /// decl.
+  const Decl *getFirstLocalDecl(const Decl *D);
+
   /// \brief Emit a reference to a declaration.
   void AddDeclRef(const Decl *D, RecordDataImpl &Record);
 
@@ -698,30 +725,20 @@ public:
   void AddPath(StringRef Path, RecordDataImpl &Record);
 
   /// \brief Emit the current record with the given path as a blob.
-  void EmitRecordWithPath(unsigned Abbrev, RecordDataImpl &Record,
+  void EmitRecordWithPath(unsigned Abbrev, RecordDataRef Record,
                           StringRef Path);
 
   /// \brief Add a version tuple to the given record
   void AddVersionTuple(const VersionTuple &Version, RecordDataImpl &Record);
 
-  /// \brief Mark a declaration context as needing an update.
-  void AddUpdatedDeclContext(const DeclContext *DC);
-
-  void RewriteDecl(const Decl *D) {
-    DeclsToRewrite.insert(D);
-  }
-
-  bool isRewritten(const Decl *D) const {
-    return DeclsToRewrite.count(D);
-  }
-
   /// \brief Infer the submodule ID that contains an entity at the given
   /// source location.
   serialization::SubmoduleID inferSubmoduleIDFromLocation(SourceLocation Loc);
 
-  /// \brief Retrieve a submodule ID for this module.
-  /// Returns 0 If no ID has been associated with the module.
-  unsigned getExistingSubmoduleID(Module *Mod) const;
+  /// \brief Retrieve or create a submodule ID for this module, or return 0 if
+  /// the submodule is neither local (a submodle of the currently-written module)
+  /// nor from an imported module.
+  unsigned getLocalOrImportedSubmoduleID(Module *Mod);
 
   /// \brief Note that the identifier II occurs at the given offset
   /// within the identifier table.
@@ -781,6 +798,7 @@ public:
   unsigned getExprImplicitCastAbbrev() const { return ExprImplicitCastAbbrev; }
 
   bool hasChain() const { return Chain; }
+  ASTReader *getChain() const { return Chain; }
 
   // ASTDeserializationListener implementation
   void ReaderInitialized(ASTReader *Reader) override;
@@ -796,22 +814,14 @@ public:
   void CompletedTagDefinition(const TagDecl *D) override;
   void AddedVisibleDecl(const DeclContext *DC, const Decl *D) override;
   void AddedCXXImplicitMember(const CXXRecordDecl *RD, const Decl *D) override;
-  void AddedCXXTemplateSpecialization(const ClassTemplateDecl *TD,
-                             const ClassTemplateSpecializationDecl *D) override;
-  void AddedCXXTemplateSpecialization(const VarTemplateDecl *TD,
-                               const VarTemplateSpecializationDecl *D) override;
-  void AddedCXXTemplateSpecialization(const FunctionTemplateDecl *TD,
-                                      const FunctionDecl *D) override;
   void ResolvedExceptionSpec(const FunctionDecl *FD) override;
   void DeducedReturnType(const FunctionDecl *FD, QualType ReturnType) override;
   void CompletedImplicitDefinition(const FunctionDecl *D) override;
   void StaticDataMemberInstantiated(const VarDecl *D) override;
+  void DefaultArgumentInstantiated(const ParmVarDecl *D) override;
   void FunctionDefinitionInstantiated(const FunctionDecl *D) override;
   void AddedObjCCategoryToInterface(const ObjCCategoryDecl *CatD,
                                     const ObjCInterfaceDecl *IFD) override;
-  void AddedObjCPropertyInClassExtension(const ObjCPropertyDecl *Prop,
-                                    const ObjCPropertyDecl *OrigProp,
-                                    const ObjCCategoryDecl *ClassExt) override;
   void DeclarationMarkedUsed(const Decl *D) override;
   void DeclarationMarkedOpenMPThreadPrivate(const Decl *D) override;
 };
@@ -836,11 +846,14 @@ protected:
   const ASTWriter &getWriter() const { return Writer; }
 
 public:
-  PCHGenerator(const Preprocessor &PP, StringRef OutputFile,
-               clang::Module *Module,
-               StringRef isysroot, raw_ostream *Out,
-               bool AllowASTWithErrors = false);
-  ~PCHGenerator();
+  PCHGenerator(
+    const Preprocessor &PP, StringRef OutputFile,
+    clang::Module *Module, StringRef isysroot,
+    std::shared_ptr<PCHBuffer> Buffer,
+    ArrayRef<llvm::IntrusiveRefCntPtr<ModuleFileExtension>> Extensions,
+    bool AllowASTWithErrors = false,
+    bool IncludeTimestamps = true);
+  ~PCHGenerator() override;
   void InitializeSema(Sema &S) override { SemaPtr = &S; }
   void HandleTranslationUnit(ASTContext &Ctx) override;
   ASTMutationListener *GetASTMutationListener() override;

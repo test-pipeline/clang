@@ -113,4 +113,556 @@ void test1() {
 
   vec_vsx_st(vd, 0, &res_vd);
 // CHECK: @llvm.ppc.vsx.stxvd2x
+// CHECK-LE: @llvm.ppc.vsx.stxvd2x
+
+  /* vec_and */
+  res_vsll = vec_and(vsll, vsll);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vsll = vec_and(vbll, vsll);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vsll = vec_and(vsll, vbll);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vull = vec_and(vull, vull);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vull = vec_and(vbll, vull);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vull = vec_and(vull, vbll);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vbll = vec_and(vbll, vbll);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  /* vec_vand */
+  res_vsll = vec_vand(vsll, vsll);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vsll = vec_vand(vbll, vsll);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vsll = vec_vand(vsll, vbll);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vull = vec_vand(vull, vull);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vull = vec_vand(vbll, vull);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vull = vec_vand(vull, vbll);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vbll = vec_vand(vbll, vbll);
+// CHECK: and <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  /* vec_andc */
+  res_vsll = vec_andc(vsll, vsll);
+// CHECK: xor <2 x i64>
+// CHECK: and <2 x i64>
+// CHECK-LE: xor <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vsll = vec_andc(vbll, vsll);
+// CHECK: xor <2 x i64>
+// CHECK: and <2 x i64>
+// CHECK-LE: xor <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vsll = vec_andc(vsll, vbll);
+// CHECK: xor <2 x i64>
+// CHECK: and <2 x i64>
+// CHECK-LE: xor <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vull = vec_andc(vull, vull);
+// CHECK: xor <2 x i64>
+// CHECK: and <2 x i64>
+// CHECK-LE: xor <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vull = vec_andc(vbll, vull);
+// CHECK: xor <2 x i64>
+// CHECK: and <2 x i64>
+// CHECK-LE: xor <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vull = vec_andc(vull, vbll);
+// CHECK: xor <2 x i64>
+// CHECK: and <2 x i64>
+// CHECK-LE: xor <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vbll = vec_andc(vbll, vbll);
+// CHECK: xor <2 x i64>
+// CHECK: and <2 x i64>
+// CHECK-LE: xor <2 x i64>
+// CHECK-LE: and <2 x i64>
+
+  res_vf = vec_floor(vf);
+// CHECK: call <4 x float> @llvm.floor.v4f32(<4 x float> %{{[0-9]+}})
+// CHECK-LE: call <4 x float> @llvm.floor.v4f32(<4 x float> %{{[0-9]+}})
+
+  res_vd = vec_floor(vd);
+// CHECK: call <2 x double> @llvm.floor.v2f64(<2 x double> %{{[0-9]+}})
+// CHECK-LE: call <2 x double> @llvm.floor.v2f64(<2 x double> %{{[0-9]+}})
+
+  res_vf = vec_madd(vf, vf, vf);
+// CHECK: call <4 x float> @llvm.fma.v4f32(<4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}})
+// CHECK-LE: call <4 x float> @llvm.fma.v4f32(<4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}})
+
+  res_vd = vec_madd(vd, vd, vd);
+// CHECK: call <2 x double> @llvm.fma.v2f64(<2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}})
+// CHECK-LE: call <2 x double> @llvm.fma.v2f64(<2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}})
+
+  /* vec_mergeh */
+  res_vsll = vec_mergeh(vsll, vsll);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  res_vsll = vec_mergeh(vsll, vbll);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  res_vsll = vec_mergeh(vbll, vsll);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  res_vull = vec_mergeh(vull, vull);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  res_vull = vec_mergeh(vull, vbll);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  res_vull = vec_mergeh(vbll, vull);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  /* vec_mergel */
+  res_vsll = vec_mergel(vsll, vsll);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  res_vsll = vec_mergel(vsll, vbll);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  res_vsll = vec_mergel(vbll, vsll);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  res_vull = vec_mergel(vull, vull);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  res_vull = vec_mergel(vull, vbll);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  res_vull = vec_mergel(vbll, vull);
+// CHECK: @llvm.ppc.altivec.vperm
+// CHECK-LE: @llvm.ppc.altivec.vperm
+
+  /* vec_msub */
+  res_vf = vec_msub(vf, vf, vf);
+// CHECK: fsub <4 x float> <float -0.000000e+00, float -0.000000e+00, float -0.000000e+00, float -0.000000e+00>, %{{[0-9]+}}
+// CHECK-NEXT: call <4 x float> @llvm.fma.v4f32(<4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}}, <4 x float>
+// CHECK-LE: fsub <4 x float> <float -0.000000e+00, float -0.000000e+00, float -0.000000e+00, float -0.000000e+00>, %{{[0-9]+}}
+// CHECK-LE-NEXT: call <4 x float> @llvm.fma.v4f32(<4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}}, <4 x float>
+
+  res_vd = vec_msub(vd, vd, vd);
+// CHECK: fsub <2 x double> <double -0.000000e+00, double -0.000000e+00>, %{{[0-9]+}}
+// CHECK-NEXT: call <2 x double> @llvm.fma.v2f64(<2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}}, <2 x double>
+// CHECK-LE: fsub <2 x double> <double -0.000000e+00, double -0.000000e+00>, %{{[0-9]+}}
+// CHECK-LE-NEXT: call <2 x double> @llvm.fma.v2f64(<2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}}, <2 x double>
+
+  res_vsll = vec_mul(vsll, vsll);
+// CHECK: mul <2 x i64>
+// CHECK-LE: mul <2 x i64>
+
+  res_vull = vec_mul(vull, vull);
+// CHECK: mul <2 x i64>
+// CHECK-LE: mul <2 x i64>
+
+  res_vf = vec_mul(vf, vf);
+// CHECK: fmul <4 x float> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-LE: fmul <4 x float> %{{[0-9]+}}, %{{[0-9]+}}
+
+  res_vd = vec_mul(vd, vd);
+// CHECK: fmul <2 x double> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-LE: fmul <2 x double> %{{[0-9]+}}, %{{[0-9]+}}
+
+  res_vf = vec_nearbyint(vf);
+// CHECK: call <4 x float> @llvm.round.v4f32(<4 x float> %{{[0-9]+}})
+// CHECK-LE: call <4 x float> @llvm.round.v4f32(<4 x float> %{{[0-9]+}})
+
+  res_vd = vec_nearbyint(vd);
+// CHECK: call <2 x double> @llvm.round.v2f64(<2 x double> %{{[0-9]+}})
+// CHECK-LE: call <2 x double> @llvm.round.v2f64(<2 x double> %{{[0-9]+}})
+
+  res_vf = vec_nmadd(vf, vf, vf);
+// CHECK: [[FM:[0-9]+]] = call <4 x float> @llvm.fma.v4f32(<4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}})
+// CHECK-NEXT: fsub <4 x float> <float -0.000000e+00, float -0.000000e+00, float -0.000000e+00, float -0.000000e+00>, %[[FM]]
+// CHECK-LE: [[FM:[0-9]+]] = call <4 x float> @llvm.fma.v4f32(<4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}})
+// CHECK-LE-NEXT: fsub <4 x float> <float -0.000000e+00, float -0.000000e+00, float -0.000000e+00, float -0.000000e+00>, %[[FM]]
+
+  res_vd = vec_nmadd(vd, vd, vd);
+// CHECK: [[FM:[0-9]+]] = call <2 x double> @llvm.fma.v2f64(<2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}})
+// CHECK-NEXT: fsub <2 x double> <double -0.000000e+00, double -0.000000e+00>, %[[FM]]
+// CHECK-LE: [[FM:[0-9]+]] = call <2 x double> @llvm.fma.v2f64(<2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}})
+// CHECK-LE-NEXT: fsub <2 x double> <double -0.000000e+00, double -0.000000e+00>, %[[FM]]
+
+  res_vf = vec_nmsub(vf, vf, vf);
+// CHECK: fsub <4 x float> <float -0.000000e+00, float -0.000000e+00, float -0.000000e+00, float -0.000000e+00>, %{{[0-9]+}}
+// CHECK-NEXT: call <4 x float> @llvm.fma.v4f32(<4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}}, <4 x float>
+// CHECK: fsub <4 x float> <float -0.000000e+00, float -0.000000e+00, float -0.000000e+00, float -0.000000e+00>, %{{[0-9]+}}
+// CHECK-LE: fsub <4 x float> <float -0.000000e+00, float -0.000000e+00, float -0.000000e+00, float -0.000000e+00>, %{{[0-9]+}}
+// CHECK-LE-NEXT: call <4 x float> @llvm.fma.v4f32(<4 x float> %{{[0-9]+}}, <4 x float> %{{[0-9]+}}, <4 x float>
+// CHECK-LE: fsub <4 x float> <float -0.000000e+00, float -0.000000e+00, float -0.000000e+00, float -0.000000e+00>, %{{[0-9]+}}
+
+  res_vd = vec_nmsub(vd, vd, vd);
+// CHECK: fsub <2 x double> <double -0.000000e+00, double -0.000000e+00>, %{{[0-9]+}}
+// CHECK-NEXT: [[FM:[0-9]+]] = call <2 x double> @llvm.fma.v2f64(<2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}}, <2 x double>
+// CHECK-NEXT: fsub <2 x double> <double -0.000000e+00, double -0.000000e+00>, %[[FM]]
+// CHECK-LE: fsub <2 x double> <double -0.000000e+00, double -0.000000e+00>, %{{[0-9]+}}
+// CHECK-LE-NEXT: [[FM:[0-9]+]] = call <2 x double> @llvm.fma.v2f64(<2 x double> %{{[0-9]+}}, <2 x double> %{{[0-9]+}}, <2 x double>
+// CHECK-LE-NEXT: fsub <2 x double> <double -0.000000e+00, double -0.000000e+00>, %[[FM]]
+
+  /* vec_nor */
+  res_vsll = vec_nor(vsll, vsll);
+// CHECK: or <2 x i64>
+// CHECK: xor <2 x i64>
+// CHECK-LE: or <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vull = vec_nor(vull, vull);
+// CHECK: or <2 x i64>
+// CHECK: xor <2 x i64>
+// CHECK-LE: or <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vull = vec_nor(vbll, vbll);
+// CHECK: or <2 x i64>
+// CHECK: xor <2 x i64>
+// CHECK-LE: or <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vd = vec_nor(vd, vd);
+// CHECK: bitcast <2 x double> %{{[0-9]+}} to <2 x i64>
+// CHECK: [[OR:%.+]] = or <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-NEXT: xor <2 x i64> [[OR]], <i64 -1, i64 -1>
+// CHECK-LE: bitcast <2 x double> %{{[0-9]+}} to <2 x i64>
+// CHECK-LE: [[OR:%.+]] = or <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-LE-NEXT: xor <2 x i64> [[OR]], <i64 -1, i64 -1>
+
+  /* vec_or */
+  res_vsll = vec_or(vsll, vsll);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vsll = vec_or(vbll, vsll);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vsll = vec_or(vsll, vbll);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vull = vec_or(vull, vull);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vull = vec_or(vbll, vull);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vull = vec_or(vull, vbll);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vbll = vec_or(vbll, vbll);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vd = vec_or(vd, vd);
+// CHECK: bitcast <2 x double> %{{[0-9]+}} to <2 x i64>
+// CHECK: or <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-LE: bitcast <2 x double> %{{[0-9]+}} to <2 x i64>
+// CHECK-LE: or <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+
+  res_vd = vec_or(vbll, vd);
+// CHECK: [[T1:%.+]] = bitcast <2 x double> %{{[0-9]+}} to <2 x i64>
+// CHECK: [[T2:%.+]] = or <2 x i64> %{{[0-9]+}}, [[T1]]
+// CHECK: bitcast <2 x i64> [[T2]] to <2 x double>
+// CHECK-LE: [[T1:%.+]] = bitcast <2 x double> %{{[0-9]+}} to <2 x i64>
+// CHECK-LE: [[T2:%.+]] = or <2 x i64> %{{[0-9]+}}, [[T1]]
+// CHECK-LE: bitcast <2 x i64> [[T2]] to <2 x double>
+
+  res_vd = vec_or(vd, vbll);
+// CHECK: [[T1:%.+]] = bitcast <2 x double> %{{[0-9]+}} to <2 x i64>
+// CHECK: [[T2:%.+]] = or <2 x i64> [[T1]], %{{[0-9]+}}
+// CHECK: bitcast <2 x i64> [[T2]] to <2 x double>
+// CHECK-LE: [[T1:%.+]] = bitcast <2 x double> %{{[0-9]+}} to <2 x i64>
+// CHECK-LE: [[T2:%.+]] = or <2 x i64> [[T1]], %{{[0-9]+}}
+// CHECK-LE: bitcast <2 x i64> [[T2]] to <2 x double>
+
+  res_vf = vec_re(vf);
+// CHECK: call <4 x float> @llvm.ppc.vsx.xvresp(<4 x float>
+// CHECK-LE: call <4 x float> @llvm.ppc.vsx.xvresp(<4 x float>
+
+  res_vd = vec_re(vd);
+// CHECK: call <2 x double> @llvm.ppc.vsx.xvredp(<2 x double>
+// CHECK-LE: call <2 x double> @llvm.ppc.vsx.xvredp(<2 x double>
+
+  res_vf = vec_rint(vf);
+// CHECK: call <4 x float> @llvm.nearbyint.v4f32(<4 x float> %{{[0-9]+}})
+// CHECK-LE: call <4 x float> @llvm.nearbyint.v4f32(<4 x float> %{{[0-9]+}})
+
+  res_vd = vec_rint(vd);
+// CHECK: call <2 x double> @llvm.nearbyint.v2f64(<2 x double> %{{[0-9]+}})
+// CHECK-LE: call <2 x double> @llvm.nearbyint.v2f64(<2 x double> %{{[0-9]+}})
+
+  res_vf = vec_rsqrte(vf);
+// CHECK: call <4 x float> @llvm.ppc.vsx.xvrsqrtesp(<4 x float> %{{[0-9]+}})
+// CHECK-LE: call <4 x float> @llvm.ppc.vsx.xvrsqrtesp(<4 x float> %{{[0-9]+}})
+
+  res_vd = vec_rsqrte(vd);
+// CHECK: call <2 x double> @llvm.ppc.vsx.xvrsqrtedp(<2 x double> %{{[0-9]+}})
+// CHECK-LE: call <2 x double> @llvm.ppc.vsx.xvrsqrtedp(<2 x double> %{{[0-9]+}})
+
+  dummy();
+// CHECK: call void @dummy()
+// CHECK-LE: call void @dummy()
+
+  res_vf = vec_sel(vd, vd, vbll);
+// CHECK: xor <2 x i64> %{{[0-9]+}}, <i64 -1, i64 -1>
+// CHECK: and <2 x i64> %{{[0-9]+}},
+// CHECK: and <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK: or <2 x i64>
+// CHECK: bitcast <2 x i64> %{{[0-9]+}} to <2 x double>
+// CHECK-LE: xor <2 x i64> %{{[0-9]+}}, <i64 -1, i64 -1>
+// CHECK-LE: and <2 x i64> %{{[0-9]+}},
+// CHECK-LE: and <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-LE: or <2 x i64>
+// CHECK-LE: bitcast <2 x i64> %{{[0-9]+}} to <2 x double>
+
+  dummy();
+// CHECK: call void @dummy()
+// CHECK-LE: call void @dummy()
+
+  res_vd = vec_sel(vd, vd, vull);
+// CHECK: xor <2 x i64> %{{[0-9]+}}, <i64 -1, i64 -1>
+// CHECK: and <2 x i64> %{{[0-9]+}},
+// CHECK: and <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK: or <2 x i64>
+// CHECK: bitcast <2 x i64> %{{[0-9]+}} to <2 x double>
+// CHECK-LE: xor <2 x i64> %{{[0-9]+}}, <i64 -1, i64 -1>
+// CHECK-LE: and <2 x i64> %{{[0-9]+}},
+// CHECK-LE: and <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-LE: or <2 x i64>
+// CHECK-LE: bitcast <2 x i64> %{{[0-9]+}} to <2 x double>
+
+  res_vf = vec_sqrt(vf);
+// CHECK: call <4 x float> @llvm.sqrt.v4f32(<4 x float> %{{[0-9]+}})
+// CHECK-LE: call <4 x float> @llvm.sqrt.v4f32(<4 x float> %{{[0-9]+}})
+
+  res_vd = vec_sqrt(vd);
+// CHECK: call <2 x double> @llvm.sqrt.v2f64(<2 x double> %{{[0-9]+}})
+// CHECK-LE: call <2 x double> @llvm.sqrt.v2f64(<2 x double> %{{[0-9]+}})
+
+  res_vd = vec_sub(vd, vd);
+// CHECK: fsub <2 x double> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-LE: fsub <2 x double> %{{[0-9]+}}, %{{[0-9]+}}
+
+  res_vf = vec_trunc(vf);
+// CHECK: call <4 x float> @llvm.trunc.v4f32(<4 x float> %{{[0-9]+}})
+// CHECK-LE: call <4 x float> @llvm.trunc.v4f32(<4 x float> %{{[0-9]+}})
+
+  res_vd = vec_trunc(vd);
+// CHECK: call <2 x double> @llvm.trunc.v2f64(<2 x double> %{{[0-9]+}})
+// CHECK-LE: call <2 x double> @llvm.trunc.v2f64(<2 x double> %{{[0-9]+}})
+
+  /* vec_vor */
+  res_vsll = vec_vor(vsll, vsll);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vsll = vec_vor(vbll, vsll);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vsll = vec_vor(vsll, vbll);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vull = vec_vor(vull, vull);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vull = vec_vor(vbll, vull);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vull = vec_vor(vull, vbll);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  res_vbll = vec_vor(vbll, vbll);
+// CHECK: or <2 x i64>
+// CHECK-LE: or <2 x i64>
+
+  /* vec_xor */
+  res_vsll = vec_xor(vsll, vsll);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vsll = vec_xor(vbll, vsll);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vsll = vec_xor(vsll, vbll);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vull = vec_xor(vull, vull);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vull = vec_xor(vbll, vull);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vull = vec_xor(vull, vbll);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vbll = vec_xor(vbll, vbll);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  dummy();
+// CHECK: call void @dummy()
+// CHECK-LE: call void @dummy()
+
+  res_vd = vec_xor(vd, vd);
+// CHECK: [[X1:%.+]] = xor <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK: bitcast <2 x i64> [[X1]] to <2 x double>
+// CHECK-LE: [[X1:%.+]] = xor <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-LE: bitcast <2 x i64> [[X1]] to <2 x double>
+
+  dummy();
+// CHECK: call void @dummy()
+// CHECK-LE: call void @dummy()
+
+  res_vd = vec_xor(vd, vbll);
+// CHECK: [[X1:%.+]] = xor <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK: bitcast <2 x i64> [[X1]] to <2 x double>
+// CHECK-LE: [[X1:%.+]] = xor <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-LE: bitcast <2 x i64> [[X1]] to <2 x double>
+
+  dummy();
+// CHECK: call void @dummy()
+// CHECK-LE: call void @dummy()
+
+  res_vd = vec_xor(vbll, vd);
+// CHECK: [[X1:%.+]] = xor <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK: bitcast <2 x i64> [[X1]] to <2 x double>
+// CHECK-LE: [[X1:%.+]] = xor <2 x i64> %{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-LE: bitcast <2 x i64> [[X1]] to <2 x double>
+
+  /* vec_vxor */
+  res_vsll = vec_vxor(vsll, vsll);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vsll = vec_vxor(vbll, vsll);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vsll = vec_vxor(vsll, vbll);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vull = vec_vxor(vull, vull);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vull = vec_vxor(vbll, vull);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vull = vec_vxor(vull, vbll);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vbll = vec_vxor(vbll, vbll);
+// CHECK: xor <2 x i64>
+// CHECK-LE: xor <2 x i64>
+
+  res_vsll = vec_cts(vd, 0);
+// CHECK: fmul <2 x double>
+// CHECK: fptosi <2 x double> %{{.*}} to <2 x i64>
+// CHECK-LE: fmul <2 x double>
+// CHECK-LE: fptosi <2 x double> %{{.*}} to <2 x i64>
+
+  res_vsll = vec_cts(vd, 31);
+// CHECK: fmul <2 x double>
+// CHECK: fptosi <2 x double> %{{.*}} to <2 x i64>
+// CHECK-LE: fmul <2 x double>
+// CHECK-LE: fptosi <2 x double> %{{.*}} to <2 x i64>
+
+  res_vsll = vec_ctu(vd, 0);
+// CHECK: fmul <2 x double>
+// CHECK: fptoui <2 x double> %{{.*}} to <2 x i64>
+// CHECK-LE: fmul <2 x double>
+// CHECK-LE: fptoui <2 x double> %{{.*}} to <2 x i64>
+
+  res_vsll = vec_ctu(vd, 31);
+// CHECK: fmul <2 x double>
+// CHECK: fptoui <2 x double> %{{.*}} to <2 x i64>
+// CHECK-LE: fmul <2 x double>
+// CHECK-LE: fptoui <2 x double> %{{.*}} to <2 x i64>
+
+  res_vd = vec_ctf(vsll, 0);
+// CHECK: sitofp <2 x i64> %{{.*}} to <2 x double>
+// CHECK: fmul <2 x double>
+// CHECK-LE: sitofp <2 x i64> %{{.*}} to <2 x double>
+// CHECK-LE: fmul <2 x double>
+
+  res_vd = vec_ctf(vsll, 31);
+// CHECK: sitofp <2 x i64> %{{.*}} to <2 x double>
+// CHECK: fmul <2 x double>
+// CHECK-LE: sitofp <2 x i64> %{{.*}} to <2 x double>
+// CHECK-LE: fmul <2 x double>
+
+  res_vd = vec_ctf(vull, 0);
+// CHECK: uitofp <2 x i64> %{{.*}} to <2 x double>
+// CHECK: fmul <2 x double>
+// CHECK-LE: uitofp <2 x i64> %{{.*}} to <2 x double>
+// CHECK-LE: fmul <2 x double>
+
+  res_vd = vec_ctf(vull, 31);
+// CHECK: uitofp <2 x i64> %{{.*}} to <2 x double>
+// CHECK: fmul <2 x double>
+// CHECK-LE: uitofp <2 x i64> %{{.*}} to <2 x double>
+// CHECK-LE: fmul <2 x double>
 }

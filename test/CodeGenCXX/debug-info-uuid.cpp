@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -emit-llvm -fms-extensions -triple=x86_64-pc-win32 -g %s -o - -std=c++11 | FileCheck %s
-// RUN: %clang_cc1 -emit-llvm -fms-extensions -triple=x86_64-unknown-unknown -g %s -o - -std=c++11 2>&1 | FileCheck %s --check-prefix=CHECK-ITANIUM
+// RUN: %clang_cc1 -emit-llvm -fms-extensions -triple=x86_64-pc-win32 -debug-info-kind=limited %s -o - -std=c++11 | FileCheck %s
+// RUN: %clang_cc1 -emit-llvm -fms-extensions -triple=x86_64-unknown-unknown -debug-info-kind=limited %s -o - -std=c++11 2>&1 | FileCheck %s --check-prefix=CHECK-ITANIUM
 
 // CHECK: [[TGIARGS:![0-9]*]], null} ; [ DW_TAG_structure_type ] [tmpl_guid<&__uuidof(uuid)>]
 // CHECK: [[TGIARGS]] = !{[[TGIARG1:![0-9]*]]}

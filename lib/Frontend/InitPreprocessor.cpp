@@ -20,6 +20,7 @@
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/FrontendOptions.h"
 #include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/PTHManager.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Serialization/ASTReader.h"
@@ -97,10 +98,11 @@ static void AddImplicitIncludePTH(MacroBuilder &Builder, Preprocessor &PP,
 /// \brief Add an implicit \#include using the original file used to generate
 /// a PCH file.
 static void AddImplicitIncludePCH(MacroBuilder &Builder, Preprocessor &PP,
+                                  const PCHContainerReader &PCHContainerRdr,
                                   StringRef ImplicitIncludePCH) {
   std::string OriginalFile =
-    ASTReader::getOriginalSourceFile(ImplicitIncludePCH, PP.getFileManager(),
-                                     PP.getDiagnostics());
+      ASTReader::getOriginalSourceFile(ImplicitIncludePCH, PP.getFileManager(),
+                                       PCHContainerRdr, PP.getDiagnostics());
   if (OriginalFile.empty())
     return;
 
@@ -320,15 +322,17 @@ static void AddObjCXXARCLibstdcxxDefines(const LangOptions &LangOpts,
     
     Out << "template<typename _Tp> struct __is_scalar;\n"
         << "\n";
+
+    if (LangOpts.ObjCAutoRefCount) {
+      Out << "template<typename _Tp>\n"
+          << "struct __is_scalar<__attribute__((objc_ownership(strong))) _Tp> {\n"
+          << "  enum { __value = 0 };\n"
+          << "  typedef __false_type __type;\n"
+          << "};\n"
+          << "\n";
+    }
       
-    Out << "template<typename _Tp>\n"
-        << "struct __is_scalar<__attribute__((objc_ownership(strong))) _Tp> {\n"
-        << "  enum { __value = 0 };\n"
-        << "  typedef __false_type __type;\n"
-        << "};\n"
-        << "\n";
-      
-    if (LangOpts.ObjCARCWeak) {
+    if (LangOpts.ObjCWeak) {
       Out << "template<typename _Tp>\n"
           << "struct __is_scalar<__attribute__((objc_ownership(weak))) _Tp> {\n"
           << "  enum { __value = 0 };\n"
@@ -337,13 +341,15 @@ static void AddObjCXXARCLibstdcxxDefines(const LangOptions &LangOpts,
           << "\n";
     }
     
-    Out << "template<typename _Tp>\n"
-        << "struct __is_scalar<__attribute__((objc_ownership(autoreleasing)))"
-        << " _Tp> {\n"
-        << "  enum { __value = 0 };\n"
-        << "  typedef __false_type __type;\n"
-        << "};\n"
-        << "\n";
+    if (LangOpts.ObjCAutoRefCount) {
+      Out << "template<typename _Tp>\n"
+          << "struct __is_scalar<__attribute__((objc_ownership(autoreleasing)))"
+          << " _Tp> {\n"
+          << "  enum { __value = 0 };\n"
+          << "  typedef __false_type __type;\n"
+          << "};\n"
+          << "\n";
+    }
       
     Out << "}\n";
   }
@@ -403,6 +409,8 @@ static void InitializeStandardPredefinedMacros(const TargetInfo &TI,
   // Not "standard" per se, but available even with the -undef flag.
   if (LangOpts.AsmPreprocessor)
     Builder.defineMacro("__ASSEMBLER__");
+  if (LangOpts.CUDA)
+    Builder.defineMacro("__CUDA__");
 }
 
 /// Initialize the predefined C++ language feature test macros defined in
@@ -451,6 +459,10 @@ static void InitializeCPlusPlusFeatureTestMacros(const LangOptions &LangOpts,
   }
   if (LangOpts.SizedDeallocation)
     Builder.defineMacro("__cpp_sized_deallocation", "201309");
+  if (LangOpts.ConceptsTS)
+    Builder.defineMacro("__cpp_experimental_concepts", "1");
+  if (LangOpts.Coroutines)
+    Builder.defineMacro("__cpp_coroutines", "1");
 }
 
 static void InitializePredefinedMacros(const TargetInfo &TI,
@@ -845,9 +857,6 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   else if (LangOpts.getStackProtector() == LangOptions::SSPReq)
     Builder.defineMacro("__SSP_ALL__", "3");
 
-  if (FEOpts.ProgramAction == frontend::RewriteObjC)
-    Builder.defineMacro("__weak", "__attribute__((objc_gc(weak)))");
-
   // Define a macro that exists only when using the static analyzer.
   if (FEOpts.ProgramAction == frontend::RunAnalysis)
     Builder.defineMacro("__clang_analyzer__");
@@ -855,7 +864,13 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   if (LangOpts.FastRelaxedMath)
     Builder.defineMacro("__FAST_RELAXED_MATH__");
 
-  if (LangOpts.ObjCAutoRefCount) {
+  if (FEOpts.ProgramAction == frontend::RewriteObjC ||
+      LangOpts.getGC() != LangOptions::NonGC) {
+    Builder.defineMacro("__weak", "__attribute__((objc_gc(weak)))");
+    Builder.defineMacro("__strong", "__attribute__((objc_gc(strong)))");
+    Builder.defineMacro("__autoreleasing", "");
+    Builder.defineMacro("__unsafe_unretained", "");
+  } else if (LangOpts.ObjC1) {
     Builder.defineMacro("__weak", "__attribute__((objc_ownership(weak)))");
     Builder.defineMacro("__strong", "__attribute__((objc_ownership(strong)))");
     Builder.defineMacro("__autoreleasing",
@@ -888,9 +903,10 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
 /// InitializePreprocessor - Initialize the preprocessor getting it and the
 /// environment ready to process a single file. This returns true on error.
 ///
-void clang::InitializePreprocessor(Preprocessor &PP,
-                                   const PreprocessorOptions &InitOpts,
-                                   const FrontendOptions &FEOpts) {
+void clang::InitializePreprocessor(
+    Preprocessor &PP, const PreprocessorOptions &InitOpts,
+    const PCHContainerReader &PCHContainerRdr,
+    const FrontendOptions &FEOpts) {
   const LangOptions &LangOpts = PP.getLangOpts();
   std::string PredefineBuffer;
   PredefineBuffer.reserve(4080);
@@ -905,14 +921,19 @@ void clang::InitializePreprocessor(Preprocessor &PP,
 
   // Install things like __POWERPC__, __GNUC__, etc into the macro table.
   if (InitOpts.UsePredefines) {
+    if (LangOpts.CUDA && PP.getAuxTargetInfo())
+      InitializePredefinedMacros(*PP.getAuxTargetInfo(), LangOpts, FEOpts,
+                                 Builder);
+
     InitializePredefinedMacros(PP.getTargetInfo(), LangOpts, FEOpts, Builder);
 
     // Install definitions to make Objective-C++ ARC work well with various
     // C++ Standard Library implementations.
-    if (LangOpts.ObjC1 && LangOpts.CPlusPlus && LangOpts.ObjCAutoRefCount) {
+    if (LangOpts.ObjC1 && LangOpts.CPlusPlus &&
+        (LangOpts.ObjCAutoRefCount || LangOpts.ObjCWeak)) {
       switch (InitOpts.ObjCXXARCStandardLibrary) {
       case ARCXX_nolib:
-        case ARCXX_libcxx:
+      case ARCXX_libcxx:
         break;
 
       case ARCXX_libstdcxx:
@@ -949,7 +970,8 @@ void clang::InitializePreprocessor(Preprocessor &PP,
 
   // Process -include-pch/-include-pth directives.
   if (!InitOpts.ImplicitPCHInclude.empty())
-    AddImplicitIncludePCH(Builder, PP, InitOpts.ImplicitPCHInclude);
+    AddImplicitIncludePCH(Builder, PP, PCHContainerRdr,
+                          InitOpts.ImplicitPCHInclude);
   if (!InitOpts.ImplicitPTHInclude.empty())
     AddImplicitIncludePTH(Builder, PP, InitOpts.ImplicitPTHInclude);
 

@@ -501,6 +501,185 @@ public:
   friend class ASTDeclWriter;
 };
 
+/// Describes the variance of a given generic parameter.
+enum class ObjCTypeParamVariance : uint8_t {
+  /// The parameter is invariant: must match exactly.
+  Invariant,
+  /// The parameter is covariant, e.g., X<T> is a subtype of X<U> when
+  /// the type parameter is covariant and T is a subtype of U.
+  Covariant,
+  /// The parameter is contravariant, e.g., X<T> is a subtype of X<U>
+  /// when the type parameter is covariant and U is a subtype of T.
+  Contravariant,
+};
+
+/// Represents the declaration of an Objective-C type parameter.
+///
+/// \code
+/// @interface NSDictionary<Key : id<NSCopying>, Value>
+/// @end
+/// \endcode
+///
+/// In the example above, both \c Key and \c Value are represented by
+/// \c ObjCTypeParamDecl. \c Key has an explicit bound of \c id<NSCopying>,
+/// while \c Value gets an implicit bound of \c id.
+///
+/// Objective-C type parameters are typedef-names in the grammar,
+class ObjCTypeParamDecl : public TypedefNameDecl {
+  void anchor() override;
+
+  /// Index of this type parameter in the type parameter list.
+  unsigned Index : 14;
+
+  /// The variance of the type parameter.
+  unsigned Variance : 2;
+
+  /// The location of the variance, if any.
+  SourceLocation VarianceLoc;
+
+  /// The location of the ':', which will be valid when the bound was
+  /// explicitly specified.
+  SourceLocation ColonLoc;
+
+  ObjCTypeParamDecl(ASTContext &ctx, DeclContext *dc, 
+                    ObjCTypeParamVariance variance, SourceLocation varianceLoc,
+                    unsigned index,
+                    SourceLocation nameLoc, IdentifierInfo *name,
+                    SourceLocation colonLoc, TypeSourceInfo *boundInfo)
+    : TypedefNameDecl(ObjCTypeParam, ctx, dc, nameLoc, nameLoc, name,
+                      boundInfo),
+      Index(index), Variance(static_cast<unsigned>(variance)),
+      VarianceLoc(varianceLoc), ColonLoc(colonLoc) { }
+
+public:
+  static ObjCTypeParamDecl *Create(ASTContext &ctx, DeclContext *dc,
+                                   ObjCTypeParamVariance variance,
+                                   SourceLocation varianceLoc,
+                                   unsigned index,
+                                   SourceLocation nameLoc,
+                                   IdentifierInfo *name,
+                                   SourceLocation colonLoc,
+                                   TypeSourceInfo *boundInfo);
+  static ObjCTypeParamDecl *CreateDeserialized(ASTContext &ctx, unsigned ID);
+
+  SourceRange getSourceRange() const override LLVM_READONLY;
+
+  /// Determine the variance of this type parameter.
+  ObjCTypeParamVariance getVariance() const {
+    return static_cast<ObjCTypeParamVariance>(Variance);
+  }
+
+  /// Set the variance of this type parameter.
+  void setVariance(ObjCTypeParamVariance variance) {
+    Variance = static_cast<unsigned>(variance);
+  }
+
+  /// Retrieve the location of the variance keyword.
+  SourceLocation getVarianceLoc() const { return VarianceLoc; }
+
+  /// Retrieve the index into its type parameter list.
+  unsigned getIndex() const { return Index; }
+
+  /// Whether this type parameter has an explicitly-written type bound, e.g.,
+  /// "T : NSView".
+  bool hasExplicitBound() const { return ColonLoc.isValid(); }
+
+  /// Retrieve the location of the ':' separating the type parameter name
+  /// from the explicitly-specified bound.
+  SourceLocation getColonLoc() const { return ColonLoc; }
+
+  // Implement isa/cast/dyncast/etc.
+  static bool classof(const Decl *D) { return classofKind(D->getKind()); }
+  static bool classofKind(Kind K) { return K == ObjCTypeParam; }
+
+  friend class ASTDeclReader;
+  friend class ASTDeclWriter;
+};
+
+/// Stores a list of Objective-C type parameters for a parameterized class
+/// or a category/extension thereof.
+///
+/// \code
+/// @interface NSArray<T> // stores the <T>
+/// @end
+/// \endcode
+class ObjCTypeParamList final
+    : private llvm::TrailingObjects<ObjCTypeParamList, ObjCTypeParamDecl *> {
+  /// Stores the components of a SourceRange as a POD.
+  struct PODSourceRange {
+    unsigned Begin;
+    unsigned End;
+  };
+
+  union { 
+    /// Location of the left and right angle brackets.
+    PODSourceRange Brackets;
+
+    // Used only for alignment.
+    ObjCTypeParamDecl *AlignmentHack;
+  };
+
+  /// The number of parameters in the list, which are tail-allocated.
+  unsigned NumParams;
+
+  ObjCTypeParamList(SourceLocation lAngleLoc,
+                    ArrayRef<ObjCTypeParamDecl *> typeParams,
+                    SourceLocation rAngleLoc);
+
+public:
+  /// Create a new Objective-C type parameter list.
+  static ObjCTypeParamList *create(ASTContext &ctx,
+                                   SourceLocation lAngleLoc,
+                                   ArrayRef<ObjCTypeParamDecl *> typeParams,
+                                   SourceLocation rAngleLoc);
+
+  /// Iterate through the type parameters in the list.
+  typedef ObjCTypeParamDecl **iterator;
+
+  iterator begin() { return getTrailingObjects<ObjCTypeParamDecl *>(); }
+
+  iterator end() { return begin() + size(); }
+
+  /// Determine the number of type parameters in this list.
+  unsigned size() const { return NumParams; }
+
+  // Iterate through the type parameters in the list.
+  typedef ObjCTypeParamDecl * const *const_iterator;
+
+  const_iterator begin() const {
+    return getTrailingObjects<ObjCTypeParamDecl *>();
+  }
+
+  const_iterator end() const {
+    return begin() + size();
+  }
+
+  ObjCTypeParamDecl *front() const {
+    assert(size() > 0 && "empty Objective-C type parameter list");
+    return *begin();
+  }
+
+  ObjCTypeParamDecl *back() const {
+    assert(size() > 0 && "empty Objective-C type parameter list");
+    return *(end() - 1);
+  }
+
+  SourceLocation getLAngleLoc() const {
+    return SourceLocation::getFromRawEncoding(Brackets.Begin);
+  }
+  SourceLocation getRAngleLoc() const {
+    return SourceLocation::getFromRawEncoding(Brackets.End);
+  }
+  SourceRange getSourceRange() const {
+    return SourceRange(getLAngleLoc(), getRAngleLoc());
+  }
+
+  /// Gather the default set of type arguments to be substituted for
+  /// these type parameters when dealing with an unspecialized type.
+  void gatherDefaultTypeArgs(SmallVectorImpl<QualType> &typeArgs) const;
+  friend TrailingObjects;
+};
+
 /// ObjCContainerDecl - Represents a container for method declarations.
 /// Current sub-classes are ObjCInterfaceDecl, ObjCCategoryDecl,
 /// ObjCProtocolDecl, and ObjCImplDecl.
@@ -994,13 +1173,8 @@ public:
     // might bring in a definition.
     // Note: a null value indicates that we don't have a definition and that
     // modules are enabled.
-    if (!Data.getOpaqueValue()) {
-      if (IdentifierInfo *II = getIdentifier()) {
-        if (II->isOutOfDate()) {
-          updateOutOfDate(*II);
-        }
-      }
-    }
+    if (!Data.getOpaqueValue())
+      getMostRecentDecl();
 
     return Data.getPointer();
   }
@@ -1628,13 +1802,8 @@ public:
     // might bring in a definition.
     // Note: a null value indicates that we don't have a definition and that
     // modules are enabled.
-    if (!Data.getOpaqueValue()) {
-      if (IdentifierInfo *II = getIdentifier()) {
-        if (II->isOutOfDate()) {
-          updateOutOfDate(*II);
-        }
-      }
-    }
+    if (!Data.getOpaqueValue())
+      getMostRecentDecl();
 
     return Data.getPointer();
   }
@@ -2266,25 +2435,17 @@ public:
   void setPropertyAttributes(PropertyAttributeKind PRVal) {
     PropertyAttributes |= PRVal;
   }
+  void overwritePropertyAttributes(unsigned PRVal) {
+    PropertyAttributes = PRVal;
+  }
 
   PropertyAttributeKind getPropertyAttributesAsWritten() const {
     return PropertyAttributeKind(PropertyAttributesAsWritten);
   }
 
-  bool hasWrittenStorageAttribute() const {
-    return PropertyAttributesAsWritten & (OBJC_PR_assign | OBJC_PR_copy |
-        OBJC_PR_unsafe_unretained | OBJC_PR_retain | OBJC_PR_strong |
-        OBJC_PR_weak);
-  }
-
   void setPropertyAttributesAsWritten(PropertyAttributeKind PRVal) {
     PropertyAttributesAsWritten = PRVal;
   }
-
- void makeitReadWriteAttribute() {
-    PropertyAttributes &= ~OBJC_PR_readonly;
-    PropertyAttributes |= OBJC_PR_readwrite;
- }
 
   // Helper methods for accessing attributes.
 

@@ -33,7 +33,7 @@
 #endif
 
 #define _mm_sha1rnds4_epu32(V1, V2, M) __extension__ ({ \
-  __builtin_ia32_sha1rnds4((V1), (V2), (M)); })
+  __builtin_ia32_sha1rnds4((__v4si)(__m128i)(V1), (__v4si)(__m128i)(V2), (M)); })
 
 static __inline__ __m128i __attribute__((__always_inline__, __nodebug__))
 _mm_sha1nexte_epu32(__m128i __X, __m128i __Y)

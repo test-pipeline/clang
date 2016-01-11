@@ -384,6 +384,7 @@ namespace {
   /// \brief Builder that generates the global module index file.
   class GlobalModuleIndexBuilder {
     FileManager &FileMgr;
+    const PCHContainerReader &PCHContainerRdr;
 
     /// \brief Mapping from files to module file information.
     typedef llvm::MapVector<const FileEntry *, ModuleFileInfo> ModuleFilesMap;
@@ -416,7 +417,9 @@ namespace {
     }
 
   public:
-    explicit GlobalModuleIndexBuilder(FileManager &FileMgr) : FileMgr(FileMgr){}
+    explicit GlobalModuleIndexBuilder(
+        FileManager &FileMgr, const PCHContainerReader &PCHContainerRdr)
+        : FileMgr(FileMgr), PCHContainerRdr(PCHContainerRdr) {}
 
     /// \brief Load the contents of the given module file into the builder.
     ///
@@ -501,8 +504,7 @@ bool GlobalModuleIndexBuilder::loadModuleFile(const FileEntry *File) {
 
   // Initialize the input stream
   llvm::BitstreamReader InStreamFile;
-  InStreamFile.init((const unsigned char *)(*Buffer)->getBufferStart(),
-                    (const unsigned char *)(*Buffer)->getBufferEnd());
+  PCHContainerRdr.ExtractPCH((*Buffer)->getMemBufferRef(), InStreamFile);
   llvm::BitstreamCursor InStream(InStreamFile);
 
   // Sniff for the signature.
@@ -754,17 +756,17 @@ void GlobalModuleIndexBuilder::writeIndex(llvm::BitstreamWriter &Stream) {
     unsigned IDTableAbbrev = Stream.EmitAbbrev(Abbrev);
 
     // Write the identifier table
-    Record.clear();
-    Record.push_back(IDENTIFIER_INDEX);
-    Record.push_back(BucketOffset);
-    Stream.EmitRecordWithBlob(IDTableAbbrev, Record, IdentifierTable.str());
+    uint64_t Record[] = {IDENTIFIER_INDEX, BucketOffset};
+    Stream.EmitRecordWithBlob(IDTableAbbrev, Record, IdentifierTable);
   }
 
   Stream.ExitBlock();
 }
 
 GlobalModuleIndex::ErrorCode
-GlobalModuleIndex::writeIndex(FileManager &FileMgr, StringRef Path) {
+GlobalModuleIndex::writeIndex(FileManager &FileMgr,
+                              const PCHContainerReader &PCHContainerRdr,
+                              StringRef Path) {
   llvm::SmallString<128> IndexPath;
   IndexPath += Path;
   llvm::sys::path::append(IndexPath, IndexFileName);
@@ -787,8 +789,8 @@ GlobalModuleIndex::writeIndex(FileManager &FileMgr, StringRef Path) {
   }
 
   // The module index builder.
-  GlobalModuleIndexBuilder Builder(FileMgr);
-  
+  GlobalModuleIndexBuilder Builder(FileMgr, PCHContainerRdr);
+
   // Load each of the module files.
   std::error_code EC;
   for (llvm::sys::fs::directory_iterator D(Path, EC), DEnd;

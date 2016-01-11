@@ -121,7 +121,8 @@ void f3() {
     // CHECK:    [[DEST1]]
   }
 
-  // CHECK:      call void @f3_helper(i32 4, i32* [[X]])
+  // CHECK:      call void @f3_helper(i32 4, i32* nonnull [[X]])
+  // CHECK-NEXT: call void @llvm.lifetime.end(i64 4, i8* nonnull [[XPTR]])
   // CHECK-NEXT: ret void
   f3_helper(4, &x);
 }
