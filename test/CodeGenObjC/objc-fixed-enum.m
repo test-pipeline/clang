@@ -46,10 +46,18 @@ int main() {
   // -treated as C++11 strongly typed enums.
   return e0 != e1 && e1 == e2 && e2 == e3;
 }
-// CHECK: ![[ENUMERATOR0:[0-9]+]] = {{.*}}; [ DW_TAG_enumeration_type ] [line 10
-// CHECK: ![[ENUMERATOR1:[0-9]+]] = {{.*}}; [ DW_TAG_enumeration_type ] [Enum1] [line 16{{.*}}] [from NSInteger]
-// CHECK: ![[ENUMERATOR3:[0-9]+]] = {{.*}}; [ DW_TAG_typedef ] [NSInteger] [line 6{{.*}}] [from long int]
-// CHECK: ![[ENUMERATOR2:[0-9]+]] = {{.*}}; [ DW_TAG_enumeration_type ] [line 22{{.*}}] [from NSInteger]
+// CHECK: ![[ENUMERATOR0:[0-9]+]] = !DICompositeType(tag: DW_TAG_enumeration_type
+// CHECK-SAME:                                       line: 10,
+// CHECK: ![[ENUMERATOR1:[0-9]+]] = !DICompositeType(tag: DW_TAG_enumeration_type, name: "Enum1"
+// CHECK-SAME:                                       line: 16
+// CHECK-SAME:                                       baseType: ![[ENUMERATOR3:[0-9]+]]
+// CHECK: ![[ENUMERATOR3]] = !DIDerivedType(tag: DW_TAG_typedef, name: "NSInteger"
+// CHECK-SAME:                              line: 6
+// CHECK-SAME:                              baseType: ![[LONGINT:[0-9]+]]
+// CHECK: ![[LONGINT]] = !DIBasicType(name: "long int"
+// CHECK: ![[ENUMERATOR2:[0-9]+]] = !DICompositeType(tag: DW_TAG_enumeration_type,
+// CHECK-SAME:                                       line: 22
+// CHECK-SAME:                                       baseType: ![[ENUMERATOR3]]
 
 // CHECK: ![[ENUM0]] = !DILocalVariable(name: "e0"
 // CHECK-SAME:                          type: ![[TYPE0:[0-9]+]]

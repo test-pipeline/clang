@@ -266,6 +266,23 @@ namespace clang {
     SD_Static,         ///< Static storage duration.
     SD_Dynamic         ///< Dynamic storage duration.
   };
+
+  /// Describes the nullability of a particular type.
+  enum class NullabilityKind : uint8_t {
+    /// Values of this type can never be null.
+    NonNull = 0,
+    /// Values of this type can be null.
+    Nullable,
+    /// Whether values of this type can be null is (explicitly)
+    /// unspecified. This captures a (fairly rare) case where we
+    /// can't conclude anything about the nullability of the type even
+    /// though it has been considered.
+    Unspecified
+  };
+
+  /// Retrieve the spelling of the given nullability kind.
+  llvm::StringRef getNullabilitySpelling(NullabilityKind kind,
+                                         bool isContextSensitive = false);
 } // end namespace clang
 
 #endif // LLVM_CLANG_BASIC_SPECIFIERS_H

@@ -40,7 +40,7 @@ public:
   VerifyMatch(BoundNodesCallback *FindResultVerifier, bool *Verified)
       : Verified(Verified), FindResultReviewer(FindResultVerifier) {}
 
-  virtual void run(const MatchFinder::MatchResult &Result) override {
+  void run(const MatchFinder::MatchResult &Result) override {
     if (FindResultReviewer != nullptr) {
       *Verified |= FindResultReviewer->run(&Result.Nodes, Result.Context);
     } else {
@@ -62,7 +62,8 @@ template <typename T>
 testing::AssertionResult matchesConditionally(
     const std::string &Code, const T &AMatcher, bool ExpectMatch,
     llvm::StringRef CompileArg,
-    const FileContentMappings &VirtualMappedFiles = FileContentMappings()) {
+    const FileContentMappings &VirtualMappedFiles = FileContentMappings(),
+    const std::string &Filename = "input.cc") {
   bool Found = false, DynamicFound = false;
   MatchFinder Finder;
   VerifyMatch VerifyFound(nullptr, &Found);

@@ -1,9 +1,11 @@
-// RUN: %clang_cc1 -verify -fopenmp=libiomp5 -x c++ -triple %itanium_abi_triple -emit-llvm %s -o - | FileCheck %s
-// RUN: %clang_cc1 -fopenmp=libiomp5 -x c++ -std=c++11 -triple %itanium_abi_triple -emit-pch -o %t %s
-// RUN: %clang_cc1 -fopenmp=libiomp5 -x c++ -triple %itanium_abi_triple -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s
-// RUN: %clang_cc1 -verify -fopenmp=libiomp5 -x c++ -std=c++11 -DLAMBDA -triple %itanium_abi_triple -emit-llvm %s -o - | FileCheck -check-prefix=LAMBDA %s
-// RUN: %clang_cc1 -verify -fopenmp=libiomp5 -x c++ -fblocks -DBLOCKS -triple %itanium_abi_triple -emit-llvm %s -o - | FileCheck -check-prefix=BLOCKS %s
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple %itanium_abi_triple -emit-llvm %s -o - | FileCheck %s
+// RUN: %clang_cc1 -fopenmp -x c++ -std=c++11 -triple %itanium_abi_triple -emit-pch -o %t %s
+// RUN: %clang_cc1 -fopenmp -x c++ -triple %itanium_abi_triple -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck %s
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -std=c++11 -DLAMBDA -triple %itanium_abi_triple -emit-llvm %s -o - | FileCheck -check-prefix=LAMBDA %s
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -fblocks -DBLOCKS -triple %itanium_abi_triple -emit-llvm %s -o - | FileCheck -check-prefix=BLOCKS %s
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -std=c++11 -DARRAY -triple x86_64-apple-darwin10 -emit-llvm %s -o - | FileCheck -check-prefix=ARRAY %s
 // expected-no-diagnostics
+#ifndef ARRAY
 #ifndef HEADER
 #define HEADER
 
@@ -43,6 +45,8 @@ T tmain() {
     vec[0] = t_var;
     s_arr[0] = var;
   }
+#pragma omp parallel firstprivate(t_var)
+  {}
   return T();
 }
 
@@ -51,7 +55,7 @@ int main() {
 #ifdef LAMBDA
   // LAMBDA: [[G:@.+]] = global i{{[0-9]+}} 1212,
   // LAMBDA-LABEL: @main
-  // LAMBDA: call void [[OUTER_LAMBDA:@.+]](
+  // LAMBDA: call{{.*}} void [[OUTER_LAMBDA:@.+]](
   [&]() {
   // LAMBDA: define{{.*}} internal{{.*}} void [[OUTER_LAMBDA]](
   // LAMBDA: call {{.*}}void {{.+}} @__kmpc_fork_call({{.+}}, i32 2, {{.+}}* [[OMP_REGION:@.+]] to {{.+}}, i32* [[G]], {{.+}})
@@ -94,7 +98,7 @@ int main() {
 #elif defined(BLOCKS)
   // BLOCKS: [[G:@.+]] = global i{{[0-9]+}} 1212,
   // BLOCKS-LABEL: @main
-  // BLOCKS: call void {{%.+}}(i8*
+  // BLOCKS: call {{.*}}void {{%.+}}(i8
   ^{
   // BLOCKS: define{{.*}} internal{{.*}} void {{.+}}(i8*
   // BLOCKS: call {{.*}}void {{.+}} @__kmpc_fork_call({{.+}}, i32 2, {{.+}}* [[OMP_REGION:@.+]] to {{.+}}, i32* [[G]], {{.+}})
@@ -128,7 +132,7 @@ int main() {
       g = 2;
       sivar = 4;
       // BLOCKS-NOT: [[G]]{{[[^:word:]]}}
-      // BLOCKS: store volatile i{{[0-9]+}} 2, i{{[0-9]+}}*
+      // BLOCKS: store i{{[0-9]+}} 2, i{{[0-9]+}}*
       // BLOCKS-NOT: [[G]]{{[[^:word:]]}}
       // BLOCKS-NOT: [[SIVAR]]{{[[^:word:]]}}
       // BLOCKS: store i{{[0-9]+}} 4, i{{[0-9]+}}*
@@ -150,6 +154,8 @@ int main() {
     s_arr[0] = var;
     sivar = 2;
   }
+#pragma omp parallel firstprivate(t_var)
+  {}
   return tmain<int>();
 #endif
 }
@@ -244,6 +250,7 @@ int main() {
 // CHECK-DAG: call {{.*}} [[S_INT_TY_DESTR]]([[S_INT_TY]]* [[VAR_PRIV]])
 // CHECK-DAG: call {{.*}} [[S_INT_TY_DESTR]]([[S_INT_TY]]*
 // CHECK: ret void
+
 #endif
 #else
 struct St {

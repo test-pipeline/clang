@@ -31,7 +31,7 @@ void debug_captured() {
 
   if (x) {} // This is DC1. Checked above.
 
-  // PGOALL-LABEL: define internal void @__captured_stmt1(
+  // PGOALL-LABEL: define internal void @__captured_stmt.1(
   // PGOGEN: store {{.*}} @[[C1C]], i64 0, i64 0
   #pragma clang __debug captured
   {

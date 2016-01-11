@@ -45,8 +45,6 @@ public:
     Diagnostics->setClient(new IgnoringDiagConsumer, true);
   }
 
-  ~SimpleFormatContext() { }
-
   FileID createInMemoryFile(StringRef Name, StringRef Content) {
     InMemoryFileSystem->addFile(Name, 0,
                                 llvm::MemoryBuffer::getMemBuffer(Content));

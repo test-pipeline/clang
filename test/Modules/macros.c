@@ -33,6 +33,10 @@
 #  error MODULE macro should not be visible
 #endif
 
+#ifndef INDIRECTLY_IN_MACROS
+#  error INDIRECTLY_IN_MACROS should be visible
+#endif
+
 // CHECK-PREPROCESSED: double d
 double d;
 DOUBLE *dp = &d;
@@ -148,11 +152,20 @@ TOP_DEF_RIGHT_UNDEF *TDRUf() { return TDRUp; }
 
 int TOP_DEF_RIGHT_UNDEF; // ok, no longer defined
 
-// FIXME: When macros_right.undef is built, macros_top is visible because
-// the state from building macros_right leaks through, so macros_right.undef
-// undefines macros_top's macro.
-#ifdef TOP_RIGHT_UNDEF
-# error TOP_RIGHT_UNDEF should not be defined
+#ifdef LOCAL_VISIBILITY
+// TOP_RIGHT_UNDEF should not be undefined, because macros_right.undef does
+// not undefine macros_right's macro.
+# ifndef TOP_RIGHT_UNDEF
+#  error TOP_RIGHT_UNDEF should still be defined
+# endif
+#else
+// When macros_right.undef is built and local submodule visibility is not
+// enabled, macros_top is visible because the state from building
+// macros_right leaks through, so macros_right.undef undefines macros_top's
+// macro.
+# ifdef TOP_RIGHT_UNDEF
+#  error TOP_RIGHT_UNDEF should not be defined
+# endif
 #endif
 
 #ifdef ALT

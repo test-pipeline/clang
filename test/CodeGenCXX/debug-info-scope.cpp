@@ -38,7 +38,6 @@ void func() {
   // scopes anyway, so it's not terribly important.
   // FIXME: change the debug info schema to not include locations of scopes,
   // since they're not used.
-  // CHECK: [[FOR_BODY]] = !{!"0xb\00[[@LINE-6]]\00{{.*}}", !{{.*}}} ; [ DW_TAG_lexical_block ]
        bool b = i != 10; ++i)
     f();
 

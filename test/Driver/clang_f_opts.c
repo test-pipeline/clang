@@ -211,7 +211,6 @@
 // RUN:     -fprefetch-loop-arrays -fno-prefetch-loop-arrays                  \
 // RUN:     -fprofile-correction -fno-profile-correction                      \
 // RUN:     -fprofile-dir=bar                                                 \
-// RUN:     -fprofile-use -fprofile-use=zed -fno-profile-use                  \
 // RUN:     -fprofile-values -fno-profile-values                              \
 // RUN:     -frounding-math -fno-rounding-math                                \
 // RUN:     -fsee -fno-see                                                    \
@@ -291,8 +290,6 @@
 // RUN: -fno-keep-inline-functions                                            \
 // RUN: -freorder-blocks                                                      \
 // RUN: -fprofile-dir=/rand/dir                                               \
-// RUN: -fprofile-use                                                         \
-// RUN: -fprofile-use=/rand/dir                                               \
 // RUN: -falign-functions                                                     \
 // RUN: -falign-functions=1                                                   \
 // RUN: -ffloat-store                                                         \
@@ -361,8 +358,6 @@
 // CHECK-WARNING-DAG: optimization flag '-fno-keep-inline-functions' is not supported
 // CHECK-WARNING-DAG: optimization flag '-freorder-blocks' is not supported
 // CHECK-WARNING-DAG: optimization flag '-fprofile-dir=/rand/dir' is not supported
-// CHECK-WARNING-DAG: optimization flag '-fprofile-use' is not supported
-// CHECK-WARNING-DAG: optimization flag '-fprofile-use=/rand/dir' is not supported
 // CHECK-WARNING-DAG: optimization flag '-falign-functions' is not supported
 // CHECK-WARNING-DAG: optimization flag '-falign-functions=1' is not supported
 // CHECK-WARNING-DAG: optimization flag '-ffloat-store' is not supported

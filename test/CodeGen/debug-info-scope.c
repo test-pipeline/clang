@@ -10,7 +10,7 @@ int main() {
 
 // Make sure we don't have any more lexical blocks because we don't need them in
 // -gmlt.
-// GMLT-NOT: DW_TAG_lexical_block
+// GMLT-NOT: !DILexicalBlock
 	for (int i = 0; i < 10; i++)
 		j++;
 // CHECK: !DILocalVariable(name: "i"

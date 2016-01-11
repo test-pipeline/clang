@@ -230,18 +230,6 @@ static void getCLEnvVarOptions(std::string &EnvValue, llvm::StringSaver &Saver,
       *NumberSignPtr = '=';
 }
 
-namespace {
-  class StringSetSaver : public llvm::cl::StringSaver {
-  public:
-    StringSetSaver(std::set<std::string> &Storage) : Storage(Storage) {}
-    const char *SaveString(const char *Str) override {
-      return GetStableCStr(Storage, Str);
-    }
-  private:
-    std::set<std::string> &Storage;
-  };
-}
-
 static void SetBackdoorDriverOutputsFromEnvVars(Driver &TheDriver) {
   // Handle CC_PRINT_OPTIONS and CC_PRINT_OPTIONS_FILE.
   TheDriver.CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
@@ -272,16 +260,16 @@ static void FixupDiagPrefixExeName(TextDiagnosticPrinter *DiagClient,
 // This lets us create the DiagnosticsEngine with a properly-filled-out
 // DiagnosticOptions instance.
 static DiagnosticOptions *
-CreateAndPopulateDiagOpts(SmallVectorImpl<const char *> &argv) {
+CreateAndPopulateDiagOpts(ArrayRef<const char *> argv) {
   auto *DiagOpts = new DiagnosticOptions;
   std::unique_ptr<OptTable> Opts(createDriverOptTable());
   unsigned MissingArgIndex, MissingArgCount;
-  std::unique_ptr<InputArgList> Args(Opts->ParseArgs(
-      argv.begin() + 1, argv.end(), MissingArgIndex, MissingArgCount));
+  InputArgList Args =
+      Opts->ParseArgs(argv.slice(1), MissingArgIndex, MissingArgCount);
   // We ignore MissingArgCount and the return value of ParseDiagnosticArgs.
   // Any errors that would be diagnosed here will also be diagnosed later,
   // when the DiagnosticsEngine actually exists.
-  (void) ParseDiagnosticArgs(*DiagOpts, *Args);
+  (void)ParseDiagnosticArgs(*DiagOpts, Args);
   return DiagOpts;
 }
 

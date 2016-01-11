@@ -533,7 +533,7 @@ namespace {
       : CodeCompleteConsumer(Opts, false), 
         AllocatedResults(Results), CCTUInfo(Results.CodeCompletionAllocator),
         TU(TranslationUnit) { }
-    ~CaptureCompletionResults() { Finish(); }
+    ~CaptureCompletionResults() override { Finish(); }
 
     void ProcessCodeCompleteResults(Sema &S, 
                                     CodeCompletionContext Context,
@@ -542,7 +542,7 @@ namespace {
       StoredResults.reserve(StoredResults.size() + NumResults);
       for (unsigned I = 0; I != NumResults; ++I) {
         CodeCompletionString *StoredCompletion        
-          = Results[I].CreateCodeCompletionString(S, getAllocator(),
+          = Results[I].CreateCodeCompletionString(S, Context, getAllocator(),
                                                   getCodeCompletionTUInfo(),
                                                   includeBriefComments());
         
@@ -702,14 +702,12 @@ clang_codeCompleteAt_Impl(CXTranslationUnit TU, const char *complete_filename,
 
   // Perform completion.
   AST->CodeComplete(complete_filename, complete_line, complete_column,
-                    RemappedFiles,
-                    (options & CXCodeComplete_IncludeMacros),
+                    RemappedFiles, (options & CXCodeComplete_IncludeMacros),
                     (options & CXCodeComplete_IncludeCodePatterns),
-                    IncludeBriefComments,
-                    Capture,
-                    *Results->Diag, Results->LangOpts, *Results->SourceMgr,
-                    *Results->FileMgr, Results->Diagnostics,
-                    Results->TemporaryBuffers);
+                    IncludeBriefComments, Capture,
+                    CXXIdx->getPCHContainerOperations(), *Results->Diag,
+                    Results->LangOpts, *Results->SourceMgr, *Results->FileMgr,
+                    Results->Diagnostics, Results->TemporaryBuffers);
 
   Results->DiagnosticsWrappers.resize(Results->Diagnostics.size());
 

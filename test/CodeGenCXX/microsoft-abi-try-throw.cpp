@@ -15,8 +15,8 @@ inline void not_emitted() {
 int main() {
   int rv = 0;
 #ifdef TRY
-  try { // expected-error {{cannot compile this try statement yet}}
-    external();
+  try {
+    external(); // TRY: invoke void @"\01?external@@YAXXZ"
   } catch (int) {
     rv = 1;
     // TRY: catchpad within {{.*}} [%rtti.TypeDescriptor2* @"\01??_R0H@8", i32 0, i8* null]

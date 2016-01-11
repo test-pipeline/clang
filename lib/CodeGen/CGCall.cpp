@@ -32,6 +32,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Transforms/Utils/Local.h"
 using namespace clang;
 using namespace CodeGen;
@@ -374,6 +375,26 @@ CodeGenTypes::arrangeMSMemberPointerThunk(const CXXMethodDecl *MD) {
   return arrangeLLVMFunctionInfo(Context.VoidTy, /*instanceMethod=*/false,
                                  /*chainCall=*/false, ArgTys,
                                  FTP->getExtInfo(), RequiredArgs(1));
+}
+
+const CGFunctionInfo &
+CodeGenTypes::arrangeMSCtorClosure(const CXXConstructorDecl *CD,
+                                   CXXCtorType CT) {
+  assert(CT == Ctor_CopyingClosure || CT == Ctor_DefaultClosure);
+
+  CanQual<FunctionProtoType> FTP = GetFormalType(CD);
+  SmallVector<CanQualType, 2> ArgTys;
+  const CXXRecordDecl *RD = CD->getParent();
+  ArgTys.push_back(GetThisType(Context, RD));
+  if (CT == Ctor_CopyingClosure)
+    ArgTys.push_back(*FTP->param_type_begin());
+  if (RD->getNumVBases() > 0)
+    ArgTys.push_back(Context.IntTy);
+  CallingConv CC = Context.getDefaultCallingConvention(
+      /*IsVariadic=*/false, /*IsCXXMethod=*/true);
+  return arrangeLLVMFunctionInfo(Context.VoidTy, /*instanceMethod=*/true,
+                                 /*chainCall=*/false, ArgTys,
+                                 FunctionType::ExtInfo(CC), RequiredArgs::All);
 }
 
 /// Arrange a call as unto a free function, except possibly with an
@@ -939,7 +960,8 @@ static llvm::Value *CoerceIntOrPtrToIntOrPtr(llvm::Value *Val,
 
 
 /// CreateCoercedLoad - Create a load from \arg SrcPtr interpreted as
-/// a pointer to an object of type \arg Ty.
+/// a pointer to an object of type \arg Ty, known to be aligned to
+/// \arg SrcAlign bytes.
 ///
 /// This safely handles the case when the src type is smaller than the
 /// destination type; in this situation the values of bits which not
@@ -1000,6 +1022,9 @@ static void BuildAggStore(CodeGenFunction &CGF, llvm::Value *Val,
   // Prefer scalar stores to first-class aggregate stores.
   if (llvm::StructType *STy =
         dyn_cast<llvm::StructType>(Val->getType())) {
+    const llvm::StructLayout *Layout =
+      CGF.CGM.getDataLayout().getStructLayout(STy);
+
     for (unsigned i = 0, e = STy->getNumElements(); i != e; ++i) {
       auto EltOffset = CharUnits::fromQuantity(Layout->getElementOffset(i));
       Address EltPtr = CGF.Builder.CreateStructGEP(Dest, i, EltOffset);
@@ -1012,7 +1037,8 @@ static void BuildAggStore(CodeGenFunction &CGF, llvm::Value *Val,
 }
 
 /// CreateCoercedStore - Create a store to \arg DstPtr from \arg Src,
-/// where the source and destination may have different types.
+/// where the source and destination may have different types.  The
+/// destination is known to be aligned to \arg DstAlign bytes.
 ///
 /// This safely handles the case when the src type is larger than the
 /// destination type; the upper bits of the src will be lost.
@@ -1485,6 +1511,8 @@ void CodeGenModule::ConstructAttributeList(
     if (!CodeGenOpts.SimplifyLibCalls ||
         CodeGenOpts.isNoBuiltinFunc(Name.data()))
       FuncAttrs.addAttribute(llvm::Attribute::NoBuiltin);
+    if (!CodeGenOpts.TrapFuncName.empty())
+      FuncAttrs.addAttribute("trap-func-name", CodeGenOpts.TrapFuncName);
   } else {
     // Attributes that should go on the function, but not the call site.
     if (!CodeGenOpts.DisableFPElim) {
@@ -1652,8 +1680,12 @@ void CodeGenModule::ConstructAttributeList(
     case ABIArgInfo::Extend:
       if (ParamType->isSignedIntegerOrEnumerationType())
         Attrs.addAttribute(llvm::Attribute::SExt);
-      else if (ParamType->isUnsignedIntegerOrEnumerationType())
-        Attrs.addAttribute(llvm::Attribute::ZExt);
+      else if (ParamType->isUnsignedIntegerOrEnumerationType()) {
+        if (getTypes().getABIInfo().shouldSignExtUnsignedType(ParamType))
+          Attrs.addAttribute(llvm::Attribute::SExt);
+        else
+          Attrs.addAttribute(llvm::Attribute::ZExt);
+      }
       // FALL THROUGH
     case ABIArgInfo::Direct:
       if (ArgNo == 0 && FI.isChainCall())
@@ -2396,7 +2428,8 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
 
       // If there is a dominating store to ReturnValue, we can elide
       // the load, zap the store, and usually zap the alloca.
-      if (llvm::StoreInst *SI = findDominatingStoreToReturnValue(*this)) {
+      if (llvm::StoreInst *SI =
+              findDominatingStoreToReturnValue(*this)) {
         // Reuse the debug location from the store unless there is
         // cleanup code to be emitted between the store and return
         // instruction.
@@ -2464,7 +2497,7 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
     Ret = Builder.CreateRetVoid();
   }
 
-  if (!RetDbgLoc.isUnknown())
+  if (RetDbgLoc)
     Ret->setDebugLoc(std::move(RetDbgLoc));
 }
 
@@ -2630,7 +2663,7 @@ static void emitWritebackArg(CodeGenFunction &CGF, CallArgList &args,
   LValue srcLV;
 
   // Make an optimistic effort to emit the address as an l-value.
-  // This can fail if the the argument expression is more complicated.
+  // This can fail if the argument expression is more complicated.
   if (const Expr *lvExpr = maybeGetUnaryAddrOfOperand(CRE->getSubExpr())) {
     srcLV = CGF.EmitLValue(lvExpr);
 
@@ -2768,27 +2801,28 @@ void CallArgList::freeArgumentMemory(CodeGenFunction &CGF) const {
   }
 }
 
-static void emitNonNullArgCheck(CodeGenFunction &CGF, RValue RV,
-                                QualType ArgType, SourceLocation ArgLoc,
-                                const FunctionDecl *FD, unsigned ParmNum) {
-  if (!CGF.SanOpts.has(SanitizerKind::NonnullAttribute) || !FD)
+void CodeGenFunction::EmitNonNullArgCheck(RValue RV, QualType ArgType,
+                                          SourceLocation ArgLoc,
+                                          const FunctionDecl *FD,
+                                          unsigned ParmNum) {
+  if (!SanOpts.has(SanitizerKind::NonnullAttribute) || !FD)
     return;
   auto PVD = ParmNum < FD->getNumParams() ? FD->getParamDecl(ParmNum) : nullptr;
   unsigned ArgNo = PVD ? PVD->getFunctionScopeIndex() : ParmNum;
   auto NNAttr = getNonNullAttr(FD, PVD, ArgType, ArgNo);
   if (!NNAttr)
     return;
-  CodeGenFunction::SanitizerScope SanScope(&CGF);
+  SanitizerScope SanScope(this);
   assert(RV.isScalar());
   llvm::Value *V = RV.getScalarVal();
   llvm::Value *Cond =
-      CGF.Builder.CreateICmpNE(V, llvm::Constant::getNullValue(V->getType()));
+      Builder.CreateICmpNE(V, llvm::Constant::getNullValue(V->getType()));
   llvm::Constant *StaticData[] = {
-      CGF.EmitCheckSourceLocation(ArgLoc),
-      CGF.EmitCheckSourceLocation(NNAttr->getLocation()),
-      llvm::ConstantInt::get(CGF.Int32Ty, ArgNo + 1),
+      EmitCheckSourceLocation(ArgLoc),
+      EmitCheckSourceLocation(NNAttr->getLocation()),
+      llvm::ConstantInt::get(Int32Ty, ArgNo + 1),
   };
-  CGF.EmitCheck(std::make_pair(Cond, SanitizerKind::NonnullAttribute),
+  EmitCheck(std::make_pair(Cond, SanitizerKind::NonnullAttribute),
                 "nonnull_arg", StaticData, None);
 }
 
@@ -3062,7 +3096,6 @@ void CodeGenFunction::EmitNoreturnRuntimeCallOrInvoke(llvm::Value *callee,
     call->setCallingConv(getRuntimeCC());
     Builder.CreateUnreachable();
   }
-  PGO.setCurrentRegionUnreachable();
 }
 
 /// Emits a call or invoke instruction to the given nullary runtime
@@ -3105,7 +3138,7 @@ CodeGenFunction::EmitCallOrInvoke(llvm::Value *Callee,
   if (CGM.getLangOpts().ObjCAutoRefCount)
     AddObjCARCExceptionMetadata(Inst);
 
-  return Inst;
+  return llvm::CallSite(Inst);
 }
 
 /// \brief Store a non-aggregate value to an address to initialize it.  For

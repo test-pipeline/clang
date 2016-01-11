@@ -19,20 +19,15 @@
 #include "clang/AST/Mangle.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
+#include "clang/AST/StmtVisitor.h"
+#include "clang/Basic/TargetBuiltins.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/Support/SaveAndRestore.h"
 
 using namespace clang;
 using namespace CodeGen;
-
-static llvm::Constant *getAllocateExceptionFn(CodeGenModule &CGM) {
-  // void *__cxa_allocate_exception(size_t thrown_size);
-
-  llvm::FunctionType *FTy =
-    llvm::FunctionType::get(CGM.Int8PtrTy, CGM.SizeTy, /*IsVarArgs=*/false);
-
-  return CGM.CreateRuntimeFunction(FTy, "__cxa_allocate_exception");
-}
 
 static llvm::Constant *getFreeExceptionFn(CodeGenModule &CGM) {
   // void __cxa_free_exception(void *thrown_exception);
@@ -41,44 +36,6 @@ static llvm::Constant *getFreeExceptionFn(CodeGenModule &CGM) {
     llvm::FunctionType::get(CGM.VoidTy, CGM.Int8PtrTy, /*IsVarArgs=*/false);
 
   return CGM.CreateRuntimeFunction(FTy, "__cxa_free_exception");
-}
-
-static llvm::Constant *getThrowFn(CodeGenModule &CGM) {
-  // void __cxa_throw(void *thrown_exception, std::type_info *tinfo,
-  //                  void (*dest) (void *));
-
-  llvm::Type *Args[3] = { CGM.Int8PtrTy, CGM.Int8PtrTy, CGM.Int8PtrTy };
-  llvm::FunctionType *FTy =
-    llvm::FunctionType::get(CGM.VoidTy, Args, /*IsVarArgs=*/false);
-
-  return CGM.CreateRuntimeFunction(FTy, "__cxa_throw");
-}
-
-static llvm::Constant *getGetExceptionPtrFn(CodeGenModule &CGM) {
-  // void *__cxa_get_exception_ptr(void*);
-
-  llvm::FunctionType *FTy =
-    llvm::FunctionType::get(CGM.Int8PtrTy, CGM.Int8PtrTy, /*IsVarArgs=*/false);
-
-  return CGM.CreateRuntimeFunction(FTy, "__cxa_get_exception_ptr");
-}
-
-static llvm::Constant *getBeginCatchFn(CodeGenModule &CGM) {
-  // void *__cxa_begin_catch(void*);
-
-  llvm::FunctionType *FTy =
-    llvm::FunctionType::get(CGM.Int8PtrTy, CGM.Int8PtrTy, /*IsVarArgs=*/false);
-
-  return CGM.CreateRuntimeFunction(FTy, "__cxa_begin_catch");
-}
-
-static llvm::Constant *getEndCatchFn(CodeGenModule &CGM) {
-  // void __cxa_end_catch();
-
-  llvm::FunctionType *FTy =
-    llvm::FunctionType::get(CGM.VoidTy, /*IsVarArgs=*/false);
-
-  return CGM.CreateRuntimeFunction(FTy, "__cxa_end_catch");
 }
 
 static llvm::Constant *getUnexpectedFn(CodeGenModule &CGM) {
@@ -90,24 +47,30 @@ static llvm::Constant *getUnexpectedFn(CodeGenModule &CGM) {
   return CGM.CreateRuntimeFunction(FTy, "__cxa_call_unexpected");
 }
 
-static llvm::Constant *getTerminateFn(CodeGenModule &CGM) {
+llvm::Constant *CodeGenModule::getTerminateFn() {
   // void __terminate();
 
   llvm::FunctionType *FTy =
-    llvm::FunctionType::get(CGM.VoidTy, /*IsVarArgs=*/false);
+    llvm::FunctionType::get(VoidTy, /*IsVarArgs=*/false);
 
   StringRef name;
 
   // In C++, use std::terminate().
-  if (CGM.getLangOpts().CPlusPlus &&
-      CGM.getTarget().getCXXABI().isItaniumFamily()) {
+  if (getLangOpts().CPlusPlus &&
+      getTarget().getCXXABI().isItaniumFamily()) {
     name = "_ZSt9terminatev";
-  } else if (CGM.getLangOpts().ObjC1 &&
-           CGM.getLangOpts().ObjCRuntime.hasTerminate())
+  } else if (getLangOpts().CPlusPlus &&
+             getTarget().getCXXABI().isMicrosoft()) {
+    if (getLangOpts().isCompatibleWithMSVC(LangOptions::MSVC2015))
+      name = "__std_terminate";
+    else
+      name = "\01?terminate@@YAXXZ";
+  } else if (getLangOpts().ObjC1 &&
+             getLangOpts().ObjCRuntime.hasTerminate())
     name = "objc_terminate";
   else
     name = "abort";
-  return CGM.CreateRuntimeFunction(FTy, name);
+  return CreateRuntimeFunction(FTy, name);
 }
 
 static llvm::Constant *getCatchallRethrowFn(CodeGenModule &CGM,
@@ -409,8 +372,8 @@ void CodeGenFunction::EmitAnyExprToExn(const Expr *e, Address addr) {
   // evaluated but before the exception is caught.  But the best way
   // to handle that is to teach EmitAggExpr to do the final copy
   // differently if it can't be elided.
-  CGF.EmitAnyExprToMem(e, typedAddr, e->getType().getQualifiers(), 
-                       /*IsInit*/ true);
+  EmitAnyExprToMem(e, typedAddr, e->getType().getQualifiers(),
+                   /*IsInit*/ true);
 
   // Deactivate the cleanup block.
   DeactivateCleanupBlock(cleanup,
@@ -437,76 +400,20 @@ llvm::Value *CodeGenFunction::getSelectorFromSlot() {
   return Builder.CreateLoad(getEHSelectorSlot(), "sel");
 }
 
-llvm::Value *CodeGenFunction::getAbnormalTerminationSlot() {
-  if (!AbnormalTerminationSlot)
-    AbnormalTerminationSlot =
-        CreateTempAlloca(Int8Ty, "abnormal.termination.slot");
-  return AbnormalTerminationSlot;
-}
-
 void CodeGenFunction::EmitCXXThrowExpr(const CXXThrowExpr *E,
                                        bool KeepInsertionPoint) {
-  if (!E->getSubExpr()) {
-    CGM.getCXXABI().emitRethrow(*this, /*isNoReturn*/true);
-
-    // throw is an expression, and the expression emitters expect us
-    // to leave ourselves at a valid insertion point.
-    if (KeepInsertionPoint)
-      EmitBlock(createBasicBlock("throw.cont"));
-
-    return;
-  }
-
-  if (CGM.getTarget().getTriple().isKnownWindowsMSVCEnvironment()) {
-    ErrorUnsupported(E, "throw expression");
-    return;
-  }
-
-  QualType ThrowType = E->getSubExpr()->getType();
-
-  if (ThrowType->isObjCObjectPointerType()) {
-    const Stmt *ThrowStmt = E->getSubExpr();
-    const ObjCAtThrowStmt S(E->getExprLoc(),
-                            const_cast<Stmt *>(ThrowStmt));
-    CGM.getObjCRuntime().EmitThrowStmt(*this, S, false);
-    // This will clear insertion point which was not cleared in
-    // call to EmitThrowStmt.
-    if (KeepInsertionPoint)
-      EmitBlock(createBasicBlock("throw.cont"));
-    return;
-  }
-  
-  // Now allocate the exception object.
-  llvm::Type *SizeTy = ConvertType(getContext().getSizeType());
-  uint64_t TypeSize = getContext().getTypeSizeInChars(ThrowType).getQuantity();
-
-  llvm::Constant *AllocExceptionFn = getAllocateExceptionFn(CGM);
-  llvm::CallInst *ExceptionPtr =
-    EmitNounwindRuntimeCall(AllocExceptionFn,
-                            llvm::ConstantInt::get(SizeTy, TypeSize),
-                            "exception");
-  
-  EmitAnyExprToExn(*this, E->getSubExpr(), ExceptionPtr);
-
-  // Now throw the exception.
-  llvm::Constant *TypeInfo = CGM.GetAddrOfRTTIDescriptor(ThrowType, 
-                                                         /*ForEH=*/true);
-
-  // The address of the destructor.  If the exception type has a
-  // trivial destructor (or isn't a record), we just pass null.
-  llvm::Constant *Dtor = nullptr;
-  if (const RecordType *RecordTy = ThrowType->getAs<RecordType>()) {
-    CXXRecordDecl *Record = cast<CXXRecordDecl>(RecordTy->getDecl());
-    if (!Record->hasTrivialDestructor()) {
-      CXXDestructorDecl *DtorD = Record->getDestructor();
-      Dtor = CGM.getAddrOfCXXStructor(DtorD, StructorType::Complete);
-      Dtor = llvm::ConstantExpr::getBitCast(Dtor, Int8PtrTy);
+  if (const Expr *SubExpr = E->getSubExpr()) {
+    QualType ThrowType = SubExpr->getType();
+    if (ThrowType->isObjCObjectPointerType()) {
+      const Stmt *ThrowStmt = E->getSubExpr();
+      const ObjCAtThrowStmt S(E->getExprLoc(), const_cast<Stmt *>(ThrowStmt));
+      CGM.getObjCRuntime().EmitThrowStmt(*this, S, false);
+    } else {
+      CGM.getCXXABI().emitThrow(*this, E);
     }
+  } else {
+    CGM.getCXXABI().emitRethrow(*this, /*isNoReturn=*/true);
   }
-  if (!Dtor) Dtor = llvm::Constant::getNullValue(Int8PtrTy);
-
-  llvm::Value *args[] = { ExceptionPtr, TypeInfo, Dtor };
-  EmitNoreturnRuntimeCallOrInvoke(getThrowFn(CGM), args);
 
   // throw is an expression, and the expression emitters expect us
   // to leave ourselves at a valid insertion point.
@@ -538,6 +445,10 @@ void CodeGenFunction::EmitStartEHSpec(const Decl *D) {
       EHStack.pushTerminate();
     }
   } else if (EST == EST_Dynamic || EST == EST_DynamicNone) {
+    // TODO: Revisit exception specifications for the MS ABI.  There is a way to
+    // encode these in an object file but MSVC doesn't do anything with it.
+    if (getTarget().getCXXABI().isMicrosoft())
+      return;
     unsigned NumExceptions = Proto->getNumExceptions();
     EHFilterScope *Filter = EHStack.pushFilter(NumExceptions);
 
@@ -612,6 +523,10 @@ void CodeGenFunction::EmitEndEHSpec(const Decl *D) {
       EHStack.popTerminate();
     }
   } else if (EST == EST_Dynamic || EST == EST_DynamicNone) {
+    // TODO: Revisit exception specifications for the MS ABI.  There is a way to
+    // encode these in an object file but MSVC doesn't do anything with it.
+    if (getTarget().getCXXABI().isMicrosoft())
+      return;
     EHFilterScope &filterScope = cast<EHFilterScope>(*EHStack.begin());
     emitFilterDispatchBlock(*this, filterScope);
     EHStack.popFilter();
@@ -619,11 +534,6 @@ void CodeGenFunction::EmitEndEHSpec(const Decl *D) {
 }
 
 void CodeGenFunction::EmitCXXTryStmt(const CXXTryStmt &S) {
-  if (CGM.getTarget().getTriple().isKnownWindowsMSVCEnvironment()) {
-    ErrorUnsupported(&S, "try statement");
-    return;
-  }
-
   EnterCXXTryStmt(S);
   EmitStmt(S.getTryBlock());
   ExitCXXTryStmt(S);
@@ -842,9 +752,8 @@ llvm::BasicBlock *CodeGenFunction::EmitLandingPad() {
   llvm::BasicBlock *lpad = createBasicBlock("lpad");
   EmitBlock(lpad);
 
-  llvm::LandingPadInst *LPadInst =
-    Builder.CreateLandingPad(llvm::StructType::get(Int8PtrTy, Int32Ty, nullptr),
-                             getOpaquePersonalityFn(CGM, personality), 0);
+  llvm::LandingPadInst *LPadInst = Builder.CreateLandingPad(
+      llvm::StructType::get(Int8PtrTy, Int32Ty, nullptr), 0);
 
   llvm::Value *LPadExn = Builder.CreateExtractValue(LPadInst, 0);
   Builder.CreateStore(LPadExn, getExceptionSlot());
@@ -862,8 +771,8 @@ llvm::BasicBlock *CodeGenFunction::EmitLandingPad() {
   bool hasFilter = false;
   SmallVector<llvm::Value*, 4> filterTypes;
   llvm::SmallPtrSet<llvm::Value*, 4> catchTypes;
-  for (EHScopeStack::iterator I = EHStack.begin(), E = EHStack.end();
-         I != E; ++I) {
+  for (EHScopeStack::iterator I = EHStack.begin(), E = EHStack.end(); I != E;
+       ++I) {
 
     switch (I->getKind()) {
     case EHScope::Cleanup:
@@ -1149,8 +1058,7 @@ void CodeGenFunction::ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock) {
     CGM.getCXXABI().emitBeginCatch(*this, C);
 
     // Emit the PGO counter increment.
-    RegionCounter CatchCnt = getPGORegionCounter(C);
-    CatchCnt.beginRegion(Builder);
+    incrementProfileCounter(C);
 
     // Perform the body of the catch.
     EmitStmt(C->getHandlerBlock());
@@ -1178,9 +1086,8 @@ void CodeGenFunction::ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock) {
       Builder.CreateBr(ContBB);
   }
 
-  RegionCounter ContCnt = getPGORegionCounter(&S);
   EmitBlock(ContBB);
-  ContCnt.beginRegion(Builder);
+  incrementProfileCounter(&S);
 }
 
 namespace {
@@ -1374,70 +1281,6 @@ void CodeGenFunction::FinallyInfo::exit(CodeGenFunction &CGF) {
   CGF.PopCleanupBlock();
 }
 
-/// In a terminate landing pad, should we use __clang__call_terminate
-/// or just a naked call to std::terminate?
-///
-/// __clang_call_terminate calls __cxa_begin_catch, which then allows
-/// std::terminate to usefully report something about the
-/// violating exception.
-static bool useClangCallTerminate(CodeGenModule &CGM) {
-  // Only do this for Itanium-family ABIs in C++ mode.
-  return (CGM.getLangOpts().CPlusPlus &&
-          CGM.getTarget().getCXXABI().isItaniumFamily());
-}
-
-/// Get or define the following function:
-///   void @__clang_call_terminate(i8* %exn) nounwind noreturn
-/// This code is used only in C++.
-static llvm::Constant *getClangCallTerminateFn(CodeGenModule &CGM) {
-  llvm::FunctionType *fnTy =
-    llvm::FunctionType::get(CGM.VoidTy, CGM.Int8PtrTy, /*IsVarArgs=*/false);
-  llvm::Constant *fnRef =
-    CGM.CreateRuntimeFunction(fnTy, "__clang_call_terminate");
-
-  llvm::Function *fn = dyn_cast<llvm::Function>(fnRef);
-  if (fn && fn->empty()) {
-    fn->setDoesNotThrow();
-    fn->setDoesNotReturn();
-
-    // What we really want is to massively penalize inlining without
-    // forbidding it completely.  The difference between that and
-    // 'noinline' is negligible.
-    fn->addFnAttr(llvm::Attribute::NoInline);
-
-    // Allow this function to be shared across translation units, but
-    // we don't want it to turn into an exported symbol.
-    fn->setLinkage(llvm::Function::LinkOnceODRLinkage);
-    fn->setVisibility(llvm::Function::HiddenVisibility);
-    if (CGM.supportsCOMDAT())
-      fn->setComdat(CGM.getModule().getOrInsertComdat(fn->getName()));
-
-    // Set up the function.
-    llvm::BasicBlock *entry =
-      llvm::BasicBlock::Create(CGM.getLLVMContext(), "", fn);
-    CGBuilderTy builder(entry);
-
-    // Pull the exception pointer out of the parameter list.
-    llvm::Value *exn = &*fn->arg_begin();
-
-    // Call __cxa_begin_catch(exn).
-    llvm::CallInst *catchCall = builder.CreateCall(getBeginCatchFn(CGM), exn);
-    catchCall->setDoesNotThrow();
-    catchCall->setCallingConv(CGM.getRuntimeCC());
-
-    // Call std::terminate().
-    llvm::CallInst *termCall = builder.CreateCall(getTerminateFn(CGM));
-    termCall->setDoesNotThrow();
-    termCall->setDoesNotReturn();
-    termCall->setCallingConv(CGM.getRuntimeCC());
-
-    // std::terminate cannot return.
-    builder.CreateUnreachable();
-  }
-
-  return fnRef;
-}
-
 llvm::BasicBlock *CodeGenFunction::getTerminateLandingPad() {
   if (TerminateLandingPad)
     return TerminateLandingPad;
@@ -1450,9 +1293,12 @@ llvm::BasicBlock *CodeGenFunction::getTerminateLandingPad() {
 
   // Tell the backend that this is a landing pad.
   const EHPersonality &Personality = EHPersonality::get(*this);
-  llvm::LandingPadInst *LPadInst =
-    Builder.CreateLandingPad(llvm::StructType::get(Int8PtrTy, Int32Ty, nullptr),
-                             getOpaquePersonalityFn(CGM, Personality), 0);
+
+  if (!CurFn->hasPersonalityFn())
+    CurFn->setPersonalityFn(getOpaquePersonalityFn(CGM, Personality));
+
+  llvm::LandingPadInst *LPadInst = Builder.CreateLandingPad(
+      llvm::StructType::get(Int8PtrTy, Int32Ty, nullptr), 0);
   LPadInst->addClause(getCatchAllValue(*this));
 
   llvm::Value *Exn = nullptr;
@@ -1516,8 +1362,7 @@ llvm::BasicBlock *CodeGenFunction::getEHResumeBlock(bool isCleanup) {
   const char *RethrowName = Personality.CatchallRethrowFn;
   if (RethrowName != nullptr && !isCleanup) {
     EmitRuntimeCall(getCatchallRethrowFn(CGM, RethrowName),
-                    getExceptionFromSlot())
-      ->setDoesNotReturn();
+                    getExceptionFromSlot())->setDoesNotReturn();
     Builder.CreateUnreachable();
     Builder.restoreIP(SavedIP);
     return EHResumeBlock;
@@ -1539,16 +1384,7 @@ llvm::BasicBlock *CodeGenFunction::getEHResumeBlock(bool isCleanup) {
 }
 
 void CodeGenFunction::EmitSEHTryStmt(const SEHTryStmt &S) {
-  // FIXME: Implement SEH on other architectures.
-  const llvm::Triple &T = CGM.getTarget().getTriple();
-  if (T.getArch() != llvm::Triple::x86_64 ||
-      !T.isKnownWindowsMSVCEnvironment()) {
-    ErrorUnsupported(&S, "__try statement");
-    return;
-  }
-
-  SEHFinallyInfo FI;
-  EnterSEHTryStmt(S, FI);
+  EnterSEHTryStmt(S);
   {
     JumpDest TryExit = getJumpDestInCurrentScope("__try.__leave");
 
@@ -1561,7 +1397,7 @@ void CodeGenFunction::EmitSEHTryStmt(const SEHTryStmt &S) {
     else
       delete TryExit.getBlock();
   }
-  ExitSEHTryStmt(S, FI);
+  ExitSEHTryStmt(S);
 }
 
 namespace {
@@ -1775,38 +1611,61 @@ void CodeGenFunction::EmitCapturedLocals(CodeGenFunction &ParentCGF,
     EmitSEHExceptionCodeSave(ParentCGF, ParentFP, EntryFP);
 }
 
-  Expr *FilterExpr = Except.getFilterExpr();
+/// Arrange a function prototype that can be called by Windows exception
+/// handling personalities. On Win64, the prototype looks like:
+/// RetTy func(void *EHPtrs, void *ParentFP);
+void CodeGenFunction::startOutlinedSEHHelper(CodeGenFunction &ParentCGF,
+                                             bool IsFilter,
+                                             const Stmt *OutlinedStmt) {
+  SourceLocation StartLoc = OutlinedStmt->getLocStart();
 
   // Get the mangled function name.
   SmallString<128> Name;
   {
     llvm::raw_svector_ostream OS(Name);
+    const Decl *ParentCodeDecl = ParentCGF.CurCodeDecl;
     const NamedDecl *Parent = dyn_cast_or_null<NamedDecl>(ParentCodeDecl);
     assert(Parent && "FIXME: handle unnamed decls (lambdas, blocks) with SEH");
-    CGM.getCXXABI().getMangleContext().mangleSEHFilterExpression(Parent, OS);
+    MangleContext &Mangler = CGM.getCXXABI().getMangleContext();
+    if (IsFilter)
+      Mangler.mangleSEHFilterExpression(Parent, OS);
+    else
+      Mangler.mangleSEHFinallyBlock(Parent, OS);
   }
 
-  // Arrange a function with the declaration:
-  // int filt(EXCEPTION_POINTERS *exception_pointers, void *frame_pointer)
-  QualType RetTy = getContext().IntTy;
   FunctionArgList Args;
-  SEHPointersDecl = ImplicitParamDecl::Create(
-      getContext(), nullptr, FilterExpr->getLocStart(),
-      &getContext().Idents.get("exception_pointers"), getContext().VoidPtrTy);
-  Args.push_back(SEHPointersDecl);
-  Args.push_back(ImplicitParamDecl::Create(
-      getContext(), nullptr, FilterExpr->getLocStart(),
-      &getContext().Idents.get("frame_pointer"), getContext().VoidPtrTy));
+  if (CGM.getTarget().getTriple().getArch() != llvm::Triple::x86 || !IsFilter) {
+    // All SEH finally functions take two parameters. Win64 filters take two
+    // parameters. Win32 filters take no parameters.
+    if (IsFilter) {
+      Args.push_back(ImplicitParamDecl::Create(
+          getContext(), nullptr, StartLoc,
+          &getContext().Idents.get("exception_pointers"),
+          getContext().VoidPtrTy));
+    } else {
+      Args.push_back(ImplicitParamDecl::Create(
+          getContext(), nullptr, StartLoc,
+          &getContext().Idents.get("abnormal_termination"),
+          getContext().UnsignedCharTy));
+    }
+    Args.push_back(ImplicitParamDecl::Create(
+        getContext(), nullptr, StartLoc,
+        &getContext().Idents.get("frame_pointer"), getContext().VoidPtrTy));
+  }
+
+  QualType RetTy = IsFilter ? getContext().LongTy : getContext().VoidTy;
+
+  llvm::Function *ParentFn = ParentCGF.CurFn;
   const CGFunctionInfo &FnInfo = CGM.getTypes().arrangeFreeFunctionDeclaration(
       RetTy, Args, FunctionType::ExtInfo(), /*isVariadic=*/false);
+
   llvm::FunctionType *FnTy = CGM.getTypes().GetFunctionType(FnInfo);
-  llvm::Function *Fn = llvm::Function::Create(FnTy, ParentFn->getLinkage(),
-                                              Name.str(), &CGM.getModule());
+  llvm::Function *Fn = llvm::Function::Create(
+      FnTy, llvm::GlobalValue::InternalLinkage, Name.str(), &CGM.getModule());
   // The filter is either in the same comdat as the function, or it's internal.
   if (llvm::Comdat *C = ParentFn->getComdat()) {
     Fn->setComdat(C);
   } else if (ParentFn->hasWeakLinkage() || ParentFn->hasLinkOnceLinkage()) {
-    // FIXME: Unreachable with Rafael's changes?
     llvm::Comdat *C = CGM.getModule().getOrInsertComdat(ParentFn->getName());
     ParentFn->setComdat(C);
     Fn->setComdat(C);
@@ -1814,41 +1673,53 @@ void CodeGenFunction::EmitCapturedLocals(CodeGenFunction &ParentCGF,
     Fn->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
 
+  IsOutlinedSEHHelper = true;
+
   StartFunction(GlobalDecl(), RetTy, Fn, FnInfo, Args,
-                FilterExpr->getLocStart(), FilterExpr->getLocStart());
+                OutlinedStmt->getLocStart(), OutlinedStmt->getLocStart());
 
-  EmitSEHExceptionCodeSave();
+  CGM.SetLLVMFunctionAttributes(nullptr, FnInfo, CurFn);
+  EmitCapturedLocals(ParentCGF, OutlinedStmt, IsFilter);
+}
 
-  // Insert dummy allocas for every local variable in scope. We'll initialize
-  // them and prune the unused ones after we find out which ones were
-  // referenced.
-  for (const auto &DeclPtrs : ParentCGF.LocalDeclMap) {
-    const Decl *VD = DeclPtrs.first;
-    llvm::Value *Ptr = DeclPtrs.second;
-    auto *ValTy = cast<llvm::PointerType>(Ptr->getType())->getElementType();
-    LocalDeclMap[VD] = CreateTempAlloca(ValTy, Ptr->getName() + ".filt");
-  }
+/// Create a stub filter function that will ultimately hold the code of the
+/// filter expression. The EH preparation passes in LLVM will outline the code
+/// from the main function body into this stub.
+llvm::Function *
+CodeGenFunction::GenerateSEHFilterFunction(CodeGenFunction &ParentCGF,
+                                           const SEHExceptStmt &Except) {
+  const Expr *FilterExpr = Except.getFilterExpr();
+  startOutlinedSEHHelper(ParentCGF, true, FilterExpr);
 
   // Emit the original filter expression, convert to i32, and return.
   llvm::Value *R = EmitScalarExpr(FilterExpr);
-  R = Builder.CreateIntCast(R, CGM.IntTy,
+  R = Builder.CreateIntCast(R, ConvertType(getContext().LongTy),
                             FilterExpr->getType()->isSignedIntegerType());
   Builder.CreateStore(R, ReturnValue);
 
   FinishFunction(FilterExpr->getLocEnd());
 
-  for (const auto &DeclPtrs : ParentCGF.LocalDeclMap) {
-    const Decl *VD = DeclPtrs.first;
-    auto *Alloca = cast<llvm::AllocaInst>(LocalDeclMap[VD]);
-    if (Alloca->hasNUses(0)) {
-      Alloca->eraseFromParent();
-      continue;
-    }
-    ErrorUnsupported(FilterExpr,
-                     "SEH filter expression local variable capture");
-  }
+  return CurFn;
+}
 
-  return Fn;
+llvm::Function *
+CodeGenFunction::GenerateSEHFinallyFunction(CodeGenFunction &ParentCGF,
+                                            const SEHFinallyStmt &Finally) {
+  const Stmt *FinallyBlock = Finally.getBlock();
+  startOutlinedSEHHelper(ParentCGF, false, FinallyBlock);
+
+  // Mark finally block calls as nounwind and noinline to make LLVM's job a
+  // little easier.
+  // FIXME: Remove these restrictions in the future.
+  CurFn->addFnAttr(llvm::Attribute::NoUnwind);
+  CurFn->addFnAttr(llvm::Attribute::NoInline);
+
+  // Emit the original filter expression, convert to i32, and return.
+  EmitStmt(FinallyBlock);
+
+  FinishFunction(FinallyBlock->getLocEnd());
+
+  return CurFn;
 }
 
 void CodeGenFunction::EmitSEHExceptionCodeSave(CodeGenFunction &ParentCGF,
@@ -1879,9 +1750,7 @@ void CodeGenFunction::EmitSEHExceptionCodeSave(CodeGenFunction &ParentCGF,
   //   EXCEPTION_RECORD *ExceptionRecord;
   //   CONTEXT *ContextRecord;
   // };
-  // void *exn.slot =
-  //     (void *)(uintptr_t)exception_pointers->ExceptionRecord->ExceptionCode;
-  llvm::Value *Ptrs = Builder.CreateLoad(GetAddrOfLocalVar(SEHPointersDecl));
+  // int exceptioncode = exception_pointers->ExceptionRecord->ExceptionCode;
   llvm::Type *RecordTy = CGM.Int32Ty->getPointerTo();
   llvm::Type *PtrsTy = llvm::StructType::get(RecordTy, CGM.VoidPtrTy, nullptr);
   llvm::Value *Ptrs = Builder.CreateBitCast(SEHInfo, PtrsTy->getPointerTo());
@@ -1895,9 +1764,10 @@ void CodeGenFunction::EmitSEHExceptionCodeSave(CodeGenFunction &ParentCGF,
 llvm::Value *CodeGenFunction::EmitSEHExceptionInfo() {
   // Sema should diagnose calling this builtin outside of a filter context, but
   // don't crash if we screw up.
-  if (!SEHPointersDecl)
+  if (!SEHInfo)
     return llvm::UndefValue::get(Int8PtrTy);
-  return Builder.CreateLoad(GetAddrOfLocalVar(SEHPointersDecl));
+  assert(SEHInfo->getType() == Int8PtrTy);
+  return SEHInfo;
 }
 
 llvm::Value *CodeGenFunction::EmitSEHExceptionCode() {
@@ -1906,74 +1776,55 @@ llvm::Value *CodeGenFunction::EmitSEHExceptionCode() {
 }
 
 llvm::Value *CodeGenFunction::EmitSEHAbnormalTermination() {
-  // Load from the abnormal termination slot. It will be uninitialized outside
-  // of __finally blocks, which we should warn or error on.
-  llvm::Value *IsEH = Builder.CreateLoad(getAbnormalTerminationSlot());
-  return Builder.CreateZExt(IsEH, Int32Ty);
+  // Abnormal termination is just the first parameter to the outlined finally
+  // helper.
+  auto AI = CurFn->arg_begin();
+  return Builder.CreateZExt(&*AI, Int32Ty);
 }
 
-void CodeGenFunction::EnterSEHTryStmt(const SEHTryStmt &S, SEHFinallyInfo &FI) {
-  if (S.getFinallyHandler()) {
+void CodeGenFunction::EnterSEHTryStmt(const SEHTryStmt &S) {
+  CodeGenFunction HelperCGF(CGM, /*suppressNewContext=*/true);
+  if (const SEHFinallyStmt *Finally = S.getFinallyHandler()) {
+    // Outline the finally block.
+    llvm::Function *FinallyFunc =
+        HelperCGF.GenerateSEHFinallyFunction(*this, *Finally);
+
     // Push a cleanup for __finally blocks.
-    EHStack.pushCleanup<PerformSEHFinally>(NormalAndEHCleanup, &FI);
+    EHStack.pushCleanup<PerformSEHFinally>(NormalAndEHCleanup, FinallyFunc);
     return;
   }
 
   // Otherwise, we must have an __except block.
-  SEHExceptStmt *Except = S.getExceptHandler();
+  const SEHExceptStmt *Except = S.getExceptHandler();
   assert(Except);
   EHCatchScope *CatchScope = EHStack.pushCatch(1);
+  SEHCodeSlotStack.push_back(
+      CreateMemTemp(getContext().IntTy, "__exception_code"));
 
-  // If the filter is known to evaluate to 1, then we can use the clause "catch
-  // i8* null".
+  // If the filter is known to evaluate to 1, then we can use the clause
+  // "catch i8* null". We can't do this on x86 because the filter has to save
+  // the exception code.
   llvm::Constant *C =
       CGM.EmitConstantExpr(Except->getFilterExpr(), getContext().IntTy, this);
-  if (C && C->isOneValue()) {
+  if (CGM.getTarget().getTriple().getArch() != llvm::Triple::x86 && C &&
+      C->isOneValue()) {
     CatchScope->setCatchAllHandler(0, createBasicBlock("__except"));
     return;
   }
 
   // In general, we have to emit an outlined filter function. Use the function
   // in place of the RTTI typeinfo global that C++ EH uses.
-  CodeGenFunction FilterCGF(CGM, /*suppressNewContext=*/true);
   llvm::Function *FilterFunc =
-      FilterCGF.GenerateSEHFilterFunction(*this, *Except);
+      HelperCGF.GenerateSEHFilterFunction(*this, *Except);
   llvm::Constant *OpaqueFunc =
       llvm::ConstantExpr::getBitCast(FilterFunc, Int8PtrTy);
   CatchScope->setHandler(0, OpaqueFunc, createBasicBlock("__except.ret"));
 }
 
-void CodeGenFunction::ExitSEHTryStmt(const SEHTryStmt &S, SEHFinallyInfo &FI) {
+void CodeGenFunction::ExitSEHTryStmt(const SEHTryStmt &S) {
   // Just pop the cleanup if it's a __finally block.
-  if (const SEHFinallyStmt *Finally = S.getFinallyHandler()) {
+  if (S.getFinallyHandler()) {
     PopCleanupBlock();
-    assert(FI.ContBB && "did not emit normal cleanup");
-
-    // Emit the code into FinallyBB.
-    Builder.SetInsertPoint(FI.FinallyBB);
-    EmitStmt(Finally->getBlock());
-
-    // If the finally block doesn't fall through, we don't need these blocks.
-    if (!HaveInsertPoint()) {
-      FI.ContBB->eraseFromParent();
-      if (FI.ResumeBB)
-        FI.ResumeBB->eraseFromParent();
-      return;
-    }
-
-    if (FI.ResumeBB) {
-      llvm::Value *IsEH = Builder.CreateLoad(getAbnormalTerminationSlot(),
-                                             "abnormal.termination");
-      IsEH = Builder.CreateICmpEQ(IsEH, llvm::ConstantInt::get(Int8Ty, 0));
-      Builder.CreateCondBr(IsEH, FI.ContBB, FI.ResumeBB);
-    } else {
-      // There was nothing exceptional in the try body, so we only have normal
-      // control flow.
-      Builder.CreateBr(FI.ContBB);
-    }
-
-    Builder.SetInsertPoint(FI.ContBB);
-
     return;
   }
 
@@ -1988,6 +1839,7 @@ void CodeGenFunction::ExitSEHTryStmt(const SEHTryStmt &S, SEHFinallyInfo &FI) {
   if (!CatchScope.hasEHBranches()) {
     CatchScope.clearHandlerBlocks();
     EHStack.popCatch();
+    SEHCodeSlotStack.pop_back();
     return;
   }
 
@@ -2026,6 +1878,9 @@ void CodeGenFunction::ExitSEHTryStmt(const SEHTryStmt &S, SEHFinallyInfo &FI) {
   // Emit the __except body.
   EmitStmt(Except->getBlock());
 
+  // End the lifetime of the exception code.
+  SEHCodeSlotStack.pop_back();
+
   if (HaveInsertPoint())
     Builder.CreateBr(ContBB);
 
@@ -2039,7 +1894,13 @@ void CodeGenFunction::EmitSEHLeaveStmt(const SEHLeaveStmt &S) {
   if (HaveInsertPoint())
     EmitStopPoint(&S);
 
-  assert(!SEHTryEpilogueStack.empty() &&
-         "sema should have rejected this __leave");
+  // This must be a __leave from a __finally block, which we warn on and is UB.
+  // Just emit unreachable.
+  if (!isSEHTryScope()) {
+    Builder.CreateUnreachable();
+    Builder.ClearInsertionPoint();
+    return;
+  }
+
   EmitBranchThroughCleanup(*SEHTryEpilogueStack.back());
 }

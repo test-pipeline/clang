@@ -57,7 +57,7 @@ void member_access(S *p) {
   // (1b) Check that 'p' actually points to an 'S'.
 
   // CHECK: %[[VPTRADDR:.*]] = bitcast {{.*}} to i64*
-  // CHECK-NEXT: %[[VPTR:.*]] = load i64* %[[VPTRADDR]]
+  // CHECK-NEXT: %[[VPTR:.*]] = load i64, i64* %[[VPTRADDR]]
   //
   // hash_16_bytes:
   //
@@ -81,8 +81,8 @@ void member_access(S *p) {
   // Check the hash against the table:
   //
   // CHECK-NEXT: %[[IDX:.*]] = and i64 %{{.*}}, 127
-  // CHECK-NEXT: getelementptr inbounds [128 x i64]* @__ubsan_vptr_type_cache, i32 0, i64 %[[IDX]]
-  // CHECK-NEXT: %[[CACHEVAL:.*]] = load i64*
+  // CHECK-NEXT: getelementptr inbounds [128 x i64], [128 x i64]* @__ubsan_vptr_type_cache, i32 0, i64 %[[IDX]]
+  // CHECK-NEXT: %[[CACHEVAL:.*]] = load i64, i64*
   // CHECK-NEXT: icmp eq i64 %[[CACHEVAL]], %[[HASH]]
   // CHECK-NEXT: br i1
 
@@ -116,10 +116,10 @@ void member_access(S *p) {
 
   // (3b) Check that 'p' actually points to an 'S'
 
-  // CHECK: load i64*
+  // CHECK: load i64, i64*
   // CHECK-NEXT: xor i64 {{-4030275160588942838|2562089159}},
   // [...]
-  // CHECK: getelementptr inbounds [128 x i64]* @__ubsan_vptr_type_cache, i32 0, i64 %
+  // CHECK: getelementptr inbounds [128 x i64], [128 x i64]* @__ubsan_vptr_type_cache, i32 0, i64 %
   // CHECK: br i1
   // CHECK: call void @__ubsan_handle_dynamic_type_cache_miss({{.*}}, i64 %{{.*}}, i64 %{{.*}})
   // CHECK-NOT: unreachable
@@ -130,10 +130,11 @@ void member_access(S *p) {
 
 // CHECK-LABEL: @_Z12lsh_overflow
 int lsh_overflow(int a, int b) {
-  // CHECK: %[[INBOUNDS:.*]] = icmp ule i32 %[[RHS:.*]], 31
-  // CHECK-NEXT: br i1 %[[INBOUNDS]]
+  // CHECK: %[[RHS_INBOUNDS:.*]] = icmp ule i32 %[[RHS:.*]], 31
+  // CHECK-NEXT: br i1 %[[RHS_INBOUNDS]], label %[[CHECK_BB:.*]], label %[[CONT_BB:.*]],
 
-  // CHECK: %[[SHIFTED_OUT_WIDTH:.*]] = sub nuw nsw i32 31, %[[RHS]]
+  // CHECK:      [[CHECK_BB]]:
+  // CHECK-NEXT: %[[SHIFTED_OUT_WIDTH:.*]] = sub nuw nsw i32 31, %[[RHS]]
   // CHECK-NEXT: %[[SHIFTED_OUT:.*]] = lshr i32 %[[LHS:.*]], %[[SHIFTED_OUT_WIDTH]]
 
   // This is present for C++11 but not for C: C++ core issue 1457 allows a '1'
@@ -141,8 +142,11 @@ int lsh_overflow(int a, int b) {
   // CHECK-NEXT: %[[SHIFTED_OUT_NOT_SIGN:.*]] = lshr i32 %[[SHIFTED_OUT]], 1
 
   // CHECK-NEXT: %[[NO_OVERFLOW:.*]] = icmp eq i32 %[[SHIFTED_OUT_NOT_SIGN]], 0
+  // CHECK-NEXT: br label %[[CONT_BB]]
 
-  // CHECK: %[[VALID:.*]] = phi i1 [ %[[INBOUNDS]], {{.*}} ], [ %[[NO_OVERFLOW]], {{.*}} ]
+  // CHECK:      [[CONT_BB]]:
+  // CHECK-NEXT: %[[VALID_BASE:.*]] = phi i1 [ true, {{.*}} ], [ %[[NO_OVERFLOW]], %[[CHECK_BB]] ]
+  // CHECK-NEXT: %[[VALID:.*]] = and i1 %[[RHS_INBOUNDS]], %[[VALID_BASE]]
   // CHECK-NEXT: br i1 %[[VALID]]
 
   // CHECK: call void @__ubsan_handle_shift_out_of_bounds
@@ -392,6 +396,8 @@ void downcast_reference(B &b) {
 }
 
 // CHECK-LABEL: @_Z22indirect_function_callPFviE({{.*}} prologue <{ i32, i8* }> <{ i32 1413876459, i8* bitcast ({ i8*, i8* }* @_ZTIFvPFviEE to i8*) }>
+// CHECK-X32: @_Z22indirect_function_callPFviE({{.*}} prologue <{ i32, i8* }> <{ i32 1413875435, i8* bitcast ({ i8*, i8* }* @_ZTIFvPFviEE to i8*) }>
+// CHECK-X86: @_Z22indirect_function_callPFviE({{.*}} prologue <{ i32, i8* }> <{ i32 1413875435, i8* bitcast ({ i8*, i8* }* @_ZTIFvPFviEE to i8*) }>
 void indirect_function_call(void (*p)(int)) {
   // CHECK: [[PTR:%.+]] = bitcast void (i32)* {{.*}} to <{ i32, i8* }>*
 

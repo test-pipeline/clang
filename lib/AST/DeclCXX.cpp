@@ -1278,7 +1278,7 @@ const CXXRecordDecl *CXXRecordDecl::getTemplateInstantiationPattern() const {
           break;
         CTD = NewCTD;
       }
-      return CTD->getTemplatedDecl();
+      return CTD->getTemplatedDecl()->getDefinition();
     }
     if (auto *CTPSD =
             From.dyn_cast<ClassTemplatePartialSpecializationDecl *>()) {
@@ -1287,7 +1287,7 @@ const CXXRecordDecl *CXXRecordDecl::getTemplateInstantiationPattern() const {
           break;
         CTPSD = NewCTPSD;
       }
-      return CTPSD;
+      return CTPSD->getDefinition();
     }
   }
 
@@ -1296,7 +1296,7 @@ const CXXRecordDecl *CXXRecordDecl::getTemplateInstantiationPattern() const {
       const CXXRecordDecl *RD = this;
       while (auto *NewRD = RD->getInstantiatedFromMemberClass())
         RD = NewRD;
-      return RD;
+      return RD->getDefinition();
     }
   }
 
@@ -1319,6 +1319,28 @@ CXXDestructorDecl *CXXRecordDecl::getDestructor() const {
 
   CXXDestructorDecl *Dtor = cast<CXXDestructorDecl>(R.front());
   return Dtor;
+}
+
+bool CXXRecordDecl::isAnyDestructorNoReturn() const {
+  // Destructor is noreturn.
+  if (const CXXDestructorDecl *Destructor = getDestructor())
+    if (Destructor->isNoReturn())
+      return true;
+
+  // Check base classes destructor for noreturn.
+  for (const auto &Base : bases())
+    if (Base.getType()->getAsCXXRecordDecl()->isAnyDestructorNoReturn())
+      return true;
+
+  // Check fields for noreturn.
+  for (const auto *Field : fields())
+    if (const CXXRecordDecl *RD =
+            Field->getType()->getBaseElementTypeUnsafe()->getAsCXXRecordDecl())
+      if (RD->isAnyDestructorNoReturn())
+        return true;
+
+  // All destructors are not noreturn.
+  return false;
 }
 
 void CXXRecordDecl::completeDefinition() {
@@ -1744,6 +1766,10 @@ CXXConstructorDecl::Create(ASTContext &C, CXXRecordDecl *RD,
                                         isImplicitlyDeclared, isConstexpr);
 }
 
+CXXConstructorDecl::init_const_iterator CXXConstructorDecl::init_begin() const {
+  return CtorInitializers.get(getASTContext().getExternalSource());
+}
+
 CXXConstructorDecl *CXXConstructorDecl::getTargetConstructor() const {
   assert(isDelegatingConstructor() && "Not a delegating constructor!");
   Expr *E = (*init_begin())->getInit()->IgnoreImplicit();
@@ -1889,6 +1915,15 @@ CXXDestructorDecl::Create(ASTContext &C, CXXRecordDecl *RD,
          "Name must refer to a destructor");
   return new (C, RD) CXXDestructorDecl(C, RD, StartLoc, NameInfo, T, TInfo,
                                        isInline, isImplicitlyDeclared);
+}
+
+void CXXDestructorDecl::setOperatorDelete(FunctionDecl *OD) {
+  auto *First = cast<CXXDestructorDecl>(getFirstDecl());
+  if (OD && !First->OperatorDelete) {
+    First->OperatorDelete = OD;
+    if (auto *L = getASTMutationListener())
+      L->ResolvedOperatorDelete(First, OD);
+  }
 }
 
 void CXXConversionDecl::anchor() { }

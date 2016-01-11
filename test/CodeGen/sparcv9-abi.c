@@ -136,7 +136,7 @@ int f_variable(char *f, ...) {
 // CHECK-DAG: store i8* %[[NXT]], i8** %ap
 // CHECK-DAG: %[[EXT:[^ ]+]] = getelementptr inbounds i8, i8* %[[CUR]], i64 4
 // CHECK-DAG: %[[ADR:[^ ]+]] = bitcast i8* %[[EXT]] to i32*
-// CHECK-DAG: load i32* %[[ADR]]
+// CHECK-DAG: load i32, i32* %[[ADR]]
 // CHECK: br
   case 'i':
     s += va_arg(ap, int);
@@ -146,7 +146,7 @@ int f_variable(char *f, ...) {
 // CHECK-DAG: %[[NXT:[^ ]+]] = getelementptr inbounds i8, i8* %[[CUR]], i64 8
 // CHECK-DAG: store i8* %[[NXT]], i8** %ap
 // CHECK-DAG: %[[ADR:[^ ]+]] = bitcast i8* %[[CUR]] to i64*
-// CHECK-DAG: load i64* %[[ADR]]
+// CHECK-DAG: load i64, i64* %[[ADR]]
 // CHECK: br
   case 'l':
     s += va_arg(ap, long);
@@ -174,7 +174,7 @@ int f_variable(char *f, ...) {
 // CHECK-DAG: %[[NXT:[^ ]+]] = getelementptr inbounds i8, i8* %[[CUR]], i64 8
 // CHECK-DAG: store i8* %[[NXT]], i8** %ap
 // CHECK-DAG: %[[IND:[^ ]+]] = bitcast i8* %[[CUR]] to %struct.medium**
-// CHECK-DAG: %[[ADR:[^ ]+]] = load %struct.medium** %[[IND]]
+// CHECK-DAG: %[[ADR:[^ ]+]] = load %struct.medium*, %struct.medium** %[[IND]]
 // CHECK: br
   case 'm':
     s += *va_arg(ap, struct medium).a;

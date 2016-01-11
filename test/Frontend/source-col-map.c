@@ -32,7 +32,8 @@ void test2(Unknown* b);  // αααα αααα αααα αααα αααα ααα�
 void test3() {
    /* αααα αααα αααα αααα αααα αααα αααα αααα αααα αααα */ printf("%d", "s");
 }
-// CHECK:       format specifies type 'int' but the argument has type 'char *'
+// CHECK:       format specifies type 'int' but the argument has
+// CHECK:       type 'char *'
 // CHECK-NEXT:   ...αααα αααα αααα αααα αααα αααα αααα αααα αααα */ printf("%d", "s");
 // CHECK-NEXT: {{^                                                             ~~   \^~~$}}
 // CHECK-NEXT: {{^                                                             %s$}}

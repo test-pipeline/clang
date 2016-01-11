@@ -70,10 +70,14 @@ public:
     void Profile(llvm::FoldingSetNodeID &ID) { ID = NodeID; }
   };
   
-  struct FilesMade : public llvm::FoldingSet<PDFileEntry> {
+  class FilesMade {
     llvm::BumpPtrAllocator Alloc;
+    llvm::FoldingSet<PDFileEntry> Set;
 
+  public:
     ~FilesMade();
+
+    bool empty() const { return Set.empty(); }
 
     void addDiagnostic(const PathDiagnostic &PD,
                        StringRef ConsumerName,
@@ -362,7 +366,7 @@ protected:
   PathDiagnosticPiece(Kind k, DisplayHint hint = Below);
 
 public:
-  virtual ~PathDiagnosticPiece();
+  ~PathDiagnosticPiece() override;
 
   StringRef getString() const { return str; }
 
@@ -477,7 +481,7 @@ private:
 
 public:
   StackHintGeneratorForSymbol(SymbolRef S, StringRef M) : Sym(S), Msg(M) {}
-  virtual ~StackHintGeneratorForSymbol() {}
+  ~StackHintGeneratorForSymbol() override {}
 
   /// \brief Search the call expression for the symbol Sym and dispatch the
   /// 'getMessageForX()' methods to construct a specific message.
@@ -510,7 +514,7 @@ public:
     : PathDiagnosticSpotPiece(pos, s, Event, addPosRange),
       CallStackHint(stackHint) {}
 
-  ~PathDiagnosticEventPiece();
+  ~PathDiagnosticEventPiece() override;
 
   /// Mark the diagnostic piece as being potentially prunable.  This
   /// flag may have been previously set, at which point it will not
@@ -569,9 +573,9 @@ public:
   PathDiagnosticLocation callEnterWithin;
   PathDiagnosticLocation callReturn;  
   PathPieces path;
-  
-  virtual ~PathDiagnosticCallPiece();
-  
+
+  ~PathDiagnosticCallPiece() override;
+
   const Decl *getCaller() const { return Caller; }
   
   const Decl *getCallee() const { return Callee; }
@@ -630,7 +634,7 @@ public:
       LPairs.push_back(PathDiagnosticLocationPair(startPos, endPos));
     }
 
-  ~PathDiagnosticControlFlowPiece();
+    ~PathDiagnosticControlFlowPiece() override;
 
   PathDiagnosticLocation getStartLocation() const {
     assert(!LPairs.empty() &&
@@ -685,7 +689,7 @@ public:
   PathDiagnosticMacroPiece(const PathDiagnosticLocation &pos)
     : PathDiagnosticSpotPiece(pos, "", Macro) {}
 
-  ~PathDiagnosticMacroPiece();
+  ~PathDiagnosticMacroPiece() override;
 
   PathPieces subPieces;
   

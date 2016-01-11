@@ -48,7 +48,7 @@ double varargs_vec_2i(int fixed, ...) {
 
 double test_2i(__int2 *in) {
 // CHECK: test_2i
-// CHECK: call arm_aapcscc double (i32, ...)* @varargs_vec_2i(i32 3, <2 x i32> {{%.*}})
+// CHECK: call arm_aapcscc double (i32, ...) @varargs_vec_2i(i32 3, <2 x i32> {{%.*}})
 // APCS-GNU: test_2i
 // APCS-GNU: call double (i32, ...) @varargs_vec_2i(i32 3, <2 x i32> {{%.*}})
 // ANDROID: test_2i
@@ -80,7 +80,7 @@ double varargs_vec_3c(int fixed, ...) {
 
 double test_3c(__char3 *in) {
 // CHECK: test_3c
-// CHECK: call arm_aapcscc double (i32, ...)* @varargs_vec_3c(i32 3, i32 {{%.*}})
+// CHECK: call arm_aapcscc double (i32, ...) @varargs_vec_3c(i32 3, i32 {{%.*}})
 // APCS-GNU: test_3c
 // APCS-GNU: call double (i32, ...) @varargs_vec_3c(i32 3, i32 {{%.*}})
 // ANDROID: test_3c
@@ -123,7 +123,7 @@ double varargs_vec_5c(int fixed, ...) {
 
 double test_5c(__char5 *in) {
 // CHECK: test_5c
-// CHECK: call arm_aapcscc double (i32, ...)* @varargs_vec_5c(i32 5, <2 x i32> {{%.*}})
+// CHECK: call arm_aapcscc double (i32, ...) @varargs_vec_5c(i32 5, <2 x i32> {{%.*}})
 // APCS-GNU: test_5c
 // APCS-GNU: call double (i32, ...) @varargs_vec_5c(i32 5, <2 x i32> {{%.*}})
 // ANDROID: test_5c
@@ -166,7 +166,7 @@ double varargs_vec_9c(int fixed, ...) {
 
 double test_9c(__char9 *in) {
 // CHECK: test_9c
-// CHECK: call arm_aapcscc double (i32, ...)* @varargs_vec_9c(i32 9, <4 x i32> {{%.*}})
+// CHECK: call arm_aapcscc double (i32, ...) @varargs_vec_9c(i32 9, <4 x i32> {{%.*}})
 // APCS-GNU: test_9c
 // APCS-GNU: call double (i32, ...) @varargs_vec_9c(i32 9, <4 x i32> {{%.*}})
 // ANDROID: test_9c
@@ -198,7 +198,7 @@ double varargs_vec_19c(int fixed, ...) {
 
 double test_19c(__char19 *in) {
 // CHECK: test_19c
-// CHECK: call arm_aapcscc double (i32, ...)* @varargs_vec_19c(i32 19, <19 x i8>* {{%.*}})
+// CHECK: call arm_aapcscc double (i32, ...) @varargs_vec_19c(i32 19, <19 x i8>* {{%.*}})
 // APCS-GNU: test_19c
 // APCS-GNU: call double (i32, ...) @varargs_vec_19c(i32 19, <19 x i8>* {{%.*}})
 // ANDROID: test_19c
@@ -236,7 +236,7 @@ double varargs_vec_3s(int fixed, ...) {
 
 double test_3s(__short3 *in) {
 // CHECK: test_3s
-// CHECK: call arm_aapcscc double (i32, ...)* @varargs_vec_3s(i32 3, <2 x i32> {{%.*}})
+// CHECK: call arm_aapcscc double (i32, ...) @varargs_vec_3s(i32 3, <2 x i32> {{%.*}})
 // APCS-GNU: test_3s
 // APCS-GNU: call double (i32, ...) @varargs_vec_3s(i32 3, <2 x i32> {{%.*}})
 // ANDROID: test_3s
@@ -278,7 +278,7 @@ double varargs_vec_5s(int fixed, ...) {
 
 double test_5s(__short5 *in) {
 // CHECK: test_5s
-// CHECK: call arm_aapcscc double (i32, ...)* @varargs_vec_5s(i32 5, <4 x i32> {{%.*}})
+// CHECK: call arm_aapcscc double (i32, ...) @varargs_vec_5s(i32 5, <4 x i32> {{%.*}})
 // APCS-GNU: test_5s
 // APCS-GNU: call double (i32, ...) @varargs_vec_5s(i32 5, <4 x i32> {{%.*}})
 // ANDROID: test_5s
@@ -320,7 +320,7 @@ double varargs_struct(int fixed, ...) {
 
 double test_struct(StructWithVec* d) {
 // CHECK: test_struct
-// CHECK: call arm_aapcscc double (i32, ...)* @varargs_struct(i32 3, [2 x i64] {{%.*}})
+// CHECK: call arm_aapcscc double (i32, ...) @varargs_struct(i32 3, [2 x i64] {{%.*}})
 // APCS-GNU: test_struct
 // APCS-GNU: call double (i32, ...) @varargs_struct(i32 3, [2 x i64] {{%.*}})
 // ANDROID: test_struct

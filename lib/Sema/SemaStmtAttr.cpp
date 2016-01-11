@@ -171,7 +171,7 @@ CheckForIncompatibleAttributes(Sema &S,
     const LoopHintAttr *PrevAttr;
     if (Option == LoopHintAttr::Vectorize ||
         Option == LoopHintAttr::Interleave || Option == LoopHintAttr::Unroll) {
-      // Enable|disable hint.  For example, vectorize(enable).
+      // Enable|Disable|AssumeSafety hint.  For example, vectorize(enable).
       PrevAttr = CategoryState.StateAttr;
       CategoryState.StateAttr = LH;
     } else {

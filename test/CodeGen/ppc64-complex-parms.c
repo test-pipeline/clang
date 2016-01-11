@@ -58,8 +58,8 @@ void bar_float(void) {
 
 // CHECK: define void @bar_float() [[NUW]] {
 // CHECK: %[[VAR1:[A-Za-z0-9.]+]] = alloca { float, float }, align 4
-// CHECK: %[[VAR2:[A-Za-z0-9.]+]] = getelementptr inbounds { float, float }* %[[VAR1]], i32 0, i32 0
-// CHECK: %[[VAR3:[A-Za-z0-9.]+]] = getelementptr inbounds { float, float }* %[[VAR1]], i32 0, i32 1
+// CHECK: %[[VAR2:[A-Za-z0-9.]+]] = getelementptr inbounds { float, float }, { float, float }* %[[VAR1]], i32 0, i32 0
+// CHECK: %[[VAR3:[A-Za-z0-9.]+]] = getelementptr inbounds { float, float }, { float, float }* %[[VAR1]], i32 0, i32 1
 // CHECK: store float 2.000000e+00, float* %[[VAR2]]
 // CHECK: store float -2.500000e+00, float* %[[VAR3]]
 // CHECK: %[[VAR4:[A-Za-z0-9.]+]] = getelementptr inbounds { float, float }, { float, float }* %[[VAR1]], i32 0, i32 0
@@ -74,8 +74,8 @@ void bar_double(void) {
 
 // CHECK: define void @bar_double() [[NUW]] {
 // CHECK: %[[VAR11:[A-Za-z0-9.]+]] = alloca { double, double }, align 8
-// CHECK: %[[VAR12:[A-Za-z0-9.]+]] = getelementptr inbounds { double, double }* %[[VAR11]], i32 0, i32 0
-// CHECK: %[[VAR13:[A-Za-z0-9.]+]] = getelementptr inbounds { double, double }* %[[VAR11]], i32 0, i32 1
+// CHECK: %[[VAR12:[A-Za-z0-9.]+]] = getelementptr inbounds { double, double }, { double, double }* %[[VAR11]], i32 0, i32 0
+// CHECK: %[[VAR13:[A-Za-z0-9.]+]] = getelementptr inbounds { double, double }, { double, double }* %[[VAR11]], i32 0, i32 1
 // CHECK: store double 2.000000e+00, double* %[[VAR12]]
 // CHECK: store double -2.500000e+00, double* %[[VAR13]]
 // CHECK: %[[VAR14:[A-Za-z0-9.]+]] = getelementptr inbounds { double, double }, { double, double }* %[[VAR11]], i32 0, i32 0
@@ -90,8 +90,8 @@ void bar_long_double(void) {
 
 // CHECK: define void @bar_long_double() [[NUW]] {
 // CHECK: %[[VAR21:[A-Za-z0-9.]+]] = alloca { ppc_fp128, ppc_fp128 }, align 16
-// CHECK: %[[VAR22:[A-Za-z0-9.]+]] = getelementptr inbounds { ppc_fp128, ppc_fp128 }* %[[VAR21]], i32 0, i32 0
-// CHECK: %[[VAR23:[A-Za-z0-9.]+]] = getelementptr inbounds { ppc_fp128, ppc_fp128 }* %[[VAR21]], i32 0, i32 1
+// CHECK: %[[VAR22:[A-Za-z0-9.]+]] = getelementptr inbounds { ppc_fp128, ppc_fp128 }, { ppc_fp128, ppc_fp128 }* %[[VAR21]], i32 0, i32 0
+// CHECK: %[[VAR23:[A-Za-z0-9.]+]] = getelementptr inbounds { ppc_fp128, ppc_fp128 }, { ppc_fp128, ppc_fp128 }* %[[VAR21]], i32 0, i32 1
 // CHECK: store ppc_fp128 0xM40000000000000000000000000000000, ppc_fp128* %[[VAR22]]
 // CHECK: store ppc_fp128 0xMC0040000000000000000000000000000, ppc_fp128* %[[VAR23]]
 // CHECK: %[[VAR24:[A-Za-z0-9.]+]] = getelementptr inbounds { ppc_fp128, ppc_fp128 }, { ppc_fp128, ppc_fp128 }* %[[VAR21]], i32 0, i32 0
@@ -106,8 +106,8 @@ void bar_int(void) {
 
 // CHECK: define void @bar_int() [[NUW]] {
 // CHECK: %[[VAR31:[A-Za-z0-9.]+]] = alloca { i32, i32 }, align 4
-// CHECK: %[[VAR32:[A-Za-z0-9.]+]] = getelementptr inbounds { i32, i32 }* %[[VAR31]], i32 0, i32 0
-// CHECK: %[[VAR33:[A-Za-z0-9.]+]] = getelementptr inbounds { i32, i32 }* %[[VAR31]], i32 0, i32 1
+// CHECK: %[[VAR32:[A-Za-z0-9.]+]] = getelementptr inbounds { i32, i32 }, { i32, i32 }* %[[VAR31]], i32 0, i32 0
+// CHECK: %[[VAR33:[A-Za-z0-9.]+]] = getelementptr inbounds { i32, i32 }, { i32, i32 }* %[[VAR31]], i32 0, i32 1
 // CHECK: store i32 2, i32* %[[VAR32]]
 // CHECK: store i32 -3, i32* %[[VAR33]]
 // CHECK: %[[VAR34:[A-Za-z0-9.]+]] = getelementptr inbounds { i32, i32 }, { i32, i32 }* %[[VAR31]], i32 0, i32 0
@@ -122,8 +122,8 @@ void bar_short(void) {
 
 // CHECK: define void @bar_short() [[NUW]] {
 // CHECK: %[[VAR41:[A-Za-z0-9.]+]] = alloca { i16, i16 }, align 2
-// CHECK: %[[VAR42:[A-Za-z0-9.]+]] = getelementptr inbounds { i16, i16 }* %[[VAR41]], i32 0, i32 0
-// CHECK: %[[VAR43:[A-Za-z0-9.]+]] = getelementptr inbounds { i16, i16 }* %[[VAR41]], i32 0, i32 1
+// CHECK: %[[VAR42:[A-Za-z0-9.]+]] = getelementptr inbounds { i16, i16 }, { i16, i16 }* %[[VAR41]], i32 0, i32 0
+// CHECK: %[[VAR43:[A-Za-z0-9.]+]] = getelementptr inbounds { i16, i16 }, { i16, i16 }* %[[VAR41]], i32 0, i32 1
 // CHECK: store i16 2, i16* %[[VAR42]]
 // CHECK: store i16 -3, i16* %[[VAR43]]
 // CHECK: %[[VAR44:[A-Za-z0-9.]+]] = getelementptr inbounds { i16, i16 }, { i16, i16 }* %[[VAR41]], i32 0, i32 0
@@ -138,8 +138,8 @@ void bar_char(void) {
 
 // CHECK: define void @bar_char() [[NUW]] {
 // CHECK: %[[VAR51:[A-Za-z0-9.]+]] = alloca { i8, i8 }, align 1
-// CHECK: %[[VAR52:[A-Za-z0-9.]+]] = getelementptr inbounds { i8, i8 }* %[[VAR51]], i32 0, i32 0
-// CHECK: %[[VAR53:[A-Za-z0-9.]+]] = getelementptr inbounds { i8, i8 }* %[[VAR51]], i32 0, i32 1
+// CHECK: %[[VAR52:[A-Za-z0-9.]+]] = getelementptr inbounds { i8, i8 }, { i8, i8 }* %[[VAR51]], i32 0, i32 0
+// CHECK: %[[VAR53:[A-Za-z0-9.]+]] = getelementptr inbounds { i8, i8 }, { i8, i8 }* %[[VAR51]], i32 0, i32 1
 // CHECK: store i8 2, i8* %[[VAR52]]
 // CHECK: store i8 -3, i8* %[[VAR53]]
 // CHECK: %[[VAR54:[A-Za-z0-9.]+]] = getelementptr inbounds { i8, i8 }, { i8, i8 }* %[[VAR51]], i32 0, i32 0
@@ -154,8 +154,8 @@ void bar_long(void) {
 
 // CHECK: define void @bar_long() [[NUW]] {
 // CHECK: %[[VAR61:[A-Za-z0-9.]+]] = alloca { i64, i64 }, align 8
-// CHECK: %[[VAR62:[A-Za-z0-9.]+]] = getelementptr inbounds { i64, i64 }* %[[VAR61]], i32 0, i32 0
-// CHECK: %[[VAR63:[A-Za-z0-9.]+]] = getelementptr inbounds { i64, i64 }* %[[VAR61]], i32 0, i32 1
+// CHECK: %[[VAR62:[A-Za-z0-9.]+]] = getelementptr inbounds { i64, i64 }, { i64, i64 }* %[[VAR61]], i32 0, i32 0
+// CHECK: %[[VAR63:[A-Za-z0-9.]+]] = getelementptr inbounds { i64, i64 }, { i64, i64 }* %[[VAR61]], i32 0, i32 1
 // CHECK: store i64 2, i64* %[[VAR62]]
 // CHECK: store i64 -3, i64* %[[VAR63]]
 // CHECK: %[[VAR64:[A-Za-z0-9.]+]] = getelementptr inbounds { i64, i64 }, { i64, i64 }* %[[VAR61]], i32 0, i32 0
@@ -170,8 +170,8 @@ void bar_long_long(void) {
 
 // CHECK: define void @bar_long_long() [[NUW]] {
 // CHECK: %[[VAR71:[A-Za-z0-9.]+]] = alloca { i64, i64 }, align 8
-// CHECK: %[[VAR72:[A-Za-z0-9.]+]] = getelementptr inbounds { i64, i64 }* %[[VAR71]], i32 0, i32 0
-// CHECK: %[[VAR73:[A-Za-z0-9.]+]] = getelementptr inbounds { i64, i64 }* %[[VAR71]], i32 0, i32 1
+// CHECK: %[[VAR72:[A-Za-z0-9.]+]] = getelementptr inbounds { i64, i64 }, { i64, i64 }* %[[VAR71]], i32 0, i32 0
+// CHECK: %[[VAR73:[A-Za-z0-9.]+]] = getelementptr inbounds { i64, i64 }, { i64, i64 }* %[[VAR71]], i32 0, i32 1
 // CHECK: store i64 2, i64* %[[VAR72]]
 // CHECK: store i64 -3, i64* %[[VAR73]]
 // CHECK: %[[VAR74:[A-Za-z0-9.]+]] = getelementptr inbounds { i64, i64 }, { i64, i64 }* %[[VAR71]], i32 0, i32 0

@@ -44,7 +44,7 @@ public:
   explicit DelegatingDeserializationListener(
       ASTDeserializationListener *Previous, bool DeletePrevious)
       : Previous(Previous), DeletePrevious(DeletePrevious) {}
-  virtual ~DelegatingDeserializationListener() {
+  ~DelegatingDeserializationListener() override {
     if (DeletePrevious)
       delete Previous;
   }
@@ -71,7 +71,7 @@ public:
       Previous->SelectorRead(ID, Sel);
   }
   void MacroDefinitionRead(serialization::PreprocessedEntityID PPID,
-                           MacroDefinition *MD) override {
+                           MacroDefinitionRecord *MD) override {
     if (Previous)
       Previous->MacroDefinitionRead(PPID, MD);
   }
@@ -269,7 +269,7 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
       SmallString<128> DirNative;
       llvm::sys::path::native(PCHDir->getName(), DirNative);
       bool Found = false;
-      for (llvm::sys::fs::directory_iterator Dir(DirNative.str(), EC), DirEnd;
+      for (llvm::sys::fs::directory_iterator Dir(DirNative, EC), DirEnd;
            Dir != DirEnd && !EC; Dir.increment(EC)) {
         // Check whether this is an acceptable AST file.
         if (ASTReader::isAcceptableASTFile(
@@ -470,16 +470,12 @@ void FrontendAction::EndSourceFile() {
   // FIXME: There is more per-file stuff we could just drop here?
   bool DisableFree = CI.getFrontendOpts().DisableFree;
   if (DisableFree) {
-    if (!isCurrentFileAST()) {
-      CI.resetAndLeakSema();
-      CI.resetAndLeakASTContext();
-    }
+    CI.resetAndLeakSema();
+    CI.resetAndLeakASTContext();
     BuryPointer(CI.takeASTConsumer().get());
   } else {
-    if (!isCurrentFileAST()) {
-      CI.setSema(nullptr);
-      CI.setASTContext(nullptr);
-    }
+    CI.setSema(nullptr);
+    CI.setASTContext(nullptr);
     CI.setASTConsumer(nullptr);
   }
 
@@ -496,13 +492,16 @@ void FrontendAction::EndSourceFile() {
   // FrontendAction.
   CI.clearOutputFiles(/*EraseFiles=*/shouldEraseOutputFiles());
 
-  // FIXME: Only do this if DisableFree is set.
   if (isCurrentFileAST()) {
-    CI.resetAndLeakSema();
-    CI.resetAndLeakASTContext();
-    CI.resetAndLeakPreprocessor();
-    CI.resetAndLeakSourceManager();
-    CI.resetAndLeakFileManager();
+    if (DisableFree) {
+      CI.resetAndLeakPreprocessor();
+      CI.resetAndLeakSourceManager();
+      CI.resetAndLeakFileManager();
+    } else {
+      CI.setPreprocessor(nullptr);
+      CI.setSourceManager(nullptr);
+      CI.setFileManager(nullptr);
+    }
   }
 
   setCompilerInstance(nullptr);

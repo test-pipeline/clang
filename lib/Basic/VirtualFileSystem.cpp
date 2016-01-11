@@ -128,7 +128,7 @@ class RealFile : public File {
   }
 
 public:
-  ~RealFile();
+  ~RealFile() override;
   ErrorOr<Status> status() override;
   ErrorOr<std::unique_ptr<MemoryBuffer>> getBuffer(const Twine &Name,
                                                    int64_t FileSize,
@@ -681,20 +681,6 @@ std::error_code InMemoryFileSystem::setCurrentWorkingDirectory(const Twine &P) {
 //===-----------------------------------------------------------------------===/
 // RedirectingFileSystem implementation
 //===-----------------------------------------------------------------------===/
-
-// Allow DenseMap<StringRef, ...>.  This is useful below because we know all the
-// strings are literals and will outlive the map, and there is no reason to
-// store them.
-namespace llvm {
-  template<>
-  struct DenseMapInfo<StringRef> {
-    // This assumes that "" will never be a valid key.
-    static inline StringRef getEmptyKey() { return StringRef(""); }
-    static inline StringRef getTombstoneKey() { return StringRef(); }
-    static unsigned getHashValue(StringRef Val) { return HashString(Val); }
-    static bool isEqual(StringRef LHS, StringRef RHS) { return LHS == RHS; }
-  };
-}
 
 namespace {
 
@@ -1532,7 +1518,7 @@ VFSFromYamlDirIterImpl::VFSFromYamlDirIterImpl(
   if (Current != End) {
     SmallString<128> PathStr(Dir);
     llvm::sys::path::append(PathStr, (*Current)->getName());
-    llvm::ErrorOr<vfs::Status> S = FS.status(PathStr.str());
+    llvm::ErrorOr<vfs::Status> S = FS.status(PathStr);
     if (S)
       CurrentEntry = *S;
     else
@@ -1545,7 +1531,7 @@ std::error_code VFSFromYamlDirIterImpl::increment() {
   if (++Current != End) {
     SmallString<128> PathStr(Dir);
     llvm::sys::path::append(PathStr, (*Current)->getName());
-    llvm::ErrorOr<vfs::Status> S = FS.status(PathStr.str());
+    llvm::ErrorOr<vfs::Status> S = FS.status(PathStr);
     if (!S)
       return S.getError();
     CurrentEntry = *S;

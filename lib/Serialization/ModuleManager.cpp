@@ -11,6 +11,7 @@
 //  modules for the ASTReader.
 //
 //===----------------------------------------------------------------------===//
+#include "clang/Frontend/PCHContainerOperations.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/ModuleMap.h"
 #include "clang/Serialization/GlobalModuleIndex.h"
@@ -58,8 +59,7 @@ ModuleManager::addModule(StringRef FileName, ModuleKind Type,
                          unsigned Generation,
                          off_t ExpectedSize, time_t ExpectedModTime,
                          ASTFileSignature ExpectedSignature,
-                         std::function<ASTFileSignature(llvm::BitstreamReader &)>
-                             ReadSignature,
+                         ASTFileSignatureReader ReadSignature,
                          ModuleFile *&Module,
                          std::string &ErrorStr) {
   Module = nullptr;
@@ -159,6 +159,7 @@ ModuleManager::addModule(StringRef FileName, ModuleKind Type,
         // invalidate the file cache for Entry, and that is not safe if this
         // module is *itself* up to date, but has an out-of-date importer.
         Modules.erase(Entry);
+        assert(Chain.back() == ModuleEntry);
         Chain.pop_back();
         if (!ModuleEntry->isModule())
           PCHChain.pop_back();
@@ -199,12 +200,15 @@ void ModuleManager::removeModules(
   // Collect the set of module file pointers that we'll be removing.
   llvm::SmallPtrSet<ModuleFile *, 4> victimSet(first, last);
 
+  auto IsVictim = [&](ModuleFile *MF) {
+    return victimSet.count(MF);
+  };
   // Remove any references to the now-destroyed modules.
   for (unsigned i = 0, n = Chain.size(); i != n; ++i) {
-    Chain[i]->ImportedBy.remove_if([&](ModuleFile *MF) {
-      return victimSet.count(MF);
-    });
+    Chain[i]->ImportedBy.remove_if(IsVictim);
   }
+  Roots.erase(std::remove_if(Roots.begin(), Roots.end(), IsVictim),
+              Roots.end());
 
   // Remove the modules from the PCH chain.
   for (auto I = first; I != last; ++I) {

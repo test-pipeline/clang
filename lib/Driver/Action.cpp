@@ -24,6 +24,8 @@ const char *Action::getClassName(ActionClass AC) {
   switch (AC) {
   case InputClass: return "input";
   case BindArchClass: return "bind-arch";
+  case CudaDeviceClass: return "cuda-device";
+  case CudaHostClass: return "cuda-host";
   case PreprocessJobClass: return "preprocessor";
   case PrecompileJobClass: return "precompiler";
   case AnalyzeJobClass: return "analyzer";

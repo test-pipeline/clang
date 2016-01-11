@@ -533,8 +533,8 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
 
   llvm::SourceMgr TempSrcMgr;
   llvm::MCContext Ctx(MAI.get(), MRI.get(), MOFI.get(), &TempSrcMgr);
-  MOFI->InitMCObjectFileInfo(TT, llvm::Reloc::Default, llvm::CodeModel::Default,
-                             Ctx);
+  MOFI->InitMCObjectFileInfo(TheTriple, llvm::Reloc::Default,
+                             llvm::CodeModel::Default, Ctx);
   std::unique_ptr<llvm::MemoryBuffer> Buffer =
       llvm::MemoryBuffer::getMemBuffer(AsmString, "<MS inline asm>");
 
@@ -551,7 +551,7 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
       TheTarget->createMCAsmParser(*STI, *Parser, *MII, MCOptions));
 
   std::unique_ptr<llvm::MCInstPrinter> IP(
-      TheTarget->createMCInstPrinter(1, *MAI, *MII, *MRI, *STI));
+      TheTarget->createMCInstPrinter(llvm::Triple(TT), 1, *MAI, *MII, *MRI));
 
   // Change to the Intel dialect.
   Parser->setAssemblerDialect(1);
@@ -637,10 +637,6 @@ StmtResult Parser::ParseAsmStatement(bool &msAsm) {
     return ParseMicrosoftAsmStatement(AsmLoc);
   }
 
-  // Check if GNU-style inline Asm is disabled.
-  if (!getLangOpts().GNUAsm)
-    Diag(AsmLoc, diag::err_gnu_inline_asm_disabled);
-
   DeclSpec DS(AttrFactory);
   SourceLocation Loc = Tok.getLocation();
   ParseTypeQualifierListOpt(DS, AR_VendorAttributesParsed);
@@ -665,6 +661,15 @@ StmtResult Parser::ParseAsmStatement(bool &msAsm) {
   T.consumeOpen();
 
   ExprResult AsmString(ParseAsmStringLiteral());
+
+  // Check if GNU-style InlineAsm is disabled.
+  // Error on anything other than empty string.
+  if (!(getLangOpts().GNUAsm || AsmString.isInvalid())) {
+    const auto *SL = cast<StringLiteral>(AsmString.get());
+    if (!SL->getString().trim().empty())
+      Diag(Loc, diag::err_gnu_inline_asm_disabled);
+  }
+
   if (AsmString.isInvalid()) {
     // Consume up to and including the closing paren.
     T.skipToEnd();

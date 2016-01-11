@@ -20,7 +20,6 @@
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
-#include <vector>
 
 using namespace clang;
 using namespace CodeGen;
@@ -30,8 +29,19 @@ namespace {
 class CGNVCUDARuntime : public CGCUDARuntime {
 
 private:
-  llvm::Type *IntTy, *SizeTy;
-  llvm::PointerType *CharPtrTy, *VoidPtrTy;
+  llvm::Type *IntTy, *SizeTy, *VoidTy;
+  llvm::PointerType *CharPtrTy, *VoidPtrTy, *VoidPtrPtrTy;
+
+  /// Convenience reference to LLVM Context
+  llvm::LLVMContext &Context;
+  /// Convenience reference to the current module
+  llvm::Module &TheModule;
+  /// Keeps track of kernel launch stubs emitted in this module
+  llvm::SmallVector<llvm::Function *, 16> EmittedKernels;
+  /// Keeps track of variables containing handles of GPU binaries. Populated by
+  /// ModuleCtorFunction() and used to create corresponding cleanup calls in
+  /// ModuleDtorFunction()
+  llvm::SmallVector<llvm::GlobalVariable *, 16> GpuBinaryHandles;
 
   llvm::Constant *getSetupArgumentFn() const;
   llvm::Constant *getLaunchFn() const;
@@ -57,20 +67,28 @@ private:
 public:
   CGNVCUDARuntime(CodeGenModule &CGM);
 
-  void EmitDeviceStubBody(CodeGenFunction &CGF, FunctionArgList &Args) override;
+  void emitDeviceStub(CodeGenFunction &CGF, FunctionArgList &Args) override;
+  /// Creates module constructor function
+  llvm::Function *makeModuleCtorFunction() override;
+  /// Creates module destructor function
+  llvm::Function *makeModuleDtorFunction() override;
 };
 
 }
 
-CGNVCUDARuntime::CGNVCUDARuntime(CodeGenModule &CGM) : CGCUDARuntime(CGM) {
+CGNVCUDARuntime::CGNVCUDARuntime(CodeGenModule &CGM)
+    : CGCUDARuntime(CGM), Context(CGM.getLLVMContext()),
+      TheModule(CGM.getModule()) {
   CodeGen::CodeGenTypes &Types = CGM.getTypes();
   ASTContext &Ctx = CGM.getContext();
 
   IntTy = Types.ConvertType(Ctx.IntTy);
   SizeTy = Types.ConvertType(Ctx.getSizeType());
+  VoidTy = llvm::Type::getVoidTy(Context);
 
   CharPtrTy = llvm::PointerType::getUnqual(Types.ConvertType(Ctx.CharTy));
   VoidPtrTy = cast<llvm::PointerType>(Types.ConvertType(Ctx.VoidPtrTy));
+  VoidPtrPtrTy = VoidPtrTy->getPointerTo();
 }
 
 llvm::Constant *CGNVCUDARuntime::getSetupArgumentFn() const {
@@ -86,14 +104,17 @@ llvm::Constant *CGNVCUDARuntime::getSetupArgumentFn() const {
 
 llvm::Constant *CGNVCUDARuntime::getLaunchFn() const {
   // cudaError_t cudaLaunch(char *)
-  std::vector<llvm::Type*> Params;
-  Params.push_back(CharPtrTy);
-  return CGM.CreateRuntimeFunction(llvm::FunctionType::get(IntTy,
-                                                           Params, false),
-                                   "cudaLaunch");
+  return CGM.CreateRuntimeFunction(
+      llvm::FunctionType::get(IntTy, CharPtrTy, false), "cudaLaunch");
 }
 
-void CGNVCUDARuntime::EmitDeviceStubBody(CodeGenFunction &CGF,
+void CGNVCUDARuntime::emitDeviceStub(CodeGenFunction &CGF,
+                                     FunctionArgList &Args) {
+  EmittedKernels.push_back(CGF.CurFn);
+  emitDeviceStubBody(CGF, Args);
+}
+
+void CGNVCUDARuntime::emitDeviceStubBody(CodeGenFunction &CGF,
                                          FunctionArgList &Args) {
   // Build the argument value list and the argument stack struct type.
   SmallVector<llvm::Value *, 16> ArgValues;
@@ -105,8 +126,7 @@ void CGNVCUDARuntime::EmitDeviceStubBody(CodeGenFunction &CGF,
     assert(isa<llvm::PointerType>(V->getType()) && "Arg type not PointerType");
     ArgTypes.push_back(cast<llvm::PointerType>(V->getType())->getElementType());
   }
-  llvm::StructType *ArgStackTy = llvm::StructType::get(
-      CGF.getLLVMContext(), ArgTypes);
+  llvm::StructType *ArgStackTy = llvm::StructType::get(Context, ArgTypes);
 
   llvm::BasicBlock *EndBlock = CGF.createBasicBlock("setup.end");
 

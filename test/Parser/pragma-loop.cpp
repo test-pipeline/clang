@@ -130,7 +130,7 @@ void test(int *List, int Length) {
 /* expected-error {{expected ')'}} */ #pragma clang loop interleave_count(4
 /* expected-error {{expected ')'}} */ #pragma clang loop unroll_count(4
 
-/* expected-error {{missing argument; expected 'enable' or 'disable'}} */ #pragma clang loop vectorize()
+/* expected-error {{missing argument; expected 'enable', 'assume_safety' or 'disable'}} */ #pragma clang loop vectorize()
 /* expected-error {{missing argument; expected an integer value}} */ #pragma clang loop interleave_count()
 /* expected-error {{missing argument; expected 'enable', 'full' or 'disable'}} */ #pragma clang loop unroll()
 

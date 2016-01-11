@@ -1,8 +1,13 @@
 // REQUIRES: nvptx-registered-target
-// RUN: %clang_cc1 -triple nvptx-unknown-unknown -S -emit-llvm -o - %s | FileCheck %s
-// RUN: %clang_cc1 -triple nvptx64-unknown-unknown -S -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang_cc1 -triple nvptx-unknown-unknown -fcuda-is-device -S -emit-llvm -o - -x cuda %s | FileCheck %s
+// RUN: %clang_cc1 -triple nvptx64-unknown-unknown -fcuda-is-device -S -emit-llvm -o - -x cuda %s | FileCheck %s
 
-int read_tid() {
+#define __device__ __attribute__((device))
+#define __global__ __attribute__((global))
+#define __shared__ __attribute__((shared))
+#define __constant__ __attribute__((constant))
+
+__device__ int read_tid() {
 
 // CHECK: call i32 @llvm.ptx.read.tid.x()
 // CHECK: call i32 @llvm.ptx.read.tid.y()
@@ -18,7 +23,7 @@ int read_tid() {
 
 }
 
-int read_ntid() {
+__device__ int read_ntid() {
 
 // CHECK: call i32 @llvm.ptx.read.ntid.x()
 // CHECK: call i32 @llvm.ptx.read.ntid.y()
@@ -34,7 +39,7 @@ int read_ntid() {
 
 }
 
-int read_ctaid() {
+__device__ int read_ctaid() {
 
 // CHECK: call i32 @llvm.ptx.read.ctaid.x()
 // CHECK: call i32 @llvm.ptx.read.ctaid.y()
@@ -50,7 +55,7 @@ int read_ctaid() {
 
 }
 
-int read_nctaid() {
+__device__ int read_nctaid() {
 
 // CHECK: call i32 @llvm.ptx.read.nctaid.x()
 // CHECK: call i32 @llvm.ptx.read.nctaid.y()
@@ -66,7 +71,7 @@ int read_nctaid() {
 
 }
 
-int read_ids() {
+__device__ int read_ids() {
 
 // CHECK: call i32 @llvm.ptx.read.laneid()
 // CHECK: call i32 @llvm.ptx.read.warpid()
@@ -86,7 +91,7 @@ int read_ids() {
 
 }
 
-int read_lanemasks() {
+__device__ int read_lanemasks() {
 
 // CHECK: call i32 @llvm.ptx.read.lanemask.eq()
 // CHECK: call i32 @llvm.ptx.read.lanemask.le()
@@ -115,7 +120,7 @@ __device__ long long read_clocks() {
   return a + b;
 }
 
-int read_pms() {
+__device__ int read_pms() {
 
 // CHECK: call i32 @llvm.ptx.read.pm0()
 // CHECK: call i32 @llvm.ptx.read.pm1()
@@ -131,7 +136,7 @@ int read_pms() {
 
 }
 
-void sync() {
+__device__ void sync() {
 
 // CHECK: call void @llvm.ptx.bar.sync(i32 0)
 
@@ -144,7 +149,7 @@ void sync() {
 
 // The idea is not to test all intrinsics, just that Clang is recognizing the
 // builtins defined in BuiltinsNVPTX.def
-void nvvm_math(float f1, float f2, double d1, double d2) {
+__device__ void nvvm_math(float f1, float f2, double d1, double d2) {
 // CHECK: call float @llvm.nvvm.fmax.f
   float t1 = __nvvm_fmax_f(f1, f2);
 // CHECK: call float @llvm.nvvm.fmin.f

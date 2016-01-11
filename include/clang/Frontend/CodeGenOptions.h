@@ -47,6 +47,11 @@ public:
     OnlyAlwaysInlining  // Only run the always inlining pass.
   };
 
+  enum VectorLibrary {
+    NoLibrary, // Don't use any vector library.
+    Accelerate // Use the Accelerate framework.
+  };
+
   enum ObjCDispatchMethodKind {
     Legacy = 0,
     NonLegacy = 1,
@@ -158,6 +163,10 @@ public:
 
   /// A list of dependent libraries.
   std::vector<std::string> DependentLibraries;
+
+  /// Name of the profile file to use as output for -fprofile-instr-generate
+  /// and -fprofile-generate.
+  std::string InstrProfileOutput;
 
   /// Name of the profile file to use with -fprofile-sample-use.
   std::string SampleProfileFile;

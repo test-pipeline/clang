@@ -247,3 +247,19 @@ namespace test8 {
     s.f(p); // expected-note {{in instantiation of member function 'test8::S<void *>::f' requested here}}
   }
 }
+
+namespace test9 {
+  // Used to fail when we forgot to make lambda call operators use __thiscall.
+  template <typename F>
+  decltype(auto) deduce(F f) {
+    return &decltype(f)::operator();
+  }
+  template <typename C, typename R, typename A>
+  decltype(auto) signaturehelper(R (C::*f)(A) const) {
+    return R();
+  }
+  void f() {
+    auto l = [](int x) { return x * 2; };
+    decltype(signaturehelper(deduce(l))) p;
+  }
+}

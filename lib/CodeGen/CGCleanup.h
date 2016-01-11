@@ -74,6 +74,9 @@ protected:
     /// Whether this cleanup is currently active.
     unsigned IsActive : 1;
 
+    /// Whether this cleanup is a lifetime marker
+    unsigned IsLifetimeMarker : 1;
+
     /// Whether the normal cleanup should test the activation flag.
     unsigned TestFlagInNormalCleanup : 1;
 
@@ -290,6 +293,7 @@ public:
     CleanupBits.IsNormalCleanup = isNormal;
     CleanupBits.IsEHCleanup = isEH;
     CleanupBits.IsActive = isActive;
+    CleanupBits.IsLifetimeMarker = false;
     CleanupBits.TestFlagInNormalCleanup = false;
     CleanupBits.TestFlagInEHCleanup = false;
     CleanupBits.CleanupSize = cleanupSize;

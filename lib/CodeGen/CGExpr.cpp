@@ -31,6 +31,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/Support/ConvertUTF.h"
+#include "llvm/Support/MathExtras.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -517,7 +518,7 @@ void CodeGenFunction::EmitTypeCheck(TypeCheckKind TCK, SourceLocation Loc,
 
   SanitizerScope SanScope(this);
 
-  SmallVector<std::pair<llvm::Value *, SanitizerKind>, 3> Checks;
+  SmallVector<std::pair<llvm::Value *, SanitizerMask>, 3> Checks;
   llvm::BasicBlock *Done = nullptr;
 
   bool AllowNullPointers = TCK == TCK_DowncastPointer || TCK == TCK_Upcast ||
@@ -551,7 +552,7 @@ void CodeGenFunction::EmitTypeCheck(TypeCheckKind TCK, SourceLocation Loc,
     llvm::Value *Min = Builder.getFalse();
     llvm::Value *CastAddr = Builder.CreateBitCast(Ptr, Int8PtrTy);
     llvm::Value *LargeEnough =
-        Builder.CreateICmpUGE(Builder.CreateCall2(F, CastAddr, Min),
+        Builder.CreateICmpUGE(Builder.CreateCall(F, {CastAddr, Min}),
                               llvm::ConstantInt::get(IntPtrTy, Size));
     Checks.push_back(std::make_pair(LargeEnough, SanitizerKind::ObjectSize));
   }
@@ -1308,7 +1309,7 @@ llvm::Value *CodeGenFunction::EmitLoadOfScalar(Address Addr, bool Volatile,
         EmitCheckSourceLocation(Loc),
         EmitCheckTypeDescriptor(Ty)
       };
-      SanitizerKind Kind = NeedsEnumCheck ? SanitizerKind::Enum : SanitizerKind::Bool;
+      SanitizerMask Kind = NeedsEnumCheck ? SanitizerKind::Enum : SanitizerKind::Bool;
       EmitCheck(std::make_pair(Check, Kind), "load_invalid_value", StaticArgs,
                 EmitCheckValue(Load));
     }
@@ -1810,8 +1811,8 @@ void CodeGenFunction::EmitStoreThroughGlobalRegLValue(RValue Src, LValue Dst) {
   llvm::Value *Value = Src.getScalarVal();
   if (OrigTy->isPointerTy())
     Value = Builder.CreatePtrToInt(Value, Ty);
-  Builder.CreateCall2(F, llvm::MetadataAsValue::get(Ty->getContext(), RegName),
-                      Value);
+  Builder.CreateCall(
+      F, {llvm::MetadataAsValue::get(Ty->getContext(), RegName), Value});
 }
 
 // setObjCGCLValueClass - sets class of the lvalue for the purpose of
@@ -2381,7 +2382,8 @@ enum class CheckRecoverableKind {
 };
 }
 
-static CheckRecoverableKind getRecoverableKind(SanitizerKind Kind) {
+static CheckRecoverableKind getRecoverableKind(SanitizerMask Kind) {
+  assert(llvm::countPopulation(Kind) == 1);
   switch (Kind) {
   case SanitizerKind::Vptr:
     return CheckRecoverableKind::AlwaysRecoverable;
@@ -2428,7 +2430,7 @@ static void emitCheckHandlerCall(CodeGenFunction &CGF,
 }
 
 void CodeGenFunction::EmitCheck(
-    ArrayRef<std::pair<llvm::Value *, SanitizerKind>> Checked,
+    ArrayRef<std::pair<llvm::Value *, SanitizerMask>> Checked,
     StringRef CheckName, ArrayRef<llvm::Constant *> StaticArgs,
     ArrayRef<llvm::Value *> DynamicArgs) {
   assert(IsSanitizerScope);
@@ -2436,14 +2438,23 @@ void CodeGenFunction::EmitCheck(
 
   llvm::Value *FatalCond = nullptr;
   llvm::Value *RecoverableCond = nullptr;
+  llvm::Value *TrapCond = nullptr;
   for (int i = 0, n = Checked.size(); i < n; ++i) {
     llvm::Value *Check = Checked[i].first;
+    // -fsanitize-trap= overrides -fsanitize-recover=.
     llvm::Value *&Cond =
-        CGM.getCodeGenOpts().SanitizeRecover.has(Checked[i].second)
-            ? RecoverableCond
-            : FatalCond;
+        CGM.getCodeGenOpts().SanitizeTrap.has(Checked[i].second)
+            ? TrapCond
+            : CGM.getCodeGenOpts().SanitizeRecover.has(Checked[i].second)
+                  ? RecoverableCond
+                  : FatalCond;
     Cond = Cond ? Builder.CreateAnd(Cond, Check) : Check;
   }
+
+  if (TrapCond)
+    EmitTrapCheck(TrapCond);
+  if (!FatalCond && !RecoverableCond)
+    return;
 
   llvm::Value *JointCond;
   if (FatalCond && RecoverableCond)
@@ -2461,15 +2472,6 @@ void CodeGenFunction::EmitCheck(
     assert(SanOpts.has(Checked[i].second));
   }
 #endif
-
-  if (CGM.getCodeGenOpts().SanitizeUndefinedTrapOnError) {
-    assert(RecoverKind != CheckRecoverableKind::AlwaysRecoverable &&
-           "Runtime call required for AlwaysRecoverable kind!");
-    // Assume that -fsanitize-undefined-trap-on-error overrides
-    // -fsanitize-recover= options, as we can only print meaningful error
-    // message and recover if we have a runtime support.
-    return EmitTrapCheck(JointCond);
-  }
 
   llvm::BasicBlock *Cont = createBasicBlock("cont");
   llvm::BasicBlock *Handlers = createBasicBlock("handler." + CheckName);
@@ -2567,8 +2569,7 @@ void CodeGenFunction::EmitTrapCheck(llvm::Value *Checked) {
     TrapBB = createBasicBlock("trap");
     Builder.CreateCondBr(Checked, Cont, TrapBB);
     EmitBlock(TrapBB);
-    llvm::Value *F = CGM.getIntrinsic(llvm::Intrinsic::trap);
-    llvm::CallInst *TrapCall = Builder.CreateCall(F);
+    llvm::CallInst *TrapCall = EmitTrapCall(llvm::Intrinsic::trap);
     TrapCall->setDoesNotReturn();
     TrapCall->setDoesNotThrow();
     Builder.CreateUnreachable();
@@ -3279,7 +3280,6 @@ EmitConditionalOperatorLValue(const AbstractConditionalOperator *expr) {
   }
 
   OpaqueValueMapping binding(*this, expr);
-  RegionCounter Cnt = getPGORegionCounter(expr);
 
   const Expr *condExpr = expr->getCond();
   bool CondExprBool;
@@ -3290,7 +3290,7 @@ EmitConditionalOperatorLValue(const AbstractConditionalOperator *expr) {
     if (!ContainsLabel(dead)) {
       // If the true case is live, we need to track its region.
       if (CondExprBool)
-        Cnt.beginRegion(Builder);
+        incrementProfileCounter(expr);
       return EmitLValue(live);
     }
   }
@@ -3300,11 +3300,11 @@ EmitConditionalOperatorLValue(const AbstractConditionalOperator *expr) {
   llvm::BasicBlock *contBlock = createBasicBlock("cond.end");
 
   ConditionalEvaluation eval(*this);
-  EmitBranchOnBoolExpr(condExpr, lhsBlock, rhsBlock, Cnt.getCount());
+  EmitBranchOnBoolExpr(condExpr, lhsBlock, rhsBlock, getProfileCount(expr));
 
   // Any temporaries created here are conditional.
   EmitBlock(lhsBlock);
-  Cnt.beginRegion(Builder);
+  incrementProfileCounter(expr);
   eval.begin(*this);
   Optional<LValue> lhs =
       EmitLValueOrThrowExpression(*this, expr->getTrueExpr());
@@ -3649,7 +3649,7 @@ LValue CodeGenFunction::EmitCallExprLValue(const CallExpr *E) {
     return MakeAddrLValue(RV.getAggregateAddress(), E->getType(),
                           AlignmentSource::Decl);
 
-  assert(E->getCallReturnType()->isReferenceType() &&
+  assert(E->getCallReturnType(getContext())->isReferenceType() &&
          "Can't have a scalar return unless the return type is a "
          "reference type!");
 

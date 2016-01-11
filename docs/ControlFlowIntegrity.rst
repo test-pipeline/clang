@@ -90,7 +90,7 @@ Forward-Edge CFI for Virtual Calls
 This scheme checks that virtual calls take place using a vptr of the correct
 dynamic type; that is, the dynamic type of the called object must be a
 derived class of the static type of the object used to make the call.
-This CFI scheme can be enabled on its own using ``-fsanitize=cfi-vptr``.
+This CFI scheme can be enabled on its own using ``-fsanitize=cfi-vcall``.
 
 For this scheme to work, all translation units containing the definition
 of a virtual member function (whether inline or not), other than members

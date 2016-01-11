@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 %s -triple x86_64-pc-win32 -fms-extensions -emit-llvm -o - | FileCheck %s
+// RUN: %clang_cc1 %s -triple i686-pc-win32 -fms-extensions -emit-llvm -o - | FileCheck %s
 
 void abort(void) __attribute__((noreturn));
 void might_crash(void);
@@ -17,16 +18,8 @@ void basic_finally(void) {
 // CHECK:     to label %[[invoke_cont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
 //
 // CHECK: [[invoke_cont]]
-// CHECK: store i8 0, i8* %[[abnormal:[^ ]*]]
-// CHECK: br label %[[finally:[^ ]*]]
-//
-// CHECK: [[finally]]
-// CHECK: call void @cleanup()
-// CHECK: load i8* %[[abnormal]]
-// CHECK: icmp eq
-// CHECK: br i1 %{{.*}}, label %[[finallycont:[^ ]*]], label %[[resumecont:[^ ]*]]
-//
-// CHECK: [[finallycont]]
+// CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK: call void @"\01?fin$0@0@basic_finally@@"({{i8( zeroext)?}} 0, i8* %[[fp]])
 // CHECK-NEXT: ret void
 //
 // CHECK: [[lpad]]
@@ -34,6 +27,9 @@ void basic_finally(void) {
 // CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
 // CHECK: call void @"\01?fin$0@0@basic_finally@@"({{i8( zeroext)?}} 1, i8* %[[fp]])
 // CHECK-NEXT: cleanupret from %[[pad]] unwind to caller
+
+// CHECK: define internal void @"\01?fin$0@0@basic_finally@@"({{.*}})
+// CHECK: call void @cleanup()
 
 // Mostly check that we don't double emit 'r' which would crash.
 void decl_in_finally(void) {
@@ -61,10 +57,11 @@ l:
 // CHECK:     to label %[[invoke_cont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
 //
 // CHECK: [[invoke_cont]]
-// CHECK: store i8 0, i8* %[[abnormal:[^ ]*]]
-// CHECK: br label %[[finally:[^ ]*]]
-//
-// CHECK: [[finally]]
+// CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK: call void @"\01?fin$0@0@label_in_finally@@"({{i8( zeroext)?}} 0, i8* %[[fp]])
+// CHECK: ret void
+
+// CHECK: define internal void @"\01?fin$0@0@label_in_finally@@"({{.*}})
 // CHECK: br label %[[l:[^ ]*]]
 //
 // CHECK: [[l]]
@@ -87,25 +84,20 @@ void use_abnormal_termination(void) {
 // CHECK:     to label %[[invoke_cont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
 //
 // CHECK: [[invoke_cont]]
-// CHECK: store i8 0, i8* %[[abnormal:[^ ]*]]
-// CHECK: br label %[[finally:[^ ]*]]
-//
-// CHECK: [[finally]]
-// CHECK: load i8* %[[abnormal]]
-// CHECK: zext i8 %{{.*}} to i32
-// CHECK: store i32 %{{.*}}, i32* @crashed
-// CHECK: load i8* %[[abnormal]]
-// CHECK: icmp eq
-// CHECK: br i1 %{{.*}}, label %[[finallycont:[^ ]*]], label %[[resumecont:[^ ]*]]
-//
-// CHECK: [[finallycont]]
-// CHECK-NEXT: ret void
+// CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
+// CHECK: call void @"\01?fin$0@0@use_abnormal_termination@@"({{i8( zeroext)?}} 0, i8* %[[fp]])
+// CHECK: ret void
 //
 // CHECK: [[lpad]]
 // CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad
 // CHECK: %[[fp:[^ ]*]] = call i8* @llvm.localaddress()
 // CHECK: call void @"\01?fin$0@0@use_abnormal_termination@@"({{i8( zeroext)?}} 1, i8* %[[fp]])
 // CHECK-NEXT: cleanupret from %[[pad]] unwind to caller
+
+// CHECK: define internal void @"\01?fin$0@0@use_abnormal_termination@@"({{i8( zeroext)?}} %[[abnormal:abnormal_termination]], i8* %frame_pointer)
+// CHECK: %[[abnormal_zext:[^ ]*]] = zext i8 %[[abnormal]] to i32
+// CHECK: store i32 %[[abnormal_zext]], i32* @crashed
+// CHECK-NEXT: ret void
 
 void noreturn_noop_finally() {
   __try {
@@ -116,12 +108,12 @@ void noreturn_noop_finally() {
 }
 
 // CHECK-LABEL: define void @noreturn_noop_finally()
-// CHECK: store i8 0, i8* %
-// CHECK: br label %[[finally:[^ ]*]]
-// CHECK: [[finally]]
+// CHECK: call void @"\01?fin$0@0@noreturn_noop_finally@@"({{.*}})
+// CHECK: ret void
+
+// CHECK: define internal void @"\01?fin$0@0@noreturn_noop_finally@@"({{.*}})
 // CHECK: call void @abort()
-// CHECK-NEXT: unreachable
-// CHECK-NOT: load
+// CHECK: unreachable
 
 void noreturn_finally() {
   __try {
@@ -136,8 +128,8 @@ void noreturn_finally() {
 // CHECK:     to label %[[cont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
 //
 // CHECK: [[cont]]
-// CHECK: store i8 0, i8* %
-// CHECK: br label %[[finally:[^ ]*]]
+// CHECK: call void @"\01?fin$0@0@noreturn_finally@@"({{.*}})
+// CHECK: ret void
 //
 // CHECK: [[lpad]]
 // CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad
@@ -146,7 +138,42 @@ void noreturn_finally() {
 
 // CHECK: define internal void @"\01?fin$0@0@noreturn_finally@@"({{.*}})
 // CHECK: call void @abort()
-// CHECK-NEXT: unreachable
+// CHECK: unreachable
+
+int finally_with_return() {
+  __try {
+    return 42;
+  } __finally {
+  }
+}
+// CHECK-LABEL: define i32 @finally_with_return()
+// CHECK: call void @"\01?fin$0@0@finally_with_return@@"({{.*}})
+// CHECK-NEXT: ret i32 42
+
+// CHECK: define internal void @"\01?fin$0@0@finally_with_return@@"({{.*}})
+// CHECK-NOT: br i1
+// CHECK-NOT: br label
+// CHECK: ret void
+
+int nested___finally___finally() {
+  __try {
+    __try {
+    } __finally {
+      return 1;
+    }
+  } __finally {
+    // Intentionally no return here.
+  }
+  return 0;
+}
+
+// CHECK-LABEL: define i32 @nested___finally___finally
+// CHECK: invoke void @"\01?fin$1@0@nested___finally___finally@@"({{.*}})
+// CHECK:          to label %[[outercont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
+//
+// CHECK: [[outercont]]
+// CHECK: call void @"\01?fin$0@0@nested___finally___finally@@"({{.*}})
+// CHECK-NEXT: ret i32 0
 //
 // CHECK: [[lpad]]
 // CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad

@@ -5,6 +5,7 @@ set(files
   arm_acle.h
   avx2intrin.h
   avx512bwintrin.h
+  avx512cdintrin.h
   avx512erintrin.h
   avx512fintrin.h
   avx512vlbwintrin.h
@@ -17,14 +18,19 @@ set(files
   bmiintrin.h
   __clang_cuda_runtime_wrapper.h
   cpuid.h
+  cuda_builtin_vars.h
   emmintrin.h
   f16cintrin.h
   float.h
   fma4intrin.h
   fmaintrin.h
+  fxsrintrin.h
+  htmintrin.h
+  htmxlintrin.h
   ia32intrin.h
   immintrin.h
   Intrin.h
+  inttypes.h
   iso646.h
   limits.h
   lzcntintrin.h
@@ -38,6 +44,7 @@ set(files
   prfchwintrin.h
   rdseedintrin.h
   rtmintrin.h
+  s390intrin.h
   shaintrin.h
   smmintrin.h
   stdalign.h

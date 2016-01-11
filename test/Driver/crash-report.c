@@ -21,11 +21,17 @@
 // CHECK-NEXT: note: diagnostic msg: {{.*}}crash-report-{{.*}}.c
 FOO
 // CHECKSRC: FOO
-// CHECKSH: "-cc1"
+// CHECKSH: # Crash reproducer
+// CHECKSH-NEXT: # Driver args: "-fsyntax-only"
+// CHECKSH-SAME: "-D" "FOO=BAR"
+// CHECKSH-SAME: "-D" "BAR=BAZ QUX"
+// CHECKSH-NEXT: # Original command: {{.*$}}
+// CHECKSH-NEXT: "-cc1"
 // CHECKSH: "-main-file-name" "crash-report.c"
 // CHECKSH-NOT: "-header-include-file"
 // CHECKSH-NOT: "-diagnostic-log-file"
 // CHECKSH: "-D" "FOO=BAR"
+// CHECKSH: "-D" "BAR=BAZ QUX"
 // CHECKSH-NOT: "-F/tmp/"
 // CHECKSH-NOT: "-I" "/tmp/"
 // CHECKSH-NOT: "-idirafter" "/tmp/"

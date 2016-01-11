@@ -16,6 +16,7 @@ Repository Directory structure:
    - Project Dir2
      - ReferenceOutput
    ..
+Note that the build tree must be inside the project dir.
 
 To test the build of the analyzer one would:
    - Copy over a copy of the Repository Directory. (TODO: Prefer to ensure that
@@ -296,6 +297,8 @@ def runScanBuild(Dir, SBOutputDir, PBuildLogFile):
         SBPrefix = "scan-build " + SBOptions + " "
         for Command in SBCommandFile:
             Command = Command.strip()
+            if len(Command) == 0:
+                continue;
             # If using 'make', auto imply a -jX argument
             # to speed up analysis.  xcodebuild will
             # automatically use the maximum number of cores.
@@ -374,7 +377,7 @@ def runAnalyzePreprocessed(Dir, SBOutputDir, Mode):
 
         # Build and call the analyzer command.
         OutputOption = "-o " + os.path.join(PlistPath, FileName) + ".plist "
-        Command = CmdPrefix + OutputOption + os.path.join(Dir, FileName)
+        Command = CmdPrefix + OutputOption + FileName
         LogFile = open(os.path.join(FailPath, FileName + ".stderr.txt"), "w+b")
         try:
             if Verbose == 1:
@@ -566,7 +569,8 @@ def runCmpResults(Dir, Strictness = 0):
         OLD_STDOUT = sys.stdout
         sys.stdout = Discarder()
         # Scan the results, delete empty plist files.
-        NumDiffs = CmpRuns.dumpScanBuildResultsDiff(RefDir, NewDir, Opts, False)
+        NumDiffs, ReportsInRef, ReportsInNew = \
+            CmpRuns.dumpScanBuildResultsDiff(RefDir, NewDir, Opts, False)
         sys.stdout = OLD_STDOUT
         if (NumDiffs > 0) :
             print "Warning: %r differences in diagnostics. See %s" % \
@@ -656,7 +660,7 @@ def testAll(IsReferenceBuild = False, UpdateSVN = False, Strictness = 0):
         # Test the projects.
         PMapFile.seek(0)
         for I in csv.reader(PMapFile):
-            testProject(I[0], int(I[1]), IsReferenceBuild)
+            testProject(I[0], int(I[1]), IsReferenceBuild, None, Strictness)
 
         # Add reference results to SVN.
         if UpdateSVN == True:
@@ -669,18 +673,25 @@ def testAll(IsReferenceBuild = False, UpdateSVN = False, Strictness = 0):
         PMapFile.close()
 
 if __name__ == '__main__':
+    # Parse command line arguments.
+    Parser = argparse.ArgumentParser(description='Test the Clang Static Analyzer.')
+    Parser.add_argument('--strictness', dest='strictness', type=int, default=0,
+                       help='0 to fail on runtime errors, 1 to fail when the number\
+                             of found bugs are different from the reference, 2 to \
+                             fail on any difference from the reference. Default is 0.')
+    Parser.add_argument('-r', dest='regenerate', action='store_true', default=False,
+                        help='Regenerate reference output.')
+    Parser.add_argument('-rs', dest='update_reference', action='store_true',
+                        default=False, help='Regenerate reference output and update svn.')
+    Args = Parser.parse_args()
+
     IsReference = False
     UpdateSVN = False
-    if len(sys.argv) >= 2:
-        if sys.argv[1] == "-r":
-            IsReference = True
-        elif sys.argv[1] == "-rs":
-            IsReference = True
-            UpdateSVN = True
-        else:     
-          print >> sys.stderr, 'Usage: ', sys.argv[0],\
-                             '[-r|-rs]' \
-                             'Use -r to regenerate reference output' \
-                             'Use -rs to regenerate reference output and update svn'
+    Strictness = Args.strictness
+    if Args.regenerate:
+        IsReference = True
+    elif Args.update_reference:
+        IsReference = True
+        UpdateSVN = True
 
-    testAll(IsReference, UpdateSVN)
+    testAll(IsReference, UpdateSVN, Strictness)

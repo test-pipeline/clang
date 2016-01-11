@@ -42,8 +42,8 @@ public:
       : First(Line.Tokens.front().Tok), Level(Line.Level),
         InPPDirective(Line.InPPDirective),
         MustBeDeclaration(Line.MustBeDeclaration), MightBeFunctionDecl(false),
-        Affected(false), LeadingEmptyLinesAffected(false),
-        ChildrenAffected(false) {
+        IsMultiVariableDeclStmt(false), Affected(false),
+        LeadingEmptyLinesAffected(false), ChildrenAffected(false) {
     assert(!Line.Tokens.empty());
 
     // Calculate Next and Previous for all tokens. Note that we must overwrite
@@ -59,7 +59,7 @@ public:
       I->Tok->Previous = Current;
       Current = Current->Next;
       Current->Children.clear();
-      for (const auto& Child : Node.Children) {
+      for (const auto &Child : Node.Children) {
         Children.push_back(new AnnotatedLine(Child));
         Current->Children.push_back(Children.back());
       }
@@ -105,6 +105,7 @@ public:
   bool InPPDirective;
   bool MustBeDeclaration;
   bool MightBeFunctionDecl;
+  bool IsMultiVariableDeclStmt;
 
   /// \c True if this line should be formatted, i.e. intersects directly or
   /// indirectly with one of the input ranges.
@@ -121,6 +122,18 @@ private:
   // Disallow copying.
   AnnotatedLine(const AnnotatedLine &) = delete;
   void operator=(const AnnotatedLine &) = delete;
+
+  template <typename A, typename... Ts>
+  bool startsWith(FormatToken *Tok, A K1) const {
+    while (Tok && Tok->is(tok::comment))
+      Tok = Tok->Next;
+    return Tok && Tok->is(K1);
+  }
+
+  template <typename A, typename... Ts>
+  bool startsWith(FormatToken *Tok, A K1, Ts... Tokens) const {
+    return startsWith(Tok, K1) && startsWith(Tok->Next, Tokens...);
+  }
 };
 
 /// \brief Determines extra information about the tokens comprising an

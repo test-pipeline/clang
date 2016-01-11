@@ -38,9 +38,11 @@ class ASTContext;
 class CXXRecordDecl;
 class CXXMethodDecl;
 class CodeGenOptions;
-class DiagnosticsEngine;
-class ObjCMethodDecl;
 class CoverageSourceInfo;
+class DiagnosticsEngine;
+class HeaderSearchOptions;
+class ObjCMethodDecl;
+class PreprocessorOptions;
 
 namespace CodeGen {
 class CGFunctionInfo;

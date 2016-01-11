@@ -92,5 +92,5 @@ void testva (int n, ...)
   __int128_t u = va_arg (ap, __int128_t);
 #endif
 // CHECK: bitcast i8* %{{[a-z.0-9]+}} to i128*
-// CHECK-NEXT: load i128* %{{[0-9]+}}
+// CHECK-NEXT: load i128, i128* %{{[0-9]+}}
 }

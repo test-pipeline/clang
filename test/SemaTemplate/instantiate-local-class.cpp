@@ -1,4 +1,6 @@
 // RUN: %clang_cc1 -verify -std=c++11 %s
+// RUN: %clang_cc1 -verify -std=c++11 -fdelayed-template-parsing %s
+
 template<typename T>
 void f0() {
   struct X;

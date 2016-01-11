@@ -196,7 +196,7 @@ protected:
 public:
   Generic_GCC(const Driver &D, const llvm::Triple &Triple,
               const llvm::opt::ArgList &Args);
-  ~Generic_GCC();
+  ~Generic_GCC() override;
 
   void printVerboseInfo(raw_ostream &OS) const override;
 
@@ -230,8 +230,8 @@ protected:
   /// @}
 
 private:
-  mutable std::unique_ptr<tools::gcc::Preprocess> Preprocess;
-  mutable std::unique_ptr<tools::gcc::Compile> Compile;
+  mutable std::unique_ptr<tools::gcc::Preprocessor> Preprocess;
+  mutable std::unique_ptr<tools::gcc::Compiler> Compile;
 };
 
 class LLVM_LIBRARY_VISIBILITY MachO : public ToolChain {
@@ -239,6 +239,7 @@ protected:
   Tool *buildAssembler() const override;
   Tool *buildLinker() const override;
   Tool *getTool(Action::ActionClass AC) const override;
+
 private:
   mutable std::unique_ptr<tools::darwin::Lipo> Lipo;
   mutable std::unique_ptr<tools::darwin::Dsymutil> Dsymutil;
@@ -246,8 +247,8 @@ private:
 
 public:
   MachO(const Driver &D, const llvm::Triple &Triple,
-             const llvm::opt::ArgList &Args);
-  ~MachO();
+        const llvm::opt::ArgList &Args);
+  ~MachO() override;
 
   /// @name MachO specific toolchain API
   /// {
@@ -255,7 +256,6 @@ public:
   /// Get the "MachO" arch name for a particular compiler invocation. For
   /// example, Apple treats different ARM variations as distinct architectures.
   StringRef getMachOArchName(const llvm::opt::ArgList &Args) const;
-
 
   /// Add the linker arguments to link the ARC runtime library.
   virtual void AddLinkARCArgs(const llvm::opt::ArgList &Args,
@@ -265,23 +265,19 @@ public:
   virtual void AddLinkRuntimeLibArgs(const llvm::opt::ArgList &Args,
                                      llvm::opt::ArgStringList &CmdArgs) const;
 
-  virtual void
-  addStartObjectFileArgs(const llvm::opt::ArgList &Args,
-                         llvm::opt::ArgStringList &CmdArgs) const {}
+  virtual void addStartObjectFileArgs(const llvm::opt::ArgList &Args,
+                                      llvm::opt::ArgStringList &CmdArgs) const {
+  }
 
   virtual void addMinVersionArgs(const llvm::opt::ArgList &Args,
                                  llvm::opt::ArgStringList &CmdArgs) const {}
 
   /// On some iOS platforms, kernel and kernel modules were built statically. Is
   /// this such a target?
-  virtual bool isKernelStatic() const {
-    return false;
-  }
+  virtual bool isKernelStatic() const { return false; }
 
   /// Is the target either iOS or an iOS simulator?
-  bool isTargetIOSBased() const {
-    return false;
-  }
+  bool isTargetIOSBased() const { return false; }
 
   void AddLinkRuntimeLib(const llvm::opt::ArgList &Args,
                          llvm::opt::ArgStringList &CmdArgs,
@@ -320,22 +316,16 @@ public:
     return true;
   }
 
-  bool IsMathErrnoDefault() const override {
-    return false;
-  }
+  bool IsMathErrnoDefault() const override { return false; }
 
-  bool IsEncodeExtendedBlockSignatureDefault() const override {
-    return true;
-  }
+  bool IsEncodeExtendedBlockSignatureDefault() const override { return true; }
 
   bool IsObjCNonFragileABIDefault() const override {
     // Non-fragile ABI is default for everything but i386.
     return getTriple().getArch() != llvm::Triple::x86;
   }
 
-  bool UseObjCMixedDispatch() const override {
-    return true;
-  }
+  bool UseObjCMixedDispatch() const override { return true; }
 
   bool IsUnwindTablesDefault() const override;
 
@@ -349,9 +339,7 @@ public:
 
   bool SupportsProfiling() const override;
 
-  bool SupportsObjCGC() const override {
-    return false;
-  }
+  bool SupportsObjCGC() const override { return false; }
 
   bool UseDwarfDebugFlags() const override;
 
@@ -362,12 +350,9 @@ public:
   /// }
 };
 
-  /// Darwin - The base Darwin tool chain.
+/// Darwin - The base Darwin tool chain.
 class LLVM_LIBRARY_VISIBILITY Darwin : public MachO {
 public:
-  /// The host version.
-  unsigned DarwinVersion[3];
-
   /// Whether the information on the target has been initialized.
   //
   // FIXME: This should be eliminated. What we want to do is make this part of
@@ -391,21 +376,12 @@ public:
   mutable VersionTuple TargetVersion;
 
 private:
-  /// The default macosx-version-min of this tool chain; empty until
-  /// initialized.
-  std::string MacosxVersionMin;
-
-  /// The default ios-version-min of this tool chain; empty until
-  /// initialized.
-  std::string iOSVersionMin;
-
-private:
   void AddDeploymentTarget(llvm::opt::DerivedArgList &Args) const;
 
 public:
   Darwin(const Driver &D, const llvm::Triple &Triple,
          const llvm::opt::ArgList &Args);
-  ~Darwin();
+  ~Darwin() override;
 
   std::string ComputeEffectiveClangTriple(const llvm::opt::ArgList &Args,
                                           types::ID InputType) const override;
@@ -413,18 +389,19 @@ public:
   /// @name Apple Specific Toolchain Implementation
   /// {
 
-  void
-  addMinVersionArgs(const llvm::opt::ArgList &Args,
-                    llvm::opt::ArgStringList &CmdArgs) const override;
-
-  void
-  addStartObjectFileArgs(const llvm::opt::ArgList &Args,
+  void addMinVersionArgs(const llvm::opt::ArgList &Args,
                          llvm::opt::ArgStringList &CmdArgs) const override;
+
+  void addStartObjectFileArgs(const llvm::opt::ArgList &Args,
+                              llvm::opt::ArgStringList &CmdArgs) const override;
 
   bool isKernelStatic() const override {
     return (!(isTargetIPhoneOS() && !isIPhoneOSVersionLT(6, 0)) &&
             !isTargetWatchOS());
   }
+
+  void addProfileRTLibs(const llvm::opt::ArgList &Args,
+                        llvm::opt::ArgStringList &CmdArgs) const override;
 
 protected:
   /// }
@@ -494,6 +471,7 @@ protected:
   }
 
   bool isTargetMacOS() const {
+    assert(TargetInitialized && "Target not initialized!");
     return TargetPlatform == MacOS;
   }
 
@@ -504,12 +482,13 @@ protected:
     return TargetVersion;
   }
 
-  bool isIPhoneOSVersionLT(unsigned V0, unsigned V1=0, unsigned V2=0) const {
+  bool isIPhoneOSVersionLT(unsigned V0, unsigned V1 = 0,
+                           unsigned V2 = 0) const {
     assert(isTargetIOSBased() && "Unexpected call for non iOS target!");
     return TargetVersion < VersionTuple(V0, V1, V2);
   }
 
-  bool isMacosxVersionLT(unsigned V0, unsigned V1=0, unsigned V2=0) const {
+  bool isMacosxVersionLT(unsigned V0, unsigned V1 = 0, unsigned V2 = 0) const {
     assert(isTargetMacOS() && "Unexpected call for non OS X target!");
     return TargetVersion < VersionTuple(V0, V1, V2);
   }
@@ -569,20 +548,16 @@ public:
   /// @name Apple ToolChain Implementation
   /// {
 
-  void
-  AddLinkRuntimeLibArgs(const llvm::opt::ArgList &Args,
+  void AddLinkRuntimeLibArgs(const llvm::opt::ArgList &Args,
+                             llvm::opt::ArgStringList &CmdArgs) const override;
+
+  void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
+                           llvm::opt::ArgStringList &CmdArgs) const override;
+
+  void AddCCKextLibArgs(const llvm::opt::ArgList &Args,
                         llvm::opt::ArgStringList &CmdArgs) const override;
 
-  void
-  AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
-                      llvm::opt::ArgStringList &CmdArgs) const override;
-
-  void
-  AddCCKextLibArgs(const llvm::opt::ArgList &Args,
-                   llvm::opt::ArgStringList &CmdArgs) const override;
-
-  virtual void addClangWarningOptions(llvm::opt::ArgStringList &CC1Args)
-                                                      const override;
+  void addClangWarningOptions(llvm::opt::ArgStringList &CC1Args) const override;
 
   void AddLinkARCArgs(const llvm::opt::ArgList &Args,
                       llvm::opt::ArgStringList &CmdArgs) const override;
@@ -596,10 +571,16 @@ public:
   }
 
   /// }
+
+private:
+  void AddLinkSanitizerLibArgs(const llvm::opt::ArgList &Args,
+                               llvm::opt::ArgStringList &CmdArgs,
+                               StringRef Sanitizer) const;
 };
 
 class LLVM_LIBRARY_VISIBILITY Generic_ELF : public Generic_GCC {
   virtual void anchor();
+
 public:
   Generic_ELF(const Driver &D, const llvm::Triple &Triple,
               const llvm::opt::ArgList &Args)
@@ -607,6 +588,31 @@ public:
 
   void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args) const override;
+};
+
+class LLVM_LIBRARY_VISIBILITY CloudABI : public Generic_ELF {
+public:
+  CloudABI(const Driver &D, const llvm::Triple &Triple,
+           const llvm::opt::ArgList &Args);
+  bool HasNativeLLVMSupport() const override { return true; }
+
+  bool IsMathErrnoDefault() const override { return false; }
+  bool IsObjCNonFragileABIDefault() const override { return true; }
+
+  CXXStdlibType
+  GetCXXStdlibType(const llvm::opt::ArgList &Args) const override {
+    return ToolChain::CST_Libcxx;
+  }
+  void AddClangCXXStdlibIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
+  void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
+                           llvm::opt::ArgStringList &CmdArgs) const override;
+
+  bool isPIEDefault() const override { return false; }
+
+protected:
+  Tool *buildLinker() const override;
 };
 
 class LLVM_LIBRARY_VISIBILITY Solaris : public Generic_GCC {
@@ -625,6 +631,12 @@ public:
 protected:
   Tool *buildAssembler() const override;
   Tool *buildLinker() const override;
+};
+
+class LLVM_LIBRARY_VISIBILITY MinGW : public ToolChain {
+public:
+  MinGW(const Driver &D, const llvm::Triple &Triple,
+        const llvm::opt::ArgList &Args);
 
   bool IsIntegratedAssemblerDefault() const override;
   bool IsUnwindTablesDefault() const override;
@@ -655,7 +667,6 @@ private:
   void findGccLibDir();
 };
 
-
 class LLVM_LIBRARY_VISIBILITY OpenBSD : public Generic_ELF {
 public:
   OpenBSD(const Driver &D, const llvm::Triple &Triple,
@@ -684,13 +695,13 @@ public:
   bool IsObjCNonFragileABIDefault() const override { return true; }
 
   CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args) const override;
-  void
-  AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                              llvm::opt::ArgStringList &CC1Args) const override;
+  void AddClangCXXStdlibIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
   void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
                            llvm::opt::ArgStringList &CmdArgs) const override;
   unsigned GetDefaultStackProtectorLevel(bool KernelOrKext) const override {
-     return 1;
+    return 1;
   }
 
 protected:
@@ -708,9 +719,9 @@ public:
   bool IsObjCNonFragileABIDefault() const override { return true; }
 
   CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args) const override;
-  void
-  AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                               llvm::opt::ArgStringList &CC1Args) const override;
+  void AddClangCXXStdlibIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
 
   bool UseSjLjExceptions(const llvm::opt::ArgList &Args) const override;
   bool isPIEDefault() const override;
@@ -735,12 +746,10 @@ public:
 
   CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args) const override;
 
-  void
-  AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                              llvm::opt::ArgStringList &CC1Args) const override;
-  bool IsUnwindTablesDefault() const override {
-    return true;
-  }
+  void AddClangCXXStdlibIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
+  bool IsUnwindTablesDefault() const override { return true; }
 
 protected:
   Tool *buildAssembler() const override;
@@ -859,9 +868,9 @@ public:
   void
   AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
                             llvm::opt::ArgStringList &CC1Args) const override;
-  void
-  AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                              llvm::opt::ArgStringList &CC1Args) const override;
+  void AddClangCXXStdlibIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
   CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args) const override;
 
   StringRef GetGCCLibAndIncVersion() const { return GCCLibAndIncVersion.Text; }
@@ -935,7 +944,7 @@ class LLVM_LIBRARY_VISIBILITY TCEToolChain : public ToolChain {
 public:
   TCEToolChain(const Driver &D, const llvm::Triple &Triple,
                const llvm::opt::ArgList &Args);
-  ~TCEToolChain();
+  ~TCEToolChain() override;
 
   bool IsMathErrnoDefault() const override;
   bool isPICDefault() const override;
@@ -961,9 +970,9 @@ public:
   void
   AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
                             llvm::opt::ArgStringList &CC1Args) const override;
-  void
-  AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                               llvm::opt::ArgStringList &CC1Args) const override;
+  void AddClangCXXStdlibIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
 
   bool getWindowsSDKDir(std::string &path, int &major,
                         std::string &windowsSDKIncludeVersion,
@@ -976,6 +985,10 @@ public:
   bool getVisualStudioInstallDir(std::string &path) const;
   bool getVisualStudioBinariesFolder(const char *clangProgramPath,
                                      std::string &path) const;
+
+  std::string ComputeEffectiveClangTriple(const llvm::opt::ArgList &Args,
+                                          types::ID InputType) const override;
+  SanitizerMask getSupportedSanitizers() const override;
 
 protected:
   void AddSystemIncludeWithSubfolder(const llvm::opt::ArgList &DriverArgs,
@@ -1004,12 +1017,12 @@ public:
     return 0;
   }
 
-  void AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                                 llvm::opt::ArgStringList &CC1Args)
-      const override;
-  void AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                                    llvm::opt::ArgStringList &CC1Args)
-      const override;
+  void
+  AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                            llvm::opt::ArgStringList &CC1Args) const override;
+  void AddClangCXXStdlibIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
   void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
                            llvm::opt::ArgStringList &CmdArgs) const override;
 
@@ -1028,18 +1041,21 @@ public:
 protected:
   Tool *buildAssembler() const override;
   Tool *buildLinker() const override;
+
 public:
   bool isPICDefault() const override;
   bool isPIEDefault() const override;
   bool isPICDefaultForced() const override;
   bool SupportsProfiling() const override;
   bool hasBlocksRuntime() const override;
-  void AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                    llvm::opt::ArgStringList &CC1Args) const override;
+  void
+  AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                            llvm::opt::ArgStringList &CC1Args) const override;
   void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args) const override;
-  void AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
-                       llvm::opt::ArgStringList &CC1Args) const override;
+  void AddClangCXXStdlibIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
   void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
                            llvm::opt::ArgStringList &CmdArgs) const override;
 };

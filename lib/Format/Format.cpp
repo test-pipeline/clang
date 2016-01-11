@@ -27,6 +27,7 @@
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Regex.h"
 #include "llvm/Support/YAMLTraits.h"
 #include <queue>
 #include <string>
@@ -95,6 +96,7 @@ template <> struct ScalarEnumerationTraits<FormatStyle::BraceBreakingStyle> {
   static void enumeration(IO &IO, FormatStyle::BraceBreakingStyle &Value) {
     IO.enumCase(Value, "Attach", FormatStyle::BS_Attach);
     IO.enumCase(Value, "Linux", FormatStyle::BS_Linux);
+    IO.enumCase(Value, "Mozilla", FormatStyle::BS_Mozilla);
     IO.enumCase(Value, "Stroustrup", FormatStyle::BS_Stroustrup);
     IO.enumCase(Value, "Allman", FormatStyle::BS_Allman);
     IO.enumCase(Value, "GNU", FormatStyle::BS_GNU);
@@ -211,6 +213,16 @@ template <> struct MappingTraits<FormatStyle> {
       }
     }
 
+    // For backward compatibility.
+    if (!IO.outputting()) {
+      IO.mapOptional("DerivePointerBinding", Style.DerivePointerAlignment);
+      IO.mapOptional("IndentFunctionDeclarationAfterType",
+                     Style.IndentWrappedFunctionNames);
+      IO.mapOptional("PointerBindsToType", Style.PointerAlignment);
+      IO.mapOptional("SpaceAfterControlStatementKeyword",
+                     Style.SpaceBeforeParens);
+    }
+
     IO.mapOptional("AccessModifierOffset", Style.AccessModifierOffset);
     IO.mapOptional("AlignAfterOpenBracket", Style.AlignAfterOpenBracket);
     IO.mapOptional("AlignConsecutiveAssignments",
@@ -226,12 +238,12 @@ template <> struct MappingTraits<FormatStyle> {
                    Style.AllowShortBlocksOnASingleLine);
     IO.mapOptional("AllowShortCaseLabelsOnASingleLine",
                    Style.AllowShortCaseLabelsOnASingleLine);
+    IO.mapOptional("AllowShortFunctionsOnASingleLine",
+                   Style.AllowShortFunctionsOnASingleLine);
     IO.mapOptional("AllowShortIfStatementsOnASingleLine",
                    Style.AllowShortIfStatementsOnASingleLine);
     IO.mapOptional("AllowShortLoopsOnASingleLine",
                    Style.AllowShortLoopsOnASingleLine);
-    IO.mapOptional("AllowShortFunctionsOnASingleLine",
-                   Style.AllowShortFunctionsOnASingleLine);
     IO.mapOptional("AlwaysBreakAfterDefinitionReturnType",
                    Style.AlwaysBreakAfterDefinitionReturnType);
     IO.mapOptional("AlwaysBreakAfterReturnType",
@@ -258,30 +270,34 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("BraceWrapping", Style.BraceWrapping);
     IO.mapOptional("BreakBeforeBinaryOperators",
                    Style.BreakBeforeBinaryOperators);
+    IO.mapOptional("BreakBeforeBraces", Style.BreakBeforeBraces);
     IO.mapOptional("BreakBeforeTernaryOperators",
                    Style.BreakBeforeTernaryOperators);
     IO.mapOptional("BreakConstructorInitializersBeforeComma",
                    Style.BreakConstructorInitializersBeforeComma);
-    IO.mapOptional("BinPackParameters", Style.BinPackParameters);
-    IO.mapOptional("BinPackArguments", Style.BinPackArguments);
     IO.mapOptional("ColumnLimit", Style.ColumnLimit);
+    IO.mapOptional("CommentPragmas", Style.CommentPragmas);
     IO.mapOptional("ConstructorInitializerAllOnOneLineOrOnePerLine",
                    Style.ConstructorInitializerAllOnOneLineOrOnePerLine);
     IO.mapOptional("ConstructorInitializerIndentWidth",
                    Style.ConstructorInitializerIndentWidth);
+    IO.mapOptional("ContinuationIndentWidth", Style.ContinuationIndentWidth);
+    IO.mapOptional("Cpp11BracedListStyle", Style.Cpp11BracedListStyle);
     IO.mapOptional("DerivePointerAlignment", Style.DerivePointerAlignment);
+    IO.mapOptional("DisableFormat", Style.DisableFormat);
     IO.mapOptional("ExperimentalAutoDetectBinPacking",
                    Style.ExperimentalAutoDetectBinPacking);
     IO.mapOptional("ForEachMacros", Style.ForEachMacros);
     IO.mapOptional("IncludeCategories", Style.IncludeCategories);
     IO.mapOptional("IndentCaseLabels", Style.IndentCaseLabels);
+    IO.mapOptional("IndentWidth", Style.IndentWidth);
     IO.mapOptional("IndentWrappedFunctionNames",
                    Style.IndentWrappedFunctionNames);
-    IO.mapOptional("IndentFunctionDeclarationAfterType",
-                   Style.IndentWrappedFunctionNames);
-    IO.mapOptional("MaxEmptyLinesToKeep", Style.MaxEmptyLinesToKeep);
     IO.mapOptional("KeepEmptyLinesAtTheStartOfBlocks",
                    Style.KeepEmptyLinesAtTheStartOfBlocks);
+    IO.mapOptional("MacroBlockBegin", Style.MacroBlockBegin);
+    IO.mapOptional("MacroBlockEnd", Style.MacroBlockEnd);
+    IO.mapOptional("MaxEmptyLinesToKeep", Style.MaxEmptyLinesToKeep);
     IO.mapOptional("NamespaceIndentation", Style.NamespaceIndentation);
     IO.mapOptional("ObjCBlockIndentWidth", Style.ObjCBlockIndentWidth);
     IO.mapOptional("ObjCSpaceAfterProperty", Style.ObjCSpaceAfterProperty);
@@ -290,9 +306,9 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("PenaltyBreakBeforeFirstCallParameter",
                    Style.PenaltyBreakBeforeFirstCallParameter);
     IO.mapOptional("PenaltyBreakComment", Style.PenaltyBreakComment);
-    IO.mapOptional("PenaltyBreakString", Style.PenaltyBreakString);
     IO.mapOptional("PenaltyBreakFirstLessLess",
                    Style.PenaltyBreakFirstLessLess);
+    IO.mapOptional("PenaltyBreakString", Style.PenaltyBreakString);
     IO.mapOptional("PenaltyExcessCharacter", Style.PenaltyExcessCharacter);
     IO.mapOptional("PenaltyReturnTypeOnItsOwnLine",
                    Style.PenaltyReturnTypeOnItsOwnLine);
@@ -306,36 +322,16 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("SpaceInEmptyParentheses", Style.SpaceInEmptyParentheses);
     IO.mapOptional("SpacesBeforeTrailingComments",
                    Style.SpacesBeforeTrailingComments);
-    IO.mapOptional("Cpp11BracedListStyle", Style.Cpp11BracedListStyle);
-    IO.mapOptional("Standard", Style.Standard);
-    IO.mapOptional("IndentWidth", Style.IndentWidth);
-    IO.mapOptional("TabWidth", Style.TabWidth);
-    IO.mapOptional("UseTab", Style.UseTab);
-    IO.mapOptional("BreakBeforeBraces", Style.BreakBeforeBraces);
-    IO.mapOptional("SpacesInParentheses", Style.SpacesInParentheses);
-    IO.mapOptional("SpacesInSquareBrackets", Style.SpacesInSquareBrackets);
     IO.mapOptional("SpacesInAngles", Style.SpacesInAngles);
-    IO.mapOptional("SpaceInEmptyParentheses", Style.SpaceInEmptyParentheses);
-    IO.mapOptional("SpacesInCStyleCastParentheses",
-                   Style.SpacesInCStyleCastParentheses);
-    IO.mapOptional("SpaceAfterCStyleCast", Style.SpaceAfterCStyleCast);
     IO.mapOptional("SpacesInContainerLiterals",
                    Style.SpacesInContainerLiterals);
-    IO.mapOptional("SpaceBeforeAssignmentOperators",
-                   Style.SpaceBeforeAssignmentOperators);
-    IO.mapOptional("ContinuationIndentWidth", Style.ContinuationIndentWidth);
-    IO.mapOptional("CommentPragmas", Style.CommentPragmas);
-    IO.mapOptional("ForEachMacros", Style.ForEachMacros);
-
-    // For backward compatibility.
-    if (!IO.outputting()) {
-      IO.mapOptional("SpaceAfterControlStatementKeyword",
-                     Style.SpaceBeforeParens);
-      IO.mapOptional("PointerBindsToType", Style.PointerAlignment);
-      IO.mapOptional("DerivePointerBinding", Style.DerivePointerAlignment);
-    }
-    IO.mapOptional("SpaceBeforeParens", Style.SpaceBeforeParens);
-    IO.mapOptional("DisableFormat", Style.DisableFormat);
+    IO.mapOptional("SpacesInCStyleCastParentheses",
+                   Style.SpacesInCStyleCastParentheses);
+    IO.mapOptional("SpacesInParentheses", Style.SpacesInParentheses);
+    IO.mapOptional("SpacesInSquareBrackets", Style.SpacesInSquareBrackets);
+    IO.mapOptional("Standard", Style.Standard);
+    IO.mapOptional("TabWidth", Style.TabWidth);
+    IO.mapOptional("UseTab", Style.UseTab);
   }
 };
 
@@ -631,14 +627,11 @@ FormatStyle getMozillaStyle() {
   MozillaStyle.ConstructorInitializerIndentWidth = 2;
   MozillaStyle.ContinuationIndentWidth = 2;
   MozillaStyle.Cpp11BracedListStyle = false;
-  MozillaStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = true;
-  MozillaStyle.DerivePointerAlignment = true;
   MozillaStyle.IndentCaseLabels = true;
   MozillaStyle.ObjCSpaceAfterProperty = true;
   MozillaStyle.ObjCSpaceBeforeProtocolList = false;
   MozillaStyle.PenaltyReturnTypeOnItsOwnLine = 200;
   MozillaStyle.PointerAlignment = FormatStyle::PAS_Left;
-  MozillaStyle.Standard = FormatStyle::LS_Cpp03;
   return MozillaStyle;
 }
 
@@ -774,7 +767,9 @@ public:
         LessStashed(false), Column(0), TrailingWhitespace(0),
         SourceMgr(SourceMgr), ID(ID), Style(Style),
         IdentTable(getFormattingLangOpts(Style)), Keywords(IdentTable),
-        Encoding(Encoding), FirstInLineIndex(0), FormattingDisabled(false) {
+        Encoding(Encoding), FirstInLineIndex(0), FormattingDisabled(false),
+        MacroBlockBeginRegex(Style.MacroBlockBegin),
+        MacroBlockEndRegex(Style.MacroBlockEnd) {
     Lex.reset(new Lexer(ID, SourceMgr.getBuffer(ID), SourceMgr,
                         getFormattingLangOpts(Style)));
     Lex->SetKeepWhitespaceMode(true);
@@ -813,20 +808,20 @@ private:
       if (tryMergeTemplateString())
         return;
 
-      static tok::TokenKind JSIdentity[] = {tok::equalequal, tok::equal};
-      static tok::TokenKind JSNotIdentity[] = {tok::exclaimequal, tok::equal};
-      static tok::TokenKind JSShiftEqual[] = {tok::greater, tok::greater,
-                                              tok::greaterequal};
-      static tok::TokenKind JSRightArrow[] = {tok::equal, tok::greater};
-      // FIXME: We probably need to change token type to mimic operator with the
-      // correct priority.
-      if (tryMergeTokens(JSIdentity))
+      static const tok::TokenKind JSIdentity[] = {tok::equalequal, tok::equal};
+      static const tok::TokenKind JSNotIdentity[] = {tok::exclaimequal,
+                                                     tok::equal};
+      static const tok::TokenKind JSShiftEqual[] = {tok::greater, tok::greater,
+                                                    tok::greaterequal};
+      static const tok::TokenKind JSRightArrow[] = {tok::equal, tok::greater};
+      // FIXME: Investigate what token type gives the correct operator priority.
+      if (tryMergeTokens(JSIdentity, TT_BinaryOperator))
         return;
-      if (tryMergeTokens(JSNotIdentity))
+      if (tryMergeTokens(JSNotIdentity, TT_BinaryOperator))
         return;
-      if (tryMergeTokens(JSShiftEqual))
+      if (tryMergeTokens(JSShiftEqual, TT_BinaryOperator))
         return;
-      if (tryMergeTokens(JSRightArrow))
+      if (tryMergeTokens(JSRightArrow, TT_JsFatArrow))
         return;
     }
   }
@@ -857,7 +852,7 @@ private:
     return true;
   }
 
-  bool tryMergeTokens(ArrayRef<tok::TokenKind> Kinds) {
+  bool tryMergeTokens(ArrayRef<tok::TokenKind> Kinds, TokenType NewType) {
     if (Tokens.size() < Kinds.size())
       return false;
 
@@ -877,6 +872,7 @@ private:
     First[0]->TokenText = StringRef(First[0]->TokenText.data(),
                                     First[0]->TokenText.size() + AddLength);
     First[0]->ColumnWidth += AddLength;
+    First[0]->Type = NewType;
     return true;
   }
 
@@ -978,15 +974,25 @@ private:
       return false;
 
     FormatToken *EndBacktick = Tokens.back();
-    if (!(EndBacktick->is(tok::unknown) && EndBacktick->TokenText == "`"))
+    // Backticks get lexed as tok::unknown tokens. If a template string contains
+    // a comment start, it gets lexed as a tok::comment, or tok::unknown if
+    // unterminated.
+    if (!EndBacktick->isOneOf(tok::comment, tok::string_literal,
+                              tok::char_constant, tok::unknown))
+      return false;
+    size_t CommentBacktickPos = EndBacktick->TokenText.find('`');
+    // Unknown token that's not actually a backtick, or a comment that doesn't
+    // contain a backtick.
+    if (CommentBacktickPos == StringRef::npos)
       return false;
 
     unsigned TokenCount = 0;
     bool IsMultiline = false;
-    unsigned EndColumnInFirstLine = 0;
+    unsigned EndColumnInFirstLine =
+        EndBacktick->OriginalColumn + EndBacktick->ColumnWidth;
     for (auto I = Tokens.rbegin() + 1, E = Tokens.rend(); I != E; I++) {
       ++TokenCount;
-      if (I[0]->NewlinesBefore > 0 || I[0]->IsMultiline)
+      if (I[0]->IsMultiline)
         IsMultiline = true;
 
       // If there was a preceding template string, this must be the start of a
@@ -1002,18 +1008,35 @@ private:
           EndColumnInFirstLine = I[0]->OriginalColumn + I[0]->ColumnWidth;
         // If the token has newlines, the token before it (if it exists) is the
         // rhs end of the previous line.
-        if (I[0]->NewlinesBefore > 0 && (I + 1 != E))
+        if (I[0]->NewlinesBefore > 0 && (I + 1 != E)) {
           EndColumnInFirstLine = I[1]->OriginalColumn + I[1]->ColumnWidth;
-
+          IsMultiline = true;
+        }
         continue;
       }
 
       Tokens.resize(Tokens.size() - TokenCount);
       Tokens.back()->Type = TT_TemplateString;
-      const char *EndOffset = EndBacktick->TokenText.data() + 1;
+      const char *EndOffset =
+          EndBacktick->TokenText.data() + 1 + CommentBacktickPos;
+      if (CommentBacktickPos != 0) {
+        // If the backtick was not the first character (e.g. in a comment),
+        // re-lex after the backtick position.
+        SourceLocation Loc = EndBacktick->Tok.getLocation();
+        resetLexer(SourceMgr.getFileOffset(Loc) + CommentBacktickPos + 1);
+      }
       Tokens.back()->TokenText =
           StringRef(Tokens.back()->TokenText.data(),
                     EndOffset - Tokens.back()->TokenText.data());
+
+      unsigned EndOriginalColumn = EndBacktick->OriginalColumn;
+      if (EndOriginalColumn == 0) {
+        SourceLocation Loc = EndBacktick->Tok.getLocation();
+        EndOriginalColumn = SourceMgr.getSpellingColumnNumber(Loc);
+      }
+      // If the ` is further down within the token (e.g. in a comment).
+      EndOriginalColumn += CommentBacktickPos;
+
       if (IsMultiline) {
         // ColumnWidth is from backtick to last token in line.
         // LastLineColumnWidth is 0 to backtick.
@@ -1021,12 +1044,13 @@ private:
         //     until here`;
         Tokens.back()->ColumnWidth =
             EndColumnInFirstLine - Tokens.back()->OriginalColumn;
-        Tokens.back()->LastLineColumnWidth = EndBacktick->OriginalColumn;
+        // +1 for the ` itself.
+        Tokens.back()->LastLineColumnWidth = EndOriginalColumn + 1;
         Tokens.back()->IsMultiline = true;
       } else {
         // Token simply spans from start to end, +1 for the ` itself.
         Tokens.back()->ColumnWidth =
-            EndBacktick->OriginalColumn - Tokens.back()->OriginalColumn + 1;
+            EndOriginalColumn - Tokens.back()->OriginalColumn + 1;
       }
       return true;
     }
@@ -1060,6 +1084,8 @@ private:
     String->OriginalColumn = Macro->OriginalColumn;
     String->ColumnWidth = encoding::columnWidthWithTabs(
         String->TokenText, String->OriginalColumn, Style.TabWidth, Encoding);
+    String->NewlinesBefore = Macro->NewlinesBefore;
+    String->HasUnescapedNewline = Macro->HasUnescapedNewline;
 
     Tokens.pop_back();
     Tokens.pop_back();
@@ -1139,11 +1165,13 @@ private:
     FormatTok = new (Allocator.Allocate()) FormatToken;
     FormatTok->Tok = Tok;
     SourceLocation TokLocation =
-        FormatTok->Tok.getLocation().getLocWithOffset(1);
+        FormatTok->Tok.getLocation().getLocWithOffset(Tok.getLength() - 1);
+    FormatTok->Tok.setLocation(TokLocation);
     FormatTok->WhitespaceRange = SourceRange(TokLocation, TokLocation);
     FormatTok->TokenText = TokenText;
     FormatTok->ColumnWidth = 1;
-    FormatTok->OriginalColumn = OriginalColumn;
+    FormatTok->OriginalColumn = OriginalColumn + 1;
+
     return FormatTok;
   }
 
@@ -1167,18 +1195,25 @@ private:
     // Consume and record whitespace until we find a significant token.
     unsigned WhitespaceLength = TrailingWhitespace;
     while (FormatTok->Tok.is(tok::unknown)) {
+      StringRef Text = FormatTok->TokenText;
+      auto EscapesNewline = [&](int pos) {
+        // A '\r' here is just part of '\r\n'. Skip it.
+        if (pos >= 0 && Text[pos] == '\r')
+          --pos;
+        // See whether there is an odd number of '\' before this.
+        unsigned count = 0;
+        for (; pos >= 0; --pos, ++count)
+          if (Text[pos] != '\\')
+            break;
+        return count & 1;
+      };
       // FIXME: This miscounts tok:unknown tokens that are not just
       // whitespace, e.g. a '`' character.
-      for (int i = 0, e = FormatTok->TokenText.size(); i != e; ++i) {
-        switch (FormatTok->TokenText[i]) {
+      for (int i = 0, e = Text.size(); i != e; ++i) {
+        switch (Text[i]) {
         case '\n':
           ++FormatTok->NewlinesBefore;
-          // FIXME: This is technically incorrect, as it could also
-          // be a literal backslash at the end of the line.
-          if (i == 0 || (FormatTok->TokenText[i - 1] != '\\' &&
-                         (FormatTok->TokenText[i - 1] != '\r' || i == 1 ||
-                          FormatTok->TokenText[i - 2] != '\\')))
-            FormatTok->HasUnescapedNewline = true;
+          FormatTok->HasUnescapedNewline = !EscapesNewline(i - 1);
           FormatTok->LastNewlineOffset = WhitespaceLength + i + 1;
           Column = 0;
           break;
@@ -1197,13 +1232,11 @@ private:
           Column += Style.TabWidth - Column % Style.TabWidth;
           break;
         case '\\':
-          if (i + 1 == e || (FormatTok->TokenText[i + 1] != '\r' &&
-                             FormatTok->TokenText[i + 1] != '\n'))
+          if (i + 1 == e || (Text[i + 1] != '\r' && Text[i + 1] != '\n'))
             FormatTok->Type = TT_ImplicitStringLiteral;
           break;
         default:
           FormatTok->Type = TT_ImplicitStringLiteral;
-          ++Column;
           break;
         }
         if (FormatTok->Type == TT_ImplicitStringLiteral)
@@ -1225,6 +1258,7 @@ private:
            FormatTok->TokenText[1] == '\n') {
       ++FormatTok->NewlinesBefore;
       WhitespaceLength += 2;
+      FormatTok->LastNewlineOffset = 2;
       Column = 0;
       FormatTok->TokenText = FormatTok->TokenText.substr(2);
     }
@@ -1290,9 +1324,21 @@ private:
       Column = FormatTok->LastLineColumnWidth;
     }
 
-    FormatTok->IsForEachMacro =
-        std::binary_search(ForEachMacros.begin(), ForEachMacros.end(),
-                           FormatTok->Tok.getIdentifierInfo());
+    if (Style.Language == FormatStyle::LK_Cpp) {
+      if (!(Tokens.size() > 0 && Tokens.back()->Tok.getIdentifierInfo() &&
+            Tokens.back()->Tok.getIdentifierInfo()->getPPKeywordID() ==
+                tok::pp_define) &&
+          std::find(ForEachMacros.begin(), ForEachMacros.end(),
+                    FormatTok->Tok.getIdentifierInfo()) != ForEachMacros.end()) {
+        FormatTok->Type = TT_ForEachMacro;
+      } else if (FormatTok->is(tok::identifier)) {
+        if (MacroBlockBeginRegex.match(Text)) {
+          FormatTok->Type = TT_MacroBlockBegin;
+        } else if (MacroBlockEndRegex.match(Text)) {
+          FormatTok->Type = TT_MacroBlockEnd;
+        }
+      }
+    }
 
     return FormatTok;
   }
@@ -1316,6 +1362,9 @@ private:
   SmallVector<IdentifierInfo *, 8> ForEachMacros;
 
   bool FormattingDisabled;
+
+  llvm::Regex MacroBlockBeginRegex;
+  llvm::Regex MacroBlockEndRegex;
 
   void readRawToken(FormatToken &Tok) {
     Lex->LexFromRawLexer(Tok.Tok);
@@ -1352,6 +1401,7 @@ private:
                         getFormattingLangOpts(Style), Buffer.begin(),
                         Buffer.begin() + Offset, Buffer.end()));
     Lex->SetKeepWhitespaceMode(true);
+    TrailingWhitespace = 0;
   }
 };
 
@@ -1387,13 +1437,13 @@ public:
                        << "\n");
   }
 
-  tooling::Replacements format() {
+  tooling::Replacements format(bool *IncompleteFormat) {
     tooling::Replacements Result;
     FormatTokenLexer Tokens(SourceMgr, ID, Style, Encoding);
 
     UnwrappedLineParser Parser(Style, Tokens.getKeywords(), Tokens.lex(),
                                *this);
-    bool StructuralError = Parser.parse();
+    Parser.parse();
     assert(UnwrappedLines.rbegin()->empty());
     for (unsigned Run = 0, RunE = UnwrappedLines.size(); Run + 1 != RunE;
          ++Run) {
@@ -1403,7 +1453,7 @@ public:
         AnnotatedLines.push_back(new AnnotatedLine(UnwrappedLines[Run][i]));
       }
       tooling::Replacements RunResult =
-          format(AnnotatedLines, StructuralError, Tokens);
+          format(AnnotatedLines, Tokens, IncompleteFormat);
       DEBUG({
         llvm::dbgs() << "Replacements for run " << Run << ":\n";
         for (tooling::Replacements::iterator I = RunResult.begin(),
@@ -1422,7 +1472,8 @@ public:
   }
 
   tooling::Replacements format(SmallVectorImpl<AnnotatedLine *> &AnnotatedLines,
-                               bool StructuralError, FormatTokenLexer &Tokens) {
+                               FormatTokenLexer &Tokens,
+                               bool *IncompleteFormat) {
     TokenAnnotator Annotator(Style, Tokens.getKeywords());
     for (unsigned i = 0, e = AnnotatedLines.size(); i != e; ++i) {
       Annotator.annotate(*AnnotatedLines[i]);
@@ -1437,9 +1488,9 @@ public:
     ContinuationIndenter Indenter(Style, Tokens.getKeywords(), SourceMgr,
                                   Whitespaces, Encoding,
                                   BinPackInconclusiveFunctions);
-    UnwrappedLineFormatter Formatter(&Indenter, &Whitespaces, Style,
-                                     Tokens.getKeywords());
-    Formatter.format(AnnotatedLines, /*DryRun=*/false);
+    UnwrappedLineFormatter(&Indenter, &Whitespaces, Style, Tokens.getKeywords(),
+                           IncompleteFormat)
+        .format(AnnotatedLines);
     return Whitespaces.generateReplacements();
   }
 
@@ -1842,7 +1893,7 @@ tooling::Replacements reformat(const FormatStyle &Style,
 
 tooling::Replacements reformat(const FormatStyle &Style, StringRef Code,
                                ArrayRef<tooling::Range> Ranges,
-                               StringRef FileName) {
+                               StringRef FileName, bool *IncompleteFormat) {
   if (Style.DisableFormat)
     return tooling::Replacements();
 
@@ -1865,7 +1916,7 @@ tooling::Replacements reformat(const FormatStyle &Style, StringRef Code,
     SourceLocation End = Start.getLocWithOffset(Range.getLength());
     CharRanges.push_back(CharSourceRange::getCharRange(Start, End));
   }
-  return reformat(Style, SourceMgr, ID, CharRanges);
+  return reformat(Style, SourceMgr, ID, CharRanges, IncompleteFormat);
 }
 
 LangOptions getFormattingLangOpts(const FormatStyle &Style) {
@@ -1874,8 +1925,7 @@ LangOptions getFormattingLangOpts(const FormatStyle &Style) {
   LangOpts.CPlusPlus11 = Style.Standard == FormatStyle::LS_Cpp03 ? 0 : 1;
   LangOpts.CPlusPlus14 = Style.Standard == FormatStyle::LS_Cpp03 ? 0 : 1;
   LangOpts.LineComment = 1;
-  bool AlternativeOperators = Style.Language != FormatStyle::LK_JavaScript &&
-                              Style.Language != FormatStyle::LK_Java;
+  bool AlternativeOperators = Style.Language == FormatStyle::LK_Cpp;
   LangOpts.CXXOperatorNames = AlternativeOperators ? 1 : 0;
   LangOpts.Bool = 1;
   LangOpts.ObjC1 = 1;
@@ -1983,8 +2033,6 @@ FormatStyle getStyle(StringRef StyleName, StringRef FileName,
       return Style;
     }
   }
-  llvm::errs() << "Can't find usable .clang-format, using " << FallbackStyle
-               << " style\n";
   if (!UnsuitableConfigFiles.empty()) {
     llvm::errs() << "Configuration file(s) do(es) not support "
                  << getLanguageName(Style.Language) << ": "

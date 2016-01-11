@@ -1485,7 +1485,7 @@ static bool CheckConstantExpression(EvalInfo &Info, SourceLocation DiagLoc,
   return true;
 }
 
-const ValueDecl *GetLValueBaseDecl(const LValue &LVal) {
+static const ValueDecl *GetLValueBaseDecl(const LValue &LVal) {
   return LVal.Base.dyn_cast<const ValueDecl*>();
 }
 
@@ -2588,8 +2588,9 @@ static bool AreElementsOfSameArray(QualType ObjType,
 }
 
 /// Find the complete object to which an LValue refers.
-CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E, AccessKinds AK,
-                                  const LValue &LVal, QualType LValType) {
+static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
+                                         AccessKinds AK, const LValue &LVal,
+                                         QualType LValType) {
   if (!LVal.Base) {
     Info.Diag(E, diag::note_constexpr_access_null) << AK;
     return CompleteObject();
@@ -3824,8 +3825,9 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
   // Skip this for non-union classes with no fields; in that case, the defaulted
   // copy/move does not actually read the object.
   const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(Callee);
-  if (MD && MD->isDefaulted() && MD->isTrivial() &&
-      (MD->getParent()->isUnion() || hasFields(MD->getParent()))) {
+  if (MD && MD->isDefaulted() &&
+      (MD->getParent()->isUnion() ||
+       (MD->isTrivial() && hasFields(MD->getParent())))) {
     assert(This &&
            (MD->isCopyAssignmentOperator() || MD->isMoveAssignmentOperator()));
     LValue RHS;
@@ -3895,11 +3897,9 @@ static bool HandleConstructorCall(SourceLocation CallLoc, const LValue &This,
   // Skip this for empty non-union classes; we should not perform an
   // lvalue-to-rvalue conversion on them because their copy constructor does not
   // actually read them.
-  if (Definition->isDefaulted() &&
-      ((Definition->isCopyConstructor() && Definition->isTrivial()) ||
-       (Definition->isMoveConstructor() && Definition->isTrivial())) &&
+  if (Definition->isDefaulted() && Definition->isCopyOrMoveConstructor() &&
       (Definition->getParent()->isUnion() ||
-       hasFields(Definition->getParent()))) {
+       (Definition->isTrivial() && hasFields(Definition->getParent())))) {
     LValue RHS;
     RHS.setFrom(Info.Ctx, ArgValues[0]);
     return handleLValueToRValueConversion(Info, Args[0], Args[0]->getType(),
@@ -4388,6 +4388,9 @@ public:
 
     BlockScopeRAII Scope(Info);
     const CompoundStmt *CS = E->getSubStmt();
+    if (CS->body_empty())
+      return true;
+
     for (CompoundStmt::const_body_iterator BI = CS->body_begin(),
                                            BE = CS->body_end();
          /**/; ++BI) {
@@ -4414,6 +4417,8 @@ public:
         return false;
       }
     }
+
+    llvm_unreachable("Return from function from the loop above.");
   }
 
   /// Visit a value which is evaluated, but whose value is ignored.
@@ -7593,6 +7598,13 @@ bool IntExprEvaluator::VisitUnaryExprOrTypeTraitExpr(
       return false;
     return Success(Sizeof, E);
   }
+  case UETT_OpenMPRequiredSimdAlign:
+    assert(E->isArgumentType());
+    return Success(
+        Info.Ctx.toCharUnitsFromBits(
+                    Info.Ctx.getOpenMPDefaultSimdAlign(E->getArgumentType()))
+            .getQuantity(),
+        E);
   }
 
   llvm_unreachable("unknown expr/type trait");
@@ -7938,10 +7950,23 @@ static bool TryEvaluateBuiltinNaN(const ASTContext &Context,
   else if (S->getString().getAsInteger(0, fill))
     return false;
 
-  if (SNaN)
-    Result = llvm::APFloat::getSNaN(Sem, false, &fill);
-  else
-    Result = llvm::APFloat::getQNaN(Sem, false, &fill);
+  if (Context.getTargetInfo().isNan2008()) {
+    if (SNaN)
+      Result = llvm::APFloat::getSNaN(Sem, false, &fill);
+    else
+      Result = llvm::APFloat::getQNaN(Sem, false, &fill);
+  } else {
+    // Prior to IEEE 754-2008, architectures were allowed to choose whether
+    // the first bit of their significand was set for qNaN or sNaN. MIPS chose
+    // a different encoding to what became a standard in 2008, and for pre-
+    // 2008 revisions, MIPS interpreted sNaN-2008 as qNan and qNaN-2008 as
+    // sNaN. This is now known as "legacy NaN" encoding.
+    if (SNaN)
+      Result = llvm::APFloat::getQNaN(Sem, false, &fill);
+    else
+      Result = llvm::APFloat::getSNaN(Sem, false, &fill);
+  }
+
   return true;
 }
 
@@ -9015,6 +9040,8 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::CompoundLiteralExprClass:
   case Expr::ExtVectorElementExprClass:
   case Expr::DesignatedInitExprClass:
+  case Expr::NoInitExprClass:
+  case Expr::DesignatedInitUpdateExprClass:
   case Expr::ImplicitValueInitExprClass:
   case Expr::ParenListExprClass:
   case Expr::VAArgExprClass:

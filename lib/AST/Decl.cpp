@@ -44,6 +44,12 @@ bool Decl::isOutOfLine() const {
   return !getLexicalDeclContext()->Equals(getDeclContext());
 }
 
+TranslationUnitDecl::TranslationUnitDecl(ASTContext &ctx)
+    : Decl(TranslationUnit, nullptr, SourceLocation()),
+      DeclContext(TranslationUnit), Ctx(ctx), AnonymousNamespace(nullptr) {
+  Hidden = Ctx.getLangOpts().ModulesLocalVisibility;
+}
+
 //===----------------------------------------------------------------------===//
 // NamedDecl Implementation
 //===----------------------------------------------------------------------===//
@@ -897,13 +903,13 @@ static LinkageInfo getLVForClassMember(const NamedDecl *D,
   if (const auto *MD = dyn_cast<CXXMethodDecl>(D)) {
     // If the type of the function uses a type with unique-external
     // linkage, it's not legally usable from outside this translation unit.
-    // But only look at the type-as-written. If this function has an auto-deduced
-    // return type, we can't compute the linkage of that type because it could
-    // require looking at the linkage of this function, and we don't need this
-    // for correctness because the type is not part of the function's
-    // signature.
-    // FIXME: This is a hack. We should be able to solve this circularity and the
-    // one in getLVForNamespaceScopeDecl for Functions some other way.
+    // But only look at the type-as-written. If this function has an
+    // auto-deduced return type, we can't compute the linkage of that type
+    // because it could require looking at the linkage of this function, and we
+    // don't need this for correctness because the type is not part of the
+    // function's signature.
+    // FIXME: This is a hack. We should be able to solve this circularity and
+    // the one in getLVForNamespaceScopeDecl for Functions some other way.
     {
       QualType TypeAsWritten = MD->getType();
       if (TypeSourceInfo *TSI = MD->getTypeSourceInfo())
@@ -1784,6 +1790,8 @@ VarDecl::VarDecl(Kind DK, ASTContext &C, DeclContext *DC,
                 "VarDeclBitfields too large!");
   static_assert(sizeof(ParmVarDeclBitfields) <= sizeof(unsigned),
                 "ParmVarDeclBitfields too large!");
+  static_assert(sizeof(NonParmVarDeclBitfields) <= sizeof(unsigned),
+                "NonParmVarDeclBitfields too large!");
   AllBits = 0;
   VarDeclBits.SClass = SC;
   // Everything else is implicitly initialized to false.
@@ -1810,12 +1818,19 @@ void VarDecl::setStorageClass(StorageClass SC) {
 VarDecl::TLSKind VarDecl::getTLSKind() const {
   switch (VarDeclBits.TSCSpec) {
   case TSCS_unspecified:
-    if (hasAttr<ThreadAttr>())
-      return TLS_Static;
-    return TLS_None;
+    if (!hasAttr<ThreadAttr>() &&
+        !(getASTContext().getLangOpts().OpenMPUseTLS &&
+          getASTContext().getTargetInfo().isTLSSupported() &&
+          hasAttr<OMPThreadPrivateDeclAttr>()))
+      return TLS_None;
+    return ((getASTContext().getLangOpts().isCompatibleWithMSVC(
+                LangOptions::MSVC2015)) ||
+            hasAttr<OMPThreadPrivateDeclAttr>())
+               ? TLS_Dynamic
+               : TLS_Static;
   case TSCS___thread: // Fall through.
   case TSCS__Thread_local:
-      return TLS_Static;
+    return TLS_Static;
   case TSCS_thread_local:
     return TLS_Dynamic;
   }
@@ -1892,9 +1907,8 @@ bool VarDecl::isInExternCXXContext() const {
 
 VarDecl *VarDecl::getCanonicalDecl() { return getFirstDecl(); }
 
-VarDecl::DefinitionKind VarDecl::isThisDeclarationADefinition(
-  ASTContext &C) const
-{
+VarDecl::DefinitionKind
+VarDecl::isThisDeclarationADefinition(ASTContext &C) const {
   // C++ [basic.def]p2:
   //   A declaration is a definition unless [...] it contains the 'extern'
   //   specifier or a linkage-specification and neither an initializer [...],
@@ -1933,6 +1947,10 @@ VarDecl::DefinitionKind VarDecl::isThisDeclarationADefinition(
 
   if (hasAttr<AliasAttr>())
     return Definition;
+
+  if (const auto *SAA = getAttr<SelectAnyAttr>())
+    if (!SAA->isInherited())
+      return Definition;
 
   // A variable template specialization (other than a static data member
   // template or an explicit specialization) is a declaration until we
@@ -2604,39 +2622,6 @@ bool FunctionDecl::isReplaceableGlobalAllocationFunction() const {
   return RD && isNamed(RD, "nothrow_t") && RD->isInStdNamespace();
 }
 
-FunctionDecl *
-FunctionDecl::getCorrespondingUnsizedGlobalDeallocationFunction() const {
-  ASTContext &Ctx = getASTContext();
-  if (!Ctx.getLangOpts().SizedDeallocation)
-    return nullptr;
-
-  if (getDeclName().getNameKind() != DeclarationName::CXXOperatorName)
-    return nullptr;
-  if (getDeclName().getCXXOverloadedOperator() != OO_Delete &&
-      getDeclName().getCXXOverloadedOperator() != OO_Array_Delete)
-    return nullptr;
-  if (isa<CXXRecordDecl>(getDeclContext()))
-    return nullptr;
-
-  if (!getDeclContext()->getRedeclContext()->isTranslationUnit())
-    return nullptr;
-
-  if (getNumParams() != 2 || isVariadic() ||
-      !Ctx.hasSameType(getType()->castAs<FunctionProtoType>()->getParamType(1),
-                       Ctx.getSizeType()))
-    return nullptr;
-
-  // This is a sized deallocation function. Find the corresponding unsized
-  // deallocation function.
-  lookup_result R = getDeclContext()->lookup(getDeclName());
-  for (lookup_result::iterator RI = R.begin(), RE = R.end(); RI != RE;
-       ++RI)
-    if (FunctionDecl *FD = dyn_cast<FunctionDecl>(*RI))
-      if (FD->getNumParams() == 1 && !FD->isVariadic())
-        return FD;
-  return nullptr;
-}
-
 LanguageLinkage FunctionDecl::getLanguageLinkage() const {
   return getDeclLanguageLinkage(*this);
 }
@@ -2694,10 +2679,6 @@ FunctionDecl::setPreviousDeclaration(FunctionDecl *PrevDecl) {
     IsInline = true;
 }
 
-const FunctionDecl *FunctionDecl::getCanonicalDecl() const {
-  return getFirstDecl();
-}
-
 FunctionDecl *FunctionDecl::getCanonicalDecl() { return getFirstDecl(); }
 
 /// \brief Returns a value indicating whether this function
@@ -2725,7 +2706,14 @@ unsigned FunctionDecl::getBuiltinID() const {
     // extern "C".
     // FIXME: A recognised library function may not be directly in an extern "C"
     // declaration, for instance "extern "C" { namespace std { decl } }".
-    if (!LinkageDecl || LinkageDecl->getLanguage() != LinkageSpecDecl::lang_c)
+    if (!LinkageDecl) {
+      if (BuiltinID == Builtin::BI__GetExceptionInfo &&
+          Context.getTargetInfo().getCXXABI().isMicrosoft() &&
+          isInStdNamespace())
+        return Builtin::BI__GetExceptionInfo;
+      return 0;
+    }
+    if (LinkageDecl->getLanguage() != LinkageSpecDecl::lang_c)
       return 0;
   }
 
@@ -2819,8 +2807,9 @@ bool FunctionDecl::isMSExternInline() const {
       !hasAttr<DLLExportAttr>())
     return false;
 
-  for (const FunctionDecl *FD = this; FD; FD = FD->getPreviousDecl())
-    if (FD->getStorageClass() == SC_Extern)
+  for (const FunctionDecl *FD = getMostRecentDecl(); FD;
+       FD = FD->getPreviousDecl())
+    if (!FD->isImplicit() && FD->getStorageClass() == SC_Extern)
       return true;
 
   return false;
@@ -2832,7 +2821,7 @@ static bool redeclForcesDefMSVC(const FunctionDecl *Redecl) {
 
   for (const FunctionDecl *FD = Redecl->getPreviousDecl(); FD;
        FD = FD->getPreviousDecl())
-    if (FD->getStorageClass() == SC_Extern)
+    if (!FD->isImplicit() && FD->getStorageClass() == SC_Extern)
       return false;
 
   return true;
@@ -3803,7 +3792,8 @@ void RecordDecl::LoadFieldsFromExternalStorage() const {
 
 bool RecordDecl::mayInsertExtraPadding(bool EmitRemark) const {
   ASTContext &Context = getASTContext();
-  if (!Context.getLangOpts().Sanitize.has(SanitizerKind::Address) ||
+  if (!Context.getLangOpts().Sanitize.hasOneOf(
+          SanitizerKind::Address | SanitizerKind::KernelAddress) ||
       !Context.getLangOpts().SanitizeAddressFieldPadding)
     return false;
   const auto &Blacklist = Context.getSanitizerBlacklist();
@@ -3908,6 +3898,13 @@ void TranslationUnitDecl::anchor() { }
 
 TranslationUnitDecl *TranslationUnitDecl::Create(ASTContext &C) {
   return new (C, (DeclContext *)nullptr) TranslationUnitDecl(C);
+}
+
+void ExternCContextDecl::anchor() { }
+
+ExternCContextDecl *ExternCContextDecl::Create(const ASTContext &C,
+                                               TranslationUnitDecl *DC) {
+  return new (C, DC) ExternCContextDecl(DC);
 }
 
 void LabelDecl::anchor() { }
@@ -4067,6 +4064,21 @@ TypedefDecl *TypedefDecl::Create(ASTContext &C, DeclContext *DC,
 }
 
 void TypedefNameDecl::anchor() { }
+
+TagDecl *TypedefNameDecl::getAnonDeclWithTypedefName(bool AnyRedecl) const {
+  if (auto *TT = getTypeSourceInfo()->getType()->getAs<TagType>()) {
+    auto *OwningTypedef = TT->getDecl()->getTypedefNameForAnonDecl();
+    auto *ThisTypedef = this;
+    if (AnyRedecl && OwningTypedef) {
+      OwningTypedef = OwningTypedef->getCanonicalDecl();
+      ThisTypedef = ThisTypedef->getCanonicalDecl();
+    }
+    if (OwningTypedef == ThisTypedef)
+      return TT->getDecl();
+  }
+
+  return nullptr;
+}
 
 TypedefDecl *TypedefDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   return new (C, ID) TypedefDecl(C, nullptr, SourceLocation(), SourceLocation(),

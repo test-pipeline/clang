@@ -175,6 +175,8 @@ typedef A *MyObjectRef;
 // CHECK-CCF: NotImplemented:{TypedText byref} (40)
 // CHECK-CCF: NotImplemented:{TypedText in} (40)
 // CHECK-CCF: NotImplemented:{TypedText inout} (40)
+// CHECK-CCF: NotImplemented:{TypedText nonnull} (40)
+// CHECK-CCF: NotImplemented:{TypedText nullable} (40)
 // CHECK-CCF: NotImplemented:{TypedText oneway} (40)
 // CHECK-CCF: NotImplemented:{TypedText out} (40)
 // CHECK-CCF: NotImplemented:{TypedText unsigned} (50)
@@ -220,8 +222,7 @@ typedef A *MyObjectRef;
 
 // RUN: c-index-test -code-completion-at=%s:85:2 %s | FileCheck -check-prefix=CHECK-CLASSTY %s
 // CHECK-CLASSTY: ObjCInstanceMethodDecl:{LeftParen (}{Text Class<P1>}{RightParen )}{TypedText meth}
-// FIXME: It should be "MyObject <P1> *""
-// CHECK-CLASSTY: ObjCInstanceMethodDecl:{LeftParen (}{Text A<P1> *}{RightParen )}{TypedText meth2}
+// CHECK-CLASSTY: ObjCInstanceMethodDecl:{LeftParen (}{Text MyObject<P1> *}{RightParen )}{TypedText meth2}
 // CHECK-CLASSTY: ObjCInstanceMethodDecl:{LeftParen (}{Text MyObjectRef}{RightParen )}{TypedText meth3}
 
 // RUN: c-index-test -code-completion-at=%s:96:2 %s -target x86_64-apple-macosx10.7 | FileCheck -check-prefix=CHECK-NULLABILITY %s

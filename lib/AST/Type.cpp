@@ -171,15 +171,7 @@ DependentSizedExtVectorType::Profile(llvm::FoldingSetNodeID &ID,
 
 VectorType::VectorType(QualType vecType, unsigned nElements, QualType canonType,
                        VectorKind vecKind)
-  : Type(Vector, canonType, vecType->isDependentType(),
-         vecType->isInstantiationDependentType(),
-         vecType->isVariablyModifiedType(),
-         vecType->containsUnexpandedParameterPack()),
-    ElementType(vecType) 
-{
-  VectorTypeBits.VecKind = vecKind;
-  VectorTypeBits.NumElements = nElements;
-}
+    : VectorType(Vector, vecType, nElements, canonType, vecKind) {}
 
 VectorType::VectorType(TypeClass tc, QualType vecType, unsigned nElements,
                        QualType canonType, VectorKind vecKind)
@@ -373,6 +365,11 @@ bool Type::isStructureType() const {
     return RT->getDecl()->isStruct();
   return false;
 }
+bool Type::isObjCBoxableRecordType() const {
+  if (const RecordType *RT = getAs<RecordType>())
+    return RT->getDecl()->hasAttr<ObjCBoxableAttr>();
+  return false;
+}
 bool Type::isInterfaceType() const {
   if (const RecordType *RT = getAs<RecordType>())
     return RT->getDecl()->isInterface();
@@ -536,13 +533,22 @@ bool Type::isObjCInertUnsafeUnretainedType() const {
 }
 
 ObjCObjectType::ObjCObjectType(QualType Canonical, QualType Base,
-                               ObjCProtocolDecl * const *Protocols,
-                               unsigned NumProtocols)
-  : Type(ObjCObject, Canonical, false, false, false, false),
+                               ArrayRef<QualType> typeArgs,
+                               ArrayRef<ObjCProtocolDecl *> protocols,
+                               bool isKindOf)
+  : Type(ObjCObject, Canonical, Base->isDependentType(), 
+         Base->isInstantiationDependentType(), 
+         Base->isVariablyModifiedType(), 
+         Base->containsUnexpandedParameterPack()),
     BaseType(Base) 
 {
-  ObjCObjectTypeBits.NumProtocols = NumProtocols;
-  assert(getNumProtocols() == NumProtocols &&
+  ObjCObjectTypeBits.IsKindOf = isKindOf;
+
+  ObjCObjectTypeBits.NumTypeArgs = typeArgs.size();
+  assert(getTypeArgsAsWritten().size() == typeArgs.size() &&
+         "bitfield overflow in type argument count");
+  ObjCObjectTypeBits.NumProtocols = protocols.size();
+  assert(getNumProtocols() == protocols.size() &&
          "bitfield overflow in protocol count");
   if (!typeArgs.empty())
     memcpy(getTypeArgStorage(), typeArgs.data(),
@@ -1483,6 +1489,13 @@ const ObjCObjectPointerType *Type::getAsObjCQualifiedClassType() const {
   return nullptr;
 }
 
+const ObjCObjectType *Type::getAsObjCInterfaceType() const {
+  if (const ObjCObjectType *OT = getAs<ObjCObjectType>()) {
+    if (OT->getInterface())
+      return OT;
+  }
+  return nullptr;
+}
 const ObjCObjectPointerType *Type::getAsObjCInterfacePointerType() const {
   if (const ObjCObjectPointerType *OPT = getAs<ObjCObjectPointerType>()) {
     if (OPT->getInterfaceType())
@@ -1606,12 +1619,13 @@ bool Type::hasIntegerRepresentation() const {
 bool Type::isIntegralType(ASTContext &Ctx) const {
   if (const BuiltinType *BT = dyn_cast<BuiltinType>(CanonicalType))
     return BT->getKind() >= BuiltinType::Bool &&
-    BT->getKind() <= BuiltinType::Int128;
-  
+           BT->getKind() <= BuiltinType::Int128;
+
+  // Complete enum types are integral in C.
   if (!Ctx.getLangOpts().CPlusPlus)
     if (const EnumType *ET = dyn_cast<EnumType>(CanonicalType))
-      return ET->getDecl()->isComplete(); // Complete enum types are integral in C.
-  
+      return ET->getDecl()->isComplete();
+
   return false;
 }
 
@@ -1702,7 +1716,7 @@ bool Type::isSignedIntegerType() const {
 bool Type::isSignedIntegerOrEnumerationType() const {
   if (const BuiltinType *BT = dyn_cast<BuiltinType>(CanonicalType)) {
     return BT->getKind() >= BuiltinType::Char_S &&
-    BT->getKind() <= BuiltinType::Int128;
+           BT->getKind() <= BuiltinType::Int128;
   }
   
   if (const EnumType *ET = dyn_cast<EnumType>(CanonicalType)) {
@@ -2773,7 +2787,7 @@ bool FunctionProtoType::isNothrow(const ASTContext &Ctx,
   if (EST == EST_DynamicNone || EST == EST_BasicNoexcept)
     return true;
 
-  if (EST == EST_Dynamic && ResultIfDependent == true) {
+  if (EST == EST_Dynamic && ResultIfDependent) {
     // A dynamic exception specification is throwing unless every exception
     // type is an (unexpanded) pack expansion type.
     for (unsigned I = 0, N = NumExceptions; I != N; ++I)
@@ -3021,7 +3035,12 @@ bool AttributedType::isCallingConv() const {
   case attr_objc_ownership:
   case attr_objc_inert_unsafe_unretained:
   case attr_noreturn:
-      return false;
+  case attr_nonnull:
+  case attr_nullable:
+  case attr_null_unspecified:
+  case attr_objc_kindof:
+    return false;
+
   case attr_pcs:
   case attr_pcs_vfp:
   case attr_cdecl:
@@ -3170,15 +3189,23 @@ QualifierCollector::apply(const ASTContext &Context, const Type *T) const {
 
 void ObjCObjectTypeImpl::Profile(llvm::FoldingSetNodeID &ID,
                                  QualType BaseType,
-                                 ObjCProtocolDecl * const *Protocols,
-                                 unsigned NumProtocols) {
+                                 ArrayRef<QualType> typeArgs,
+                                 ArrayRef<ObjCProtocolDecl *> protocols,
+                                 bool isKindOf) {
   ID.AddPointer(BaseType.getAsOpaquePtr());
-  for (unsigned i = 0; i != NumProtocols; i++)
-    ID.AddPointer(Protocols[i]);
+  ID.AddInteger(typeArgs.size());
+  for (auto typeArg : typeArgs)
+    ID.AddPointer(typeArg.getAsOpaquePtr());
+  ID.AddInteger(protocols.size());
+  for (auto proto : protocols)
+    ID.AddPointer(proto);
+  ID.AddBoolean(isKindOf);
 }
 
 void ObjCObjectTypeImpl::Profile(llvm::FoldingSetNodeID &ID) {
-  Profile(ID, getBaseType(), qual_begin(), getNumProtocols());
+  Profile(ID, getBaseType(), getTypeArgsAsWritten(),
+          llvm::makeArrayRef(qual_begin(), getNumProtocols()),
+          isKindOfTypeAsWritten());
 }
 
 namespace {
@@ -3667,6 +3694,11 @@ bool Type::isObjCARCImplicitlyUnretainedType() const {
 bool Type::isObjCNSObjectType() const {
   if (const TypedefType *typedefType = dyn_cast<TypedefType>(this))
     return typedefType->getDecl()->hasAttr<ObjCNSObjectAttr>();
+  return false;
+}
+bool Type::isObjCIndependentClassType() const {
+  if (const TypedefType *typedefType = dyn_cast<TypedefType>(this))
+    return typedefType->getDecl()->hasAttr<ObjCIndependentClassAttr>();
   return false;
 }
 bool Type::isObjCRetainableType() const {

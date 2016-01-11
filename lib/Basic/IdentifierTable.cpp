@@ -16,6 +16,7 @@
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/OperatorKinds.h"
+#include "clang/Basic/Specifiers.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/SmallString.h"
@@ -35,7 +36,7 @@ IdentifierInfo::IdentifierInfo() {
   HasMacro = false;
   HadMacro = false;
   IsExtension = false;
-  IsCXX11CompatKeyword = false;
+  IsFutureCompatKeyword = false;
   IsPoisoned = false;
   IsCPPOperatorKeyword = false;
   NeedsHandleIdentifier = false;
@@ -69,8 +70,6 @@ namespace {
 IdentifierIterator *IdentifierInfoLookup::getIdentifiers() {
   return new EmptyLookupIterator();
 }
-
-ExternalIdentifierLookup::~ExternalIdentifierLookup() {}
 
 IdentifierTable::IdentifierTable(const LangOptions &LangOpts,
                                  IdentifierInfoLookup* externalLookup)
@@ -163,15 +162,21 @@ static void AddKeyword(StringRef Keyword,
   KeywordStatus AddResult = getKeywordStatus(LangOpts, Flags);
 
   // Don't add this keyword under MSVCCompat.
-  if (LangOpts.MSVCCompat && (Flags & KEYNOMS))
-     return;
+  if (LangOpts.MSVCCompat && (Flags & KEYNOMS18) &&
+      !LangOpts.isCompatibleWithMSVC(LangOptions::MSVC2015))
+    return;
+
+  // Don't add this keyword under OpenCL.
+  if (LangOpts.OpenCL && (Flags & KEYNOOPENCL))
+    return;
+
   // Don't add this keyword if disabled in this language.
   if (AddResult == KS_Disabled) return;
 
   IdentifierInfo &Info =
       Table.get(Keyword, AddResult == KS_Future ? tok::identifier : TokenCode);
   Info.setIsExtensionToken(AddResult == KS_Extension);
-  Info.setIsCXX11CompatKeyword(AddResult == KS_Future);
+  Info.setIsFutureCompatKeyword(AddResult == KS_Future);
 }
 
 /// AddCXXOperatorKeyword - Register a C++ operator keyword alternative
@@ -640,4 +645,19 @@ const char *clang::getOperatorSpelling(OverloadedOperatorKind Operator) {
   }
 
   llvm_unreachable("Invalid OverloadedOperatorKind!");
+}
+
+StringRef clang::getNullabilitySpelling(NullabilityKind kind,
+                                        bool isContextSensitive) {
+  switch (kind) {
+  case NullabilityKind::NonNull:
+    return isContextSensitive ? "nonnull" : "_Nonnull";
+
+  case NullabilityKind::Nullable:
+    return isContextSensitive ? "nullable" : "_Nullable";
+
+  case NullabilityKind::Unspecified:
+    return isContextSensitive ? "null_unspecified" : "_Null_unspecified";
+  }
+  llvm_unreachable("Unknown nullability kind.");
 }

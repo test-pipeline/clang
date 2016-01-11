@@ -31,15 +31,18 @@
 #define LLVM_CLANG_TOOLING_TOOLING_H
 
 #include "clang/AST/ASTConsumer.h"
+#include "clang/Frontend/PCHContainerOperations.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Driver/Util.h"
 #include "clang/Frontend/FrontendAction.h"
+#include "clang/Lex/ModuleLoader.h"
 #include "clang/Tooling/ArgumentsAdjusters.h"
 #include "clang/Tooling/CompilationDatabase.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Option/Option.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -65,9 +68,10 @@ public:
   virtual ~ToolAction();
 
   /// \brief Perform an action for an invocation.
-  virtual bool runInvocation(clang::CompilerInvocation *Invocation,
-                             FileManager *Files,
-                             DiagnosticConsumer *DiagConsumer) = 0;
+  virtual bool
+  runInvocation(clang::CompilerInvocation *Invocation, FileManager *Files,
+                std::shared_ptr<PCHContainerOperations> PCHContainerOps,
+                DiagnosticConsumer *DiagConsumer) = 0;
 };
 
 /// \brief Interface to generate clang::FrontendActions.
@@ -78,10 +82,11 @@ public:
 /// process each translation unit.
 class FrontendActionFactory : public ToolAction {
 public:
-  virtual ~FrontendActionFactory();
+  ~FrontendActionFactory() override;
 
   /// \brief Invokes the compiler with a FrontendAction created by create().
   bool runInvocation(clang::CompilerInvocation *Invocation, FileManager *Files,
+                     std::shared_ptr<PCHContainerOperations> PCHContainerOps,
                      DiagnosticConsumer *DiagConsumer) override;
 
   /// \brief Returns a new clang::FrontendAction.
@@ -138,6 +143,8 @@ inline std::unique_ptr<FrontendActionFactory> newFrontendActionFactory(
 /// \param ToolAction The action to run over the code.
 /// \param Code C++ code.
 /// \param FileName The file name which 'Code' will be mapped as.
+/// \param PCHContainerOps  The PCHContainerOperations for loading and creating
+///                         clang modules.
 ///
 /// \return - True if 'ToolAction' was successfully executed.
 bool runToolOnCode(clang::FrontendAction *ToolAction, const Twine &Code,
@@ -156,6 +163,8 @@ typedef std::vector<std::pair<std::string, std::string>> FileContentMappings;
 /// \param Code C++ code.
 /// \param Args Additional flags to pass on.
 /// \param FileName The file name which 'Code' will be mapped as.
+/// \param PCHContainerOps   The PCHContainerOperations for loading and creating
+///                          clang modules.
 ///
 /// \return - True if 'ToolAction' was successfully executed.
 bool runToolOnCodeWithArgs(
@@ -169,6 +178,8 @@ bool runToolOnCodeWithArgs(
 ///
 /// \param Code C++ code.
 /// \param FileName The file name which 'Code' will be mapped as.
+/// \param PCHContainerOps The PCHContainerOperations for loading and creating
+/// clang modules.
 ///
 /// \return The resulting AST or null if an error occurred.
 std::unique_ptr<ASTUnit>
@@ -181,6 +192,8 @@ buildASTFromCode(const Twine &Code, const Twine &FileName = "input.cc",
 /// \param Code C++ code.
 /// \param Args Additional flags to pass on.
 /// \param FileName The file name which 'Code' will be mapped as.
+/// \param PCHContainerOps The PCHContainerOperations for loading and creating
+/// clang modules.
 ///
 /// \return The resulting AST or null if an error occurred.
 std::unique_ptr<ASTUnit> buildASTFromCodeWithArgs(
@@ -191,7 +204,7 @@ std::unique_ptr<ASTUnit> buildASTFromCodeWithArgs(
 
 /// \brief Utility to run a FrontendAction in a single clang invocation.
 class ToolInvocation {
- public:
+public:
   /// \brief Create a tool invocation.
   ///
   /// \param CommandLine The command line arguments to clang. Note that clang
@@ -201,6 +214,8 @@ class ToolInvocation {
   /// \param FAction The action to be executed. Class takes ownership.
   /// \param Files The FileManager used for the execution. Class does not take
   /// ownership.
+  /// \param PCHContainerOps The PCHContainerOperations for loading and creating
+  /// clang modules.
   ToolInvocation(std::vector<std::string> CommandLine, FrontendAction *FAction,
                  FileManager *Files,
                  std::shared_ptr<PCHContainerOperations> PCHContainerOps =
@@ -211,8 +226,11 @@ class ToolInvocation {
   /// \param CommandLine The command line arguments to clang.
   /// \param Action The action to be executed.
   /// \param Files The FileManager used for the execution.
+  /// \param PCHContainerOps The PCHContainerOperations for loading and creating
+  /// clang modules.
   ToolInvocation(std::vector<std::string> CommandLine, ToolAction *Action,
-                 FileManager *Files);
+                 FileManager *Files,
+                 std::shared_ptr<PCHContainerOperations> PCHContainerOps);
 
   ~ToolInvocation();
 
@@ -238,12 +256,14 @@ class ToolInvocation {
 
   bool runInvocation(const char *BinaryName,
                      clang::driver::Compilation *Compilation,
-                     clang::CompilerInvocation *Invocation);
+                     clang::CompilerInvocation *Invocation,
+                     std::shared_ptr<PCHContainerOperations> PCHContainerOps);
 
   std::vector<std::string> CommandLine;
   ToolAction *Action;
   bool OwnsAction;
   FileManager *Files;
+  std::shared_ptr<PCHContainerOperations> PCHContainerOps;
   // Maps <file name> -> <file content>.
   llvm::StringMap<StringRef> MappedFileContents;
   DiagnosticConsumer *DiagConsumer;
@@ -264,6 +284,8 @@ class ClangTool {
   ///        command lines for the given source paths.
   /// \param SourcePaths The source files to run over. If a source files is
   ///        not found in Compilations, it is skipped.
+  /// \param PCHContainerOps The PCHContainerOperations for loading and creating
+  /// clang modules.
   ClangTool(const CompilationDatabase &Compilations,
             ArrayRef<std::string> SourcePaths,
             std::shared_ptr<PCHContainerOperations> PCHContainerOps =
@@ -308,6 +330,7 @@ class ClangTool {
  private:
   const CompilationDatabase &Compilations;
   std::vector<std::string> SourcePaths;
+  std::shared_ptr<PCHContainerOperations> PCHContainerOps;
 
   llvm::IntrusiveRefCntPtr<vfs::OverlayFileSystem> OverlayFileSystem;
   llvm::IntrusiveRefCntPtr<vfs::InMemoryFileSystem> InMemoryFileSystem;

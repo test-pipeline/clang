@@ -22,6 +22,7 @@ namespace llvm {
 class Constant;
 class Type;
 class Value;
+class CallInst;
 }
 
 namespace clang {
@@ -178,7 +179,7 @@ public:
   virtual llvm::Constant *EmitNullMemberPointer(const MemberPointerType *MPT);
 
   /// Create a member pointer for the given method.
-  virtual llvm::Constant *EmitMemberPointer(const CXXMethodDecl *MD);
+  virtual llvm::Constant *EmitMemberFunctionPointer(const CXXMethodDecl *MD);
 
   /// Create a member pointer for the given field.
   virtual llvm::Constant *EmitMemberDataPointer(const MemberPointerType *MPT,

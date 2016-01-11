@@ -123,6 +123,7 @@ public:
   __declspec(dllexport) static  const  int  StaticConstField;
   __declspec(dllexport) static  const  int  StaticConstFieldEqualInit = 1;
   __declspec(dllexport) static  const  int  StaticConstFieldBraceInit{1};
+  __declspec(dllexport) static  const  int  StaticConstFieldRefNotDef = 1;
   __declspec(dllexport) constexpr static int ConstexprField = 1;
 };
 
@@ -145,6 +146,7 @@ inline void ExportMembers::staticInlineDef() {}
 const  int  ExportMembers::StaticConstField = 1;
 const  int  ExportMembers::StaticConstFieldEqualInit;
 const  int  ExportMembers::StaticConstFieldBraceInit;
+int foo() { return ExportMembers::StaticConstFieldRefNotDef; }
 constexpr int ExportMembers::ConstexprField;
 
 
@@ -247,6 +249,7 @@ public:
   __declspec(dllexport) static  const  int  StaticConstField;
   __declspec(dllexport) static  const  int  StaticConstFieldEqualInit = 1;
   __declspec(dllexport) static  const  int  StaticConstFieldBraceInit{1};
+  __declspec(dllexport) static  const  int  StaticConstFieldRefNotDef = 1;
   __declspec(dllexport) constexpr static int ConstexprField = 1;
 };
 
@@ -269,6 +272,7 @@ inline void ExportMembers::Nested::staticInlineDef() {}
 const  int  ExportMembers::Nested::StaticConstField = 1;
 const  int  ExportMembers::Nested::StaticConstFieldEqualInit;
 const  int  ExportMembers::Nested::StaticConstFieldBraceInit;
+int fooNested() { return ExportMembers::Nested::StaticConstFieldRefNotDef; }
 constexpr int ExportMembers::Nested::ConstexprField;
 
 

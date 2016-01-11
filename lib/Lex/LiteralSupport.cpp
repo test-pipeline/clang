@@ -144,7 +144,8 @@ static unsigned ProcessCharEscape(const char *ThisTokBegin,
       int CharVal = llvm::hexDigitValue(ThisTokBuf[0]);
       if (CharVal == -1) break;
       // About to shift out a digit?
-      Overflow |= (ResultChar & 0xF0000000) ? true : false;
+      if (ResultChar & 0xF0000000)
+        Overflow = true;
       ResultChar <<= 4;
       ResultChar |= CharVal;
     }
@@ -596,7 +597,8 @@ NumericLiteralParser::NumericLiteralParser(StringRef TokSpelling,
       if (isFloat) break;               // LF invalid.
 
       // Check for long long.  The L's need to be adjacent and the same case.
-      if (s+1 != ThisTokEnd && s[1] == s[0]) {
+      if (s[1] == s[0]) {
+        assert(s + 1 < ThisTokEnd && "didn't maximally munch?");
         if (isFPConstant) break;        // long long invalid for floats.
         isLongLong = true;
         ++s;  // Eat both of them.
@@ -638,12 +640,14 @@ NumericLiteralParser::NumericLiteralParser(StringRef TokSpelling,
           default:
             break;
           }
-          if (MicrosoftInteger)
-            break;
+        }
+        if (MicrosoftInteger) {
+          assert(s <= ThisTokEnd && "didn't maximally munch?");
+          break;
         }
       }
       // "i", "if", and "il" are user-defined suffixes in C++1y.
-      if (PP.getLangOpts().CPlusPlus14 && *s == 'i')
+      if (*s == 'i' && PP.getLangOpts().CPlusPlus14)
         break;
       // fall through.
     case 'j':
@@ -740,11 +744,11 @@ void NumericLiteralParser::ParseNumberStartingWithZero(SourceLocation TokLoc) {
   s++;
 
   int c1 = s[0];
-  int c2 = s[1];
 
   // Handle a hex number like 0x1234.
-  if ((c1 == 'x' || c1 == 'X') && (isHexDigit(c2) || c2 == '.')) {
+  if ((c1 == 'x' || c1 == 'X') && (isHexDigit(s[1]) || s[1] == '.')) {
     s++;
+    assert(s < ThisTokEnd && "didn't maximally munch?");
     radix = 16;
     DigitsBegin = s;
     s = SkipHexDigits(s);
@@ -796,7 +800,7 @@ void NumericLiteralParser::ParseNumberStartingWithZero(SourceLocation TokLoc) {
   }
 
   // Handle simple binary numbers 0b01010
-  if ((c1 == 'b' || c1 == 'B') && (c2 == '0' || c2 == '1')) {
+  if ((c1 == 'b' || c1 == 'B') && (s[1] == '0' || s[1] == '1')) {
     // 0b101010 is a C++1y / GCC extension.
     PP.Diag(TokLoc,
             PP.getLangOpts().CPlusPlus14
@@ -805,6 +809,7 @@ void NumericLiteralParser::ParseNumberStartingWithZero(SourceLocation TokLoc) {
                 ? diag::ext_binary_literal_cxx14
                 : diag::ext_binary_literal);
     ++s;
+    assert(s < ThisTokEnd && "didn't maximally munch?");
     radix = 2;
     DigitsBegin = s;
     s = SkipBinaryDigits(s);

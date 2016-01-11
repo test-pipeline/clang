@@ -5,6 +5,7 @@
 // RUN:         -o - -mconstructor-aliases -O1 -disable-llvm-optzns | \
 // RUN:         FileCheck %s --check-prefix=CHECK --check-prefix=NOCXX
 
+extern "C" unsigned long _exception_code();
 extern "C" void might_throw();
 
 struct HasCleanup {
@@ -21,6 +22,7 @@ extern "C" void use_cxx() {
 // Make sure we use __CxxFrameHandler3 for C++ EH.
 
 // CXXEH-LABEL: define void @use_cxx()
+// CXXEH-SAME:  personality i8* bitcast (i32 (...)* @__CxxFrameHandler3 to i8*)
 // CXXEH: call %struct.HasCleanup* @"\01??0HasCleanup@@QEAA@XZ"(%struct.HasCleanup* %{{.*}})
 // CXXEH: invoke void @might_throw()
 // CXXEH:       to label %[[cont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
@@ -54,6 +56,7 @@ extern "C" void use_seh() {
 // Make sure we use __C_specific_handler for SEH.
 
 // CHECK-LABEL: define void @use_seh()
+// CHECK-SAME:  personality i8* bitcast (i32 (...)* @__C_specific_handler to i8*)
 // CHECK: invoke void @might_throw() #[[NOINLINE:[0-9]+]]
 // CHECK:       to label %[[cont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
 //
@@ -93,6 +96,7 @@ void use_seh_in_lambda() {
 // NOCXX: ret void
 
 // CHECK-LABEL: define internal void @"\01??R<lambda_0>@?use_seh_in_lambda@@YAXXZ@QEBAXXZ"(%class.anon* %this)
+// CXXEH-SAME:  personality i8* bitcast (i32 (...)* @__C_specific_handler to i8*)
 // CHECK: invoke void @might_throw() #[[NOINLINE]]
 // CHECK: catchpad
 

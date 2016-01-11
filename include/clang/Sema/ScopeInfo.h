@@ -585,7 +585,7 @@ public:
     Kind = SK_Block;
   }
 
-  virtual ~BlockScopeInfo();
+  ~BlockScopeInfo() override;
 
   static bool classof(const FunctionScopeInfo *FSI) { 
     return FSI->Kind == SK_Block; 
@@ -616,7 +616,7 @@ public:
     Kind = SK_CapturedRegion;
   }
 
-  virtual ~CapturedRegionScopeInfo();
+  ~CapturedRegionScopeInfo() override;
 
   /// \brief A descriptive name for the kind of captured region this is.
   StringRef getRegionName() const {
@@ -665,13 +665,6 @@ public:
   /// \brief Whether the lambda contains an unexpanded parameter pack.
   bool ContainsUnexpandedParameterPack;
 
-  /// \brief Variables used to index into by-copy array captures.
-  SmallVector<VarDecl *, 4> ArrayIndexVars;
-
-  /// \brief Offsets into the ArrayIndexVars array at which each capture starts
-  /// its list of array index variables.
-  SmallVector<unsigned, 4> ArrayIndexStarts;
-  
   /// \brief If this is a generic lambda, use this as the depth of 
   /// each 'auto' parameter, during initial AST construction.
   unsigned AutoTemplateParameterDepth;
@@ -715,9 +708,9 @@ public:
   LambdaScopeInfo(DiagnosticsEngine &Diag)
     : CapturingScopeInfo(Diag, ImpCap_None), Lambda(nullptr),
       CallOperator(nullptr), NumExplicitCaptures(0), Mutable(false),
-      ExprNeedsCleanups(false), ContainsUnexpandedParameterPack(false),
-      AutoTemplateParameterDepth(0), GLTemplateParameterList(nullptr)
-  {
+      ExplicitParams(false), ExprNeedsCleanups(false),
+      ContainsUnexpandedParameterPack(false), AutoTemplateParameterDepth(0),
+      GLTemplateParameterList(nullptr) {
     Kind = SK_Lambda;
   }
 
@@ -857,9 +850,6 @@ CapturingScopeInfo::addThisCapture(bool isNested, SourceLocation Loc,
   Captures.push_back(Capture(Capture::ThisCapture, isNested, Loc, CaptureType,
                              Cpy));
   CXXThisCaptureIndex = Captures.size();
-
-  if (LambdaScopeInfo *LSI = dyn_cast<LambdaScopeInfo>(this))
-    LSI->ArrayIndexStarts.push_back(LSI->ArrayIndexVars.size());
 }
 
 } // end namespace sema

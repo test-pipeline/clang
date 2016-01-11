@@ -21,7 +21,6 @@ void f() {
 // CHECK4: {{^  int \*i;$}}
 // CHECK5: {{^     int\* i;$}}
 // CHECK6: {{^Error reading .*\.clang-format: (I|i)nvalid argument}}
-// CHECK6: {{^Can't find usable .clang-format, using webkit style$}}
 // CHECK6: {{^    int\* i;$}}
 // CHECK7: {{^      int\* i;$}}
 // CHECK8: {{^  int\* i;$}}
@@ -29,3 +28,7 @@ void f() {
 int*i;
 int j;
 }
+
+// On Windows, the 'rm' commands fail when the previous process is still alive.
+// This happens enough to make the test useless.
+// REQUIRES: shell

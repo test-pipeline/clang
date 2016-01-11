@@ -183,7 +183,7 @@ void DereferenceChecker::reportBug(ProgramStateRef State, const Stmt *S,
        I = Ranges.begin(), E = Ranges.end(); I!=E; ++I)
     report->addRange(*I);
 
-  C.emitReport(report);
+  C.emitReport(std::move(report));
 }
 
 void DereferenceChecker::checkLocation(SVal l, bool isLoad, const Stmt* S,
@@ -195,11 +195,11 @@ void DereferenceChecker::checkLocation(SVal l, bool isLoad, const Stmt* S,
         BT_undef.reset(
             new BuiltinBug(this, "Dereference of undefined pointer value"));
 
-      BugReport *report =
-        new BugReport(*BT_undef, BT_undef->getDescription(), N);
+      auto report =
+          llvm::make_unique<BugReport>(*BT_undef, BT_undef->getDescription(), N);
       bugreporter::trackNullOrUndefValue(N, bugreporter::getDerefExpr(S),
                                          *report);
-      C.emitReport(report);
+      C.emitReport(std::move(report));
     }
     return;
   }

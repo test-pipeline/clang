@@ -421,11 +421,13 @@ macro(add_clang_library name)
   endif()
 
   set_target_properties(${name} PROPERTIES FOLDER "Clang libraries")
+  set_clang_windows_version_resource_properties(${name})
 endmacro(add_clang_library)
 
 macro(add_clang_executable name)
   add_llvm_executable( ${name} ${ARGN} )
   set_target_properties(${name} PROPERTIES FOLDER "Clang executables")
+  set_clang_windows_version_resource_properties(${name})
 endmacro(add_clang_executable)
 
 macro(add_clang_symlink name dest)
@@ -456,6 +458,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     FILES_MATCHING
     PATTERN "CMakeFiles" EXCLUDE
     PATTERN "*.inc"
+    PATTERN "*.h"
     )
 endif()
 
@@ -591,9 +594,10 @@ if (CLANG_BUILT_STANDALONE OR CMAKE_VERSION VERSION_EQUAL 3 OR
 
   # Install a <prefix>/share/clang/cmake/ClangConfig.cmake file so that
   # find_package(Clang) works. Install the target list with it.
+  install(EXPORT ClangTargets DESTINATION ${CLANG_INSTALL_PACKAGE_DIR})
+
   install(FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/ClangConfig.cmake
-    ${CLANG_BINARY_DIR}/share/clang/cmake/ClangTargets.cmake
     DESTINATION share/clang/cmake)
 
   # Also copy ClangConfig.cmake to the build directory so that dependent projects

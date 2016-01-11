@@ -36,7 +36,7 @@ int main()
     }
 }
 // Verify that the debug type for both variables is 'id'.
-// CHECK:  !"0x101\00bad_carrier\00{{[0-9]+}}\000", !{{[0-9]+}}, null, ![[IDTYPE:[0-9]+]]} ; [ DW_TAG_arg_variable ] [bad_carrier] [line 0]
+// CHECK:  ![[IDTYPE:[0-9]+]] = !DIDerivedType(tag: DW_TAG_typedef, name: "id"
 //
 // CHECK:  !DILocalVariable(name: "bad_carrier", arg:
 // CHECK-NOT:               line:

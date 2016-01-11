@@ -190,7 +190,12 @@ public:
     OBJC_TQ_Out = 0x4,
     OBJC_TQ_Bycopy = 0x8,
     OBJC_TQ_Byref = 0x10,
-    OBJC_TQ_Oneway = 0x20
+    OBJC_TQ_Oneway = 0x20,
+
+    /// The nullability qualifier is set when the nullability of the
+    /// result or parameter was expressed via a context-sensitive
+    /// keyword.
+    OBJC_TQ_CSNullability = 0x40
   };
 
 protected:
@@ -329,7 +334,7 @@ protected:
     : NextInContextAndBits(), DeclCtx(DC),
       Loc(L), DeclKind(DK), InvalidDecl(0),
       HasAttrs(false), Implicit(false), Used(false), Referenced(false),
-      Access(AS_none), FromASTFile(0), Hidden(0),
+      Access(AS_none), FromASTFile(0), Hidden(DC && cast<Decl>(DC)->Hidden),
       IdentifierNamespace(getIdentifierNamespaceForKind(DK)),
       CacheValidAndLinkage(0)
   {
@@ -648,13 +653,30 @@ public:
 
 private:
   Module *getOwningModuleSlow() const;
+protected:
+  bool hasLocalOwningModuleStorage() const;
 
 public:
-  Module *getOwningModule() const {
+  /// \brief Get the imported owning module, if this decl is from an imported
+  /// (non-local) module.
+  Module *getImportedOwningModule() const {
     if (!isFromASTFile())
       return nullptr;
 
     return getOwningModuleSlow();
+  }
+
+  /// \brief Get the local owning module, if known. Returns nullptr if owner is
+  /// not yet known or declaration is not from a module.
+  Module *getLocalOwningModule() const {
+    if (isFromASTFile() || !Hidden)
+      return nullptr;
+    return reinterpret_cast<Module *const *>(this)[-1];
+  }
+  void setLocalOwningModule(Module *M) {
+    assert(!isFromASTFile() && Hidden && hasLocalOwningModuleStorage() &&
+           "should not have a cached owning module");
+    reinterpret_cast<Module **>(this)[-1] = M;
   }
 
   unsigned getIdentifierNamespace() const {
@@ -1131,12 +1153,11 @@ class DeclContext {
 
   /// \brief Pointer to the data structure used to lookup declarations
   /// within this context (or a DependentStoredDeclsMap if this is a
-  /// dependent context), and a bool indicating whether we have lazily
-  /// omitted any declarations from the map. We maintain the invariant
-  /// that, if the map contains an entry for a DeclarationName (and we
-  /// haven't lazily omitted anything), then it contains all relevant
-  /// entries for that name.
-  mutable llvm::PointerIntPair<StoredDeclsMap*, 1, bool> LookupPtr;
+  /// dependent context). We maintain the invariant that, if the map
+  /// contains an entry for a DeclarationName (and we haven't lazily
+  /// omitted anything), then it contains all relevant entries for that
+  /// name (modulo the hasExternalDecls() flag).
+  mutable StoredDeclsMap *LookupPtr;
 
 protected:
   /// FirstDecl - The first declaration stored within this declaration
@@ -1234,6 +1255,11 @@ public:
     default:
       return DeclKind >= Decl::firstFunction && DeclKind <= Decl::lastFunction;
     }
+  }
+
+  /// \brief Test whether the context supports looking up names.
+  bool isLookupContext() const {
+    return !isFunctionOrMethod() && DeclKind != Decl::LinkageSpec;
   }
 
   bool isFileContext() const {
@@ -1691,17 +1717,22 @@ public:
   inline ddiag_range ddiags() const;
 
   // Low-level accessors
-    
-  /// \brief Mark the lookup table as needing to be built.  This should be
-  /// used only if setHasExternalLexicalStorage() has been called on any
-  /// decl context for which this is the primary context.
+
+  /// \brief Mark that there are external lexical declarations that we need
+  /// to include in our lookup table (and that are not available as external
+  /// visible lookups). These extra lookup results will be found by walking
+  /// the lexical declarations of this context. This should be used only if
+  /// setHasExternalLexicalStorage() has been called on any decl context for
+  /// which this is the primary context.
   void setMustBuildLookupTable() {
-    LookupPtr.setInt(true);
+    assert(this == getPrimaryContext() &&
+           "should only be called on primary context");
+    HasLazyExternalLexicalLookups = true;
   }
 
   /// \brief Retrieve the internal representation of the lookup structure.
   /// This may omit some names if we are lazily building the structure.
-  StoredDeclsMap *getLookupPtr() const { return LookupPtr.getPointer(); }
+  StoredDeclsMap *getLookupPtr() const { return LookupPtr; }
 
   /// \brief Ensure the lookup structure is fully-built and return it.
   StoredDeclsMap *buildLookup();
@@ -1724,7 +1755,7 @@ public:
   /// declarations visible in this context.
   void setHasExternalVisibleStorage(bool ES = true) {
     ExternalVisibleStorage = ES;
-    if (ES && LookupPtr.getPointer())
+    if (ES && LookupPtr)
       NeedToReconcileExternalVisibleStorage = true;
   }
 
@@ -1754,7 +1785,7 @@ public:
 
 private:
   void reconcileExternalVisibleStorage() const;
-  void LoadLexicalDeclsFromExternalStorage() const;
+  bool LoadLexicalDeclsFromExternalStorage() const;
 
   /// @brief Makes a declaration visible within this context, but
   /// suppresses searches for external declarations with the same
@@ -1767,8 +1798,6 @@ private:
   friend class DependentDiagnostic;
   StoredDeclsMap *CreateStoredDeclsMap(ASTContext &C) const;
 
-  template<decl_iterator (DeclContext::*Begin)() const,
-           decl_iterator (DeclContext::*End)() const>
   void buildLookupImpl(DeclContext *DCtx, bool Internal);
   void makeDeclVisibleInContextWithFlags(NamedDecl *D, bool Internal,
                                          bool Rediscoverable);

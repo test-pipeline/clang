@@ -27,11 +27,12 @@
 namespace clang {
   
 class DiagnosticsEngine;  
-class ExternalIdentifierLookup;
+class ExternalPreprocessorSource;
 class FileEntry;
 class FileManager;
 class HeaderSearchOptions;
 class IdentifierInfo;
+class Preprocessor;
 
 /// \brief The preprocessor keeps track of this information for each
 /// file that is \#included.
@@ -106,8 +107,9 @@ struct HeaderFileInfo {
 
   /// \brief Retrieve the controlling macro for this header file, if
   /// any.
-  const IdentifierInfo *getControllingMacro(ExternalIdentifierLookup *External);
-  
+  const IdentifierInfo *
+  getControllingMacro(ExternalPreprocessorSource *External);
+
   /// \brief Determine whether this is a non-default header file info, e.g.,
   /// it corresponds to an actual header we've included or tried to include.
   bool isNonDefault() const {
@@ -227,8 +229,9 @@ class HeaderSearch {
   llvm::StringSet<llvm::BumpPtrAllocator> FrameworkNames;
   
   /// \brief Entity used to resolve the identifier IDs of controlling
-  /// macros into IdentifierInfo pointers, as needed.
-  ExternalIdentifierLookup *ExternalLookup;
+  /// macros into IdentifierInfo pointers, and keep the identifire up to date,
+  /// as needed.
+  ExternalPreprocessorSource *ExternalLookup;
 
   /// \brief Entity used to look up stored header file information.
   ExternalHeaderFileInfoSource *ExternalSource;
@@ -330,11 +333,11 @@ public:
     FileInfo.clear();
   }
 
-  void SetExternalLookup(ExternalIdentifierLookup *EIL) {
-    ExternalLookup = EIL;
+  void SetExternalLookup(ExternalPreprocessorSource *EPS) {
+    ExternalLookup = EPS;
   }
 
-  ExternalIdentifierLookup *getExternalLookup() const {
+  ExternalPreprocessorSource *getExternalLookup() const {
     return ExternalLookup;
   }
   
@@ -404,8 +407,8 @@ public:
   ///
   /// \return false if \#including the file will have no effect or true
   /// if we should include it.
-  bool ShouldEnterIncludeFile(const FileEntry *File, bool isImport);
-
+  bool ShouldEnterIncludeFile(Preprocessor &PP, const FileEntry *File,
+                              bool isImport, Module *CorrespondingModule);
 
   /// \brief Return whether the specified file is a normal header,
   /// a system header, or a C++ friendly system header.
@@ -462,9 +465,6 @@ public:
   /// CreateHeaderMap - This method returns a HeaderMap for the specified
   /// FileEntry, uniquing them through the 'HeaderMaps' datastructure.
   const HeaderMap *CreateHeaderMap(const FileEntry *FE);
-
-  /// Returns true if modules are enabled.
-  bool enabledModules() const { return LangOpts.Modules; }
 
   /// \brief Retrieve the name of the module file that should be used to 
   /// load the given module.

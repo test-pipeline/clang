@@ -46,54 +46,49 @@ namespace {
 /// avoids constructing the type more than once if it's used more than once.
 class LazyRuntimeFunction {
   CodeGenModule *CGM;
-  std::vector<llvm::Type*> ArgTys;
+  llvm::FunctionType *FTy;
   const char *FunctionName;
   llvm::Constant *Function;
-  public:
-    /// Constructor leaves this class uninitialized, because it is intended to
-    /// be used as a field in another class and not all of the types that are
-    /// used as arguments will necessarily be available at construction time.
-    LazyRuntimeFunction()
+
+public:
+  /// Constructor leaves this class uninitialized, because it is intended to
+  /// be used as a field in another class and not all of the types that are
+  /// used as arguments will necessarily be available at construction time.
+  LazyRuntimeFunction()
       : CGM(nullptr), FunctionName(nullptr), Function(nullptr) {}
 
-    /// Initialises the lazy function with the name, return type, and the types
-    /// of the arguments.
-    LLVM_END_WITH_NULL
-    void init(CodeGenModule *Mod, const char *name,
-        llvm::Type *RetTy, ...) {
-       CGM =Mod;
-       FunctionName = name;
-       Function = nullptr;
-       ArgTys.clear();
-       va_list Args;
-       va_start(Args, RetTy);
-         while (llvm::Type *ArgTy = va_arg(Args, llvm::Type*))
-           ArgTys.push_back(ArgTy);
-       va_end(Args);
-       // Push the return type on at the end so we can pop it off easily
-       ArgTys.push_back(RetTy);
-   }
-   /// Overloaded cast operator, allows the class to be implicitly cast to an
-   /// LLVM constant.
-   operator llvm::Constant*() {
-     if (!Function) {
-       if (!FunctionName) return nullptr;
-       // We put the return type on the end of the vector, so pop it back off
-       llvm::Type *RetTy = ArgTys.back();
-       ArgTys.pop_back();
-       llvm::FunctionType *FTy = llvm::FunctionType::get(RetTy, ArgTys, false);
-       Function =
-         cast<llvm::Constant>(CGM->CreateRuntimeFunction(FTy, FunctionName));
-       // We won't need to use the types again, so we may as well clean up the
-       // vector now
-       ArgTys.resize(0);
-     }
-     return Function;
-   }
-   operator llvm::Function*() {
-     return cast<llvm::Function>((llvm::Constant*)*this);
-   }
+  /// Initialises the lazy function with the name, return type, and the types
+  /// of the arguments.
+  LLVM_END_WITH_NULL
+  void init(CodeGenModule *Mod, const char *name, llvm::Type *RetTy, ...) {
+    CGM = Mod;
+    FunctionName = name;
+    Function = nullptr;
+    std::vector<llvm::Type *> ArgTys;
+    va_list Args;
+    va_start(Args, RetTy);
+    while (llvm::Type *ArgTy = va_arg(Args, llvm::Type *))
+      ArgTys.push_back(ArgTy);
+    va_end(Args);
+    FTy = llvm::FunctionType::get(RetTy, ArgTys, false);
+  }
 
+  llvm::FunctionType *getType() { return FTy; }
+
+  /// Overloaded cast operator, allows the class to be implicitly cast to an
+  /// LLVM constant.
+  operator llvm::Constant *() {
+    if (!Function) {
+      if (!FunctionName)
+        return nullptr;
+      Function =
+          cast<llvm::Constant>(CGM->CreateRuntimeFunction(FTy, FunctionName));
+    }
+    return Function;
+  }
+  operator llvm::Function *() {
+    return cast<llvm::Function>((llvm::Constant *)*this);
+  }
 };
 
 
@@ -182,13 +177,14 @@ protected:
   llvm::Constant *ExportUniqueString(const std::string &Str,
                                      const std::string prefix) {
     std::string name = prefix + Str;
-    llvm::Constant *ConstStr = TheModule.getGlobalVariable(name);
+    auto *ConstStr = TheModule.getGlobalVariable(name);
     if (!ConstStr) {
       llvm::Constant *value = llvm::ConstantDataArray::getString(VMContext,Str);
       ConstStr = new llvm::GlobalVariable(TheModule, value->getType(), true,
               llvm::GlobalValue::LinkOnceODRLinkage, value, prefix + Str);
     }
-    return llvm::ConstantExpr::getGetElementPtr(ConstStr, Zeros);
+    return llvm::ConstantExpr::getGetElementPtr(ConstStr->getValueType(),
+                                                ConstStr, Zeros);
   }
   /// Generates a global structure, initialized by the elements in the vector.
   /// The element types must match the types of the structure elements in the
@@ -1071,7 +1067,7 @@ llvm::Value *CGObjCGNU::GetSelector(CodeGenFunction &CGF, Selector Sel,
     SelValue = llvm::GlobalAlias::create(
         SelectorTy->getElementType(), 0, llvm::GlobalValue::PrivateLinkage,
         ".objc_selector_" + Sel.getAsString(), &TheModule);
-    Types.push_back(TypedSelector(TypeEncoding, SelValue));
+    Types.emplace_back(TypeEncoding, SelValue);
   }
 
   return SelValue;
@@ -1161,21 +1157,22 @@ llvm::Constant *CGObjCGNUstep::GetEHType(QualType T) {
   // It's quite ugly hard-coding this.  Ideally we'd generate it using the host
   // platform's name mangling.
   const char *vtableName = "_ZTVN7gnustep7libobjc22__objc_class_type_infoE";
-  llvm::Constant *Vtable = TheModule.getGlobalVariable(vtableName);
+  auto *Vtable = TheModule.getGlobalVariable(vtableName);
   if (!Vtable) {
     Vtable = new llvm::GlobalVariable(TheModule, PtrToInt8Ty, true,
                                       llvm::GlobalValue::ExternalLinkage,
                                       nullptr, vtableName);
   }
   llvm::Constant *Two = llvm::ConstantInt::get(IntTy, 2);
-  Vtable = llvm::ConstantExpr::getGetElementPtr(Vtable, Two);
-  Vtable = llvm::ConstantExpr::getBitCast(Vtable, PtrToInt8Ty);
+  auto *BVtable = llvm::ConstantExpr::getBitCast(
+      llvm::ConstantExpr::getGetElementPtr(Vtable->getValueType(), Vtable, Two),
+      PtrToInt8Ty);
 
   llvm::Constant *typeName =
     ExportUniqueString(className, "__objc_eh_typename_");
 
   std::vector<llvm::Constant*> fields;
-  fields.push_back(Vtable);
+  fields.push_back(BVtable);
   fields.push_back(typeName);
   llvm::Constant *TI = 
       MakeGlobal(llvm::StructType::get(PtrToInt8Ty, PtrToInt8Ty, nullptr),
@@ -1295,11 +1292,11 @@ CGObjCGNU::GenerateMessageSendSuper(CodeGenFunction &CGF,
     }
   }
   // Cast the pointer to a simplified version of the class structure
+  llvm::Type *CastTy = llvm::StructType::get(IdTy, IdTy, nullptr);
   ReceiverClass = Builder.CreateBitCast(ReceiverClass,
-      llvm::PointerType::getUnqual(
-        llvm::StructType::get(IdTy, IdTy, nullptr)));
+                                        llvm::PointerType::getUnqual(CastTy));
   // Get the superclass pointer
-  ReceiverClass = Builder.CreateStructGEP(ReceiverClass, 1);
+  ReceiverClass = Builder.CreateStructGEP(CastTy, ReceiverClass, 1);
   // Load the superclass pointer
   ReceiverClass =
     Builder.CreateAlignedLoad(ReceiverClass, CGF.getPointerAlign());
@@ -2152,9 +2149,8 @@ void CGObjCGNU::RegisterAlias(const ObjCCompatibleAliasDecl *OAD) {
   // Get the class declaration for which the alias is specified.
   ObjCInterfaceDecl *ClassDecl =
     const_cast<ObjCInterfaceDecl *>(OAD->getClassInterface());
-  std::string ClassName = ClassDecl->getNameAsString();
-  std::string AliasName = OAD->getNameAsString();
-  ClassAliases.push_back(ClassAliasPair(ClassName,AliasName));
+  ClassAliases.emplace_back(ClassDecl->getNameAsString(),
+                            OAD->getNameAsString());
 }
 
 void CGObjCGNU::GenerateClass(const ObjCImplementationDecl *OID) {
@@ -2328,7 +2324,8 @@ void CGObjCGNU::GenerateClass(const ObjCImplementationDecl *OID) {
       offsetPointerIndexes[2] = llvm::ConstantInt::get(IndexTy, ivarIndex);
       // Get the correct ivar field
       llvm::Constant *offsetValue = llvm::ConstantExpr::getGetElementPtr(
-              IvarList, offsetPointerIndexes);
+          cast<llvm::GlobalVariable>(IvarList)->getValueType(), IvarList,
+          offsetPointerIndexes);
       // Get the existing variable, if one exists.
       llvm::GlobalVariable *offset = TheModule.getNamedGlobal(Name);
       if (offset) {
@@ -2487,8 +2484,8 @@ llvm::Function *CGObjCGNU::ModuleInitFunction() {
     llvm::Constant *Idxs[] = {Zeros[0],
       llvm::ConstantInt::get(Int32Ty, i), Zeros[0]};
     // FIXME: We're generating redundant loads and stores here!
-    llvm::Constant *SelPtr = llvm::ConstantExpr::getGetElementPtr(SelectorList,
-        makeArrayRef(Idxs, 2));
+    llvm::Constant *SelPtr = llvm::ConstantExpr::getGetElementPtr(
+        SelectorList->getValueType(), SelectorList, makeArrayRef(Idxs, 2));
     // If selectors are defined as an opaque type, cast the pointer to this
     // type.
     SelPtr = llvm::ConstantExpr::getBitCast(SelPtr, SelectorTy);
@@ -2600,8 +2597,8 @@ llvm::Function *CGObjCGNU::ModuleInitFunction() {
             true);
        if (TheClass) {
          TheClass = llvm::ConstantExpr::getBitCast(TheClass, PtrTy);
-         Builder.CreateCall2(RegisterAlias, TheClass,
-            MakeConstantString(iter->second));
+         Builder.CreateCall(RegisterAlias,
+                            {TheClass, MakeConstantString(iter->second)});
        }
     }
     // Jump to end:

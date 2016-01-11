@@ -17,6 +17,7 @@
 #define LLVM_CLANG_LIB_CODEGEN_EHSCOPESTACK_H
 
 #include "clang/Basic/LLVM.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Instructions.h"
@@ -75,8 +76,14 @@ template <class T> struct DominatingPointer<T,false> : InvariantValue<T*> {};
 template <class T> struct DominatingValue<T*> : DominatingPointer<T> {};
 
 enum CleanupKind : unsigned {
+  /// Denotes a cleanup that should run when a scope is exited using exceptional
+  /// control flow (a throw statement leading to stack unwinding, ).
   EHCleanup = 0x1,
+
+  /// Denotes a cleanup that should run when a scope is exited using normal
+  /// control flow (falling off the end of the scope, return, goto, ...).
   NormalCleanup = 0x2,
+
   NormalAndEHCleanup = EHCleanup | NormalCleanup,
 
   InactiveCleanup = 0x4,
@@ -182,7 +189,7 @@ public:
     virtual void Emit(CodeGenFunction &CGF, Flags flags) = 0;
   };
 
-  /// ConditionalCleanupN stores the saved form of its N parameters,
+  /// ConditionalCleanup stores the saved form of its parameters,
   /// then restores them and performs the cleanup.
   template <class T, class... As>
   class ConditionalCleanup final : public Cleanup {
@@ -196,54 +203,15 @@ public:
       return T{DominatingValue<As>::restore(CGF, std::get<Is>(Saved))...};
     }
 
-  public:
-    ConditionalCleanup2(A0_saved a0, A1_saved a1)
-      : a0_saved(a0), a1_saved(a1) {}
-  };
-
-  template <class T, class A0, class A1, class A2>
-  class ConditionalCleanup3 : public Cleanup {
-    typedef typename DominatingValue<A0>::saved_type A0_saved;
-    typedef typename DominatingValue<A1>::saved_type A1_saved;
-    typedef typename DominatingValue<A2>::saved_type A2_saved;
-    A0_saved a0_saved;
-    A1_saved a1_saved;
-    A2_saved a2_saved;
-
     void Emit(CodeGenFunction &CGF, Flags flags) override {
-      A0 a0 = DominatingValue<A0>::restore(CGF, a0_saved);
-      A1 a1 = DominatingValue<A1>::restore(CGF, a1_saved);
-      A2 a2 = DominatingValue<A2>::restore(CGF, a2_saved);
-      T(a0, a1, a2).Emit(CGF, flags);
+      restore(CGF, llvm::index_sequence_for<As...>()).Emit(CGF, flags);
     }
 
   public:
-    ConditionalCleanup3(A0_saved a0, A1_saved a1, A2_saved a2)
-      : a0_saved(a0), a1_saved(a1), a2_saved(a2) {}
-  };
+    ConditionalCleanup(typename DominatingValue<As>::saved_type... A)
+        : Saved(A...) {}
 
-  template <class T, class A0, class A1, class A2, class A3>
-  class ConditionalCleanup4 : public Cleanup {
-    typedef typename DominatingValue<A0>::saved_type A0_saved;
-    typedef typename DominatingValue<A1>::saved_type A1_saved;
-    typedef typename DominatingValue<A2>::saved_type A2_saved;
-    typedef typename DominatingValue<A3>::saved_type A3_saved;
-    A0_saved a0_saved;
-    A1_saved a1_saved;
-    A2_saved a2_saved;
-    A3_saved a3_saved;
-
-    void Emit(CodeGenFunction &CGF, Flags flags) override {
-      A0 a0 = DominatingValue<A0>::restore(CGF, a0_saved);
-      A1 a1 = DominatingValue<A1>::restore(CGF, a1_saved);
-      A2 a2 = DominatingValue<A2>::restore(CGF, a2_saved);
-      A3 a3 = DominatingValue<A3>::restore(CGF, a3_saved);
-      T(a0, a1, a2, a3).Emit(CGF, flags);
-    }
-
-  public:
-    ConditionalCleanup4(A0_saved a0, A1_saved a1, A2_saved a2, A3_saved a3)
-      : a0_saved(a0), a1_saved(a1), a2_saved(a2), a3_saved(a3) {}
+    ConditionalCleanup(SavedTuple Tuple) : Saved(std::move(Tuple)) {}
   };
 
 private:
@@ -297,8 +265,6 @@ public:
                    StartOfData(nullptr), InnermostNormalCleanup(stable_end()),
                    InnermostEHScope(stable_end()) {}
   ~EHScopeStack() { delete[] StartOfBuffer; }
-
-  // Variadic templates would make this not terrible.
 
   /// Push a lazily-created cleanup on the stack.
   template <class T, class... As> void pushCleanup(CleanupKind Kind, As... A) {
@@ -367,6 +333,10 @@ public:
 
   /// Pops a terminate handler off the stack.
   void popTerminate();
+
+  // Returns true iff the current scope is either empty or contains only
+  // lifetime markers, i.e. no real cleanup code
+  bool containsOnlyLifetimeMarkers(stable_iterator Old) const;
 
   /// Determines whether the exception-scopes stack is empty.
   bool empty() const { return StartOfData == EndOfBuffer; }

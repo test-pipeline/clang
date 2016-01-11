@@ -36,3 +36,5 @@ int g(void) {
 // CHECK-NO-BC2-LABEL: define i32 @f2
 
 #endif
+
+// CHECK-NO-FILE: fatal error: cannot open file 'no-such-file.bc'

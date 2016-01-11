@@ -49,6 +49,7 @@
 // CHECK3-NOT: unreferenced
 // CHECK3-LABEL: define void @_Z10gnu_inlinev()
 // CHECK3-LABEL: define available_externally void @_Z13gnu_ei_inlinev()
+// CHECK3-NOT: @_Z5testCv
 // CHECK3-LABEL: define linkonce_odr i32 @_Z2eiv()
 
 // RUN: echo "MS C Mode tests:"
@@ -61,6 +62,9 @@
 // CHECK4-LABEL: define void @gnu_inline()
 // CHECK4-LABEL: define linkonce_odr i32 @foo()
 // CHECK4-LABEL: define available_externally void @gnu_ei_inline()
+
+__attribute__((noreturn)) void __cdecl _exit(int _Code);
+__inline void __cdecl _Exit(int status) { _exit(status); }
 
 extern __inline int ei() { return 123; }
 

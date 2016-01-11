@@ -79,7 +79,7 @@ RuntimeLibrary.darwin.Configs := \
 	eprintf.a 10.4.a osx.a cc_kext.a \
 	asan_osx_dynamic.dylib \
 	profile_osx.a \
-	ubsan_osx.a
+	ubsan_osx_dynamic.dylib
 
 IOS_SDK := $(shell xcrun --show-sdk-path -sdk iphoneos 2> /dev/null)
 IOSSIM_SDK := $(shell xcrun --show-sdk-path -sdk iphonesimulator 2> /dev/null)
@@ -95,7 +95,8 @@ endif
 endif
 
 ifneq ($(IOSSIM_SDK),)
-RuntimeLibrary.darwin.Configs += asan_iossim_dynamic.dylib
+RuntimeLibrary.darwin.Configs += asan_iossim_dynamic.dylib \
+                                 ubsan_iossim_dynamic.dylib
 endif
 
 RuntimeLibrary.macho_embedded.Configs := \

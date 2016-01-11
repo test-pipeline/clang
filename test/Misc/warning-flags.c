@@ -61,7 +61,6 @@ CHECK-NEXT:   warn_drv_pch_not_first_include
 CHECK-NEXT:   warn_dup_category_def
 CHECK-NEXT:   warn_duplicate_protocol_def
 CHECK-NEXT:   warn_enum_value_overflow
-CHECK-NEXT:   warn_exception_caught_by_earlier_handler
 CHECK-NEXT:   warn_expected_qualified_after_typename
 CHECK-NEXT:   warn_extraneous_char_constant
 CHECK-NEXT:   warn_fe_cc_log_diagnostics_failure

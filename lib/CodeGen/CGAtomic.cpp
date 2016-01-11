@@ -73,6 +73,8 @@ namespace {
 
         LVal = lvalue;
       } else if (lvalue.isBitField()) {
+        ValueTy = lvalue.getType();
+        ValueSizeInBits = C.getTypeSize(ValueTy);
         auto &OrigBFI = lvalue.getBitFieldInfo();
         auto Offset = OrigBFI.Offset % C.toBits(lvalue.getAlignment());
         AtomicSizeInBits = C.toBits(
@@ -106,7 +108,11 @@ namespace {
         }
         AtomicAlign = ValueAlign = lvalue.getAlignment();
       } else if (lvalue.isVectorElt()) {
-        AtomicSizeInBits = C.getTypeSize(lvalue.getType());
+        ValueTy = lvalue.getType()->getAs<VectorType>()->getElementType();
+        ValueSizeInBits = C.getTypeSize(ValueTy);
+        AtomicTy = lvalue.getType();
+        AtomicSizeInBits = C.getTypeSize(AtomicTy);
+        AtomicAlign = ValueAlign = lvalue.getAlignment();
         LVal = lvalue;
       } else {
         assert(lvalue.isExtVectorElt());
@@ -183,8 +189,9 @@ namespace {
     /// \brief Converts a rvalue to integer value.
     llvm::Value *convertRValueToInt(RValue RVal) const;
 
-    RValue convertIntToValue(llvm::Value *IntVal, AggValueSlot ResultSlot,
-                             SourceLocation Loc) const;
+    RValue ConvertIntToValueOrAtomic(llvm::Value *IntVal,
+                                     AggValueSlot ResultSlot,
+                                     SourceLocation Loc, bool AsValue) const;
 
     /// Copy an atomic r-value into atomic-layout memory.
     void emitCopyIntoMemory(RValue rvalue) const;
@@ -199,6 +206,37 @@ namespace {
       return LValue::MakeAddr(addr, getValueType(), CGF.getContext(),
                               LVal.getAlignmentSource(), LVal.getTBAAInfo());
     }
+
+    /// \brief Emits atomic load.
+    /// \returns Loaded value.
+    RValue EmitAtomicLoad(AggValueSlot ResultSlot, SourceLocation Loc,
+                          bool AsValue, llvm::AtomicOrdering AO,
+                          bool IsVolatile);
+
+    /// \brief Emits atomic compare-and-exchange sequence.
+    /// \param Expected Expected value.
+    /// \param Desired Desired value.
+    /// \param Success Atomic ordering for success operation.
+    /// \param Failure Atomic ordering for failed operation.
+    /// \param IsWeak true if atomic operation is weak, false otherwise.
+    /// \returns Pair of values: previous value from storage (value type) and
+    /// boolean flag (i1 type) with true if success and false otherwise.
+    std::pair<RValue, llvm::Value *> EmitAtomicCompareExchange(
+        RValue Expected, RValue Desired,
+        llvm::AtomicOrdering Success = llvm::SequentiallyConsistent,
+        llvm::AtomicOrdering Failure = llvm::SequentiallyConsistent,
+        bool IsWeak = false);
+
+    /// \brief Emits atomic update.
+    /// \param AO Atomic ordering.
+    /// \param UpdateOp Update operation for the current lvalue.
+    void EmitAtomicUpdate(llvm::AtomicOrdering AO,
+                          const llvm::function_ref<RValue(RValue)> &UpdateOp,
+                          bool IsVolatile);
+    /// \brief Emits atomic update.
+    /// \param AO Atomic ordering.
+    void EmitAtomicUpdate(llvm::AtomicOrdering AO, RValue UpdateRVal,
+                          bool IsVolatile);
 
     /// Materialize an atomic r-value in atomic-layout memory.
     Address materializeRValue(RValue rvalue) const;
@@ -328,9 +366,10 @@ bool AtomicInfo::emitMemSetZeroIfNecessary() const {
   if (!requiresMemSetZero(addr->getType()->getPointerElementType()))
     return false;
 
-  CGF.Builder.CreateMemSet(addr, llvm::ConstantInt::get(CGF.Int8Ty, 0),
-                           AtomicSizeInBits / 8,
-                           LVal.getAlignment().getQuantity());
+  CGF.Builder.CreateMemSet(
+      addr, llvm::ConstantInt::get(CGF.Int8Ty, 0),
+      CGF.getContext().toCharUnitsFromBits(AtomicSizeInBits).getQuantity(),
+      LVal.getAlignment().getQuantity());
   return true;
 }
 
@@ -1166,10 +1205,10 @@ RValue AtomicInfo::convertAtomicTempToRValue(Address addr,
       LVal.getAlignmentSource()));
 }
 
-RValue AtomicInfo::convertIntToValue(llvm::Value *IntVal,
-                                     AggValueSlot ResultSlot,
-                                     SourceLocation Loc) const {
-  assert(LVal.isSimple());
+RValue AtomicInfo::ConvertIntToValueOrAtomic(llvm::Value *IntVal,
+                                             AggValueSlot ResultSlot,
+                                             SourceLocation Loc,
+                                             bool AsValue) const {
   // Try not to in some easy cases.
   assert(IntVal->getType()->isIntegerTy() && "Expected integer value");
   if (getEvaluationKind() == TEK_Scalar &&
@@ -1275,31 +1314,9 @@ RValue CodeGenFunction::EmitAtomicLoad(LValue LV, SourceLocation SL,
   return EmitAtomicLoad(LV, SL, AO, IsVolatile, Slot);
 }
 
-/// Emit a load from an l-value of atomic type.  Note that the r-value
-/// we produce is an r-value of the atomic *value* type.
-RValue CodeGenFunction::EmitAtomicLoad(LValue src, SourceLocation loc,
-                                       llvm::AtomicOrdering AO, bool IsVolatile,
-                                       AggValueSlot resultSlot) {
-  AtomicInfo atomics(*this, src);
-  LValue LVal = atomics.getAtomicLValue();
-  llvm::Value *SrcAddr = nullptr;
-  llvm::AllocaInst *NonSimpleTempAlloca = nullptr;
-  if (LVal.isSimple())
-    SrcAddr = LVal.getAddress();
-  else {
-    if (LVal.isBitField())
-      SrcAddr = LVal.getBitFieldAddr();
-    else if (LVal.isVectorElt())
-      SrcAddr = LVal.getVectorAddr();
-    else {
-      assert(LVal.isExtVectorElt());
-      SrcAddr = LVal.getExtVectorAddr();
-    }
-    NonSimpleTempAlloca = CreateTempAlloca(
-        SrcAddr->getType()->getPointerElementType(), "atomic-load-temp");
-    NonSimpleTempAlloca->setAlignment(getContext().toBits(src.getAlignment()));
-  }
-
+RValue AtomicInfo::EmitAtomicLoad(AggValueSlot ResultSlot, SourceLocation Loc,
+                                  bool AsValue, llvm::AtomicOrdering AO,
+                                  bool IsVolatile) {
   // Check whether we should use a library call.
   if (shouldUseLibcall()) {
     Address TempAddr = Address::invalid();
@@ -1317,31 +1334,26 @@ RValue CodeGenFunction::EmitAtomicLoad(LValue src, SourceLocation loc,
   }
 
   // Okay, we're doing this natively.
-  llvm::Value *addr = atomics.emitCastToAtomicIntPointer(SrcAddr);
-  llvm::LoadInst *load = Builder.CreateLoad(addr, "atomic-load");
-  load->setAtomic(AO);
-
-  // Other decoration.
-  load->setAlignment(src.getAlignment().getQuantity());
-  if (IsVolatile)
-    load->setVolatile(true);
-  if (src.getTBAAInfo())
-    CGM.DecorateInstruction(load, src.getTBAAInfo());
+  auto *Load = EmitAtomicLoadOp(AO, IsVolatile);
 
   // If we're ignoring an aggregate return, don't do anything.
   if (getEvaluationKind() == TEK_Aggregate && ResultSlot.isIgnored())
     return RValue::getAggregate(Address::invalid(), false);
 
-  // Okay, turn that back into the original value type.
-  if (src.isSimple())
-    return atomics.convertIntToValue(load, resultSlot, loc);
-
-  auto *IntAddr = atomics.emitCastToAtomicIntPointer(NonSimpleTempAlloca);
-  Builder.CreateAlignedStore(load, IntAddr, src.getAlignment().getQuantity());
-  return atomics.convertTempToRValue(NonSimpleTempAlloca, resultSlot, loc);
+  // Okay, turn that back into the original value or atomic (for non-simple
+  // lvalues) type.
+  return ConvertIntToValueOrAtomic(Load, ResultSlot, Loc, AsValue);
 }
 
-
+/// Emit a load from an l-value of atomic type.  Note that the r-value
+/// we produce is an r-value of the atomic *value* type.
+RValue CodeGenFunction::EmitAtomicLoad(LValue src, SourceLocation loc,
+                                       llvm::AtomicOrdering AO, bool IsVolatile,
+                                       AggValueSlot resultSlot) {
+  AtomicInfo Atomics(*this, src);
+  return Atomics.EmitAtomicLoad(resultSlot, loc, /*AsValue=*/true, AO,
+                                IsVolatile);
+}
 
 /// Copy an r-value into memory as part of storing to an atomic type.
 /// This needs to create a bit-pattern suitable for atomic operations.
@@ -1388,19 +1400,20 @@ Address AtomicInfo::materializeRValue(RValue rvalue) const {
   LValue TempLV = CGF.MakeAddrLValue(CreateTempAlloca(), getAtomicType());
   AtomicInfo Atomics(CGF, TempLV);
   Atomics.emitCopyIntoMemory(rvalue);
-  return temp;
+  return TempLV.getAddress();
 }
 
 llvm::Value *AtomicInfo::convertRValueToInt(RValue RVal) const {
   // If we've got a scalar value of the right size, try to avoid going
   // through memory.
-  if (RVal.isScalar() && !hasPadding()) {
+  if (RVal.isScalar() && (!hasPadding() || !LVal.isSimple())) {
     llvm::Value *Value = RVal.getScalarVal();
     if (isa<llvm::IntegerType>(Value->getType()))
-      return Value;
+      return CGF.EmitToMemory(Value, ValueTy);
     else {
-      llvm::IntegerType *InputIntTy =
-          llvm::IntegerType::get(CGF.getLLVMContext(), getValueSizeInBits());
+      llvm::IntegerType *InputIntTy = llvm::IntegerType::get(
+          CGF.getLLVMContext(),
+          LVal.isSimple() ? getValueSizeInBits() : getAtomicSizeInBits());
       if (isa<llvm::PointerType>(Value->getType()))
         return CGF.Builder.CreatePtrToInt(Value, InputIntTy);
       else if (llvm::BitCastInst::isBitCastable(Value->getType(), InputIntTy))
@@ -1737,6 +1750,7 @@ void CodeGenFunction::EmitAtomicStore(RValue rvalue, LValue dest,
            == dest.getAddress().getElementType());
 
   AtomicInfo atomics(*this, dest);
+  LValue LVal = atomics.getAtomicLValue();
 
   // If this is an initialization, just put the value there normally.
   if (LVal.isSimple()) {
@@ -1787,27 +1801,13 @@ void CodeGenFunction::EmitAtomicStore(RValue rvalue, LValue dest,
     return;
   }
 
-  // Okay, we're doing this natively.
-  llvm::Value *intValue = atomics.convertRValueToInt(rvalue);
-
-  // Do the atomic store.
-  llvm::Value *addr = atomics.emitCastToAtomicIntPointer(dest.getAddress());
-  llvm::StoreInst *store = Builder.CreateStore(intValue, addr);
-
-  // Initializations don't need to be atomic.
-  if (!isInit) store->setAtomic(AO);
-
-  // Other decoration.
-  store->setAlignment(dest.getAlignment().getQuantity());
-  if (IsVolatile)
-    store->setVolatile(true);
-  if (dest.getTBAAInfo())
-    CGM.DecorateInstruction(store, dest.getTBAAInfo());
+  // Emit simple atomic update operation.
+  atomics.EmitAtomicUpdate(AO, rvalue, IsVolatile);
 }
 
 /// Emit a compare-and-exchange op for atomic type.
 ///
-std::pair<RValue, RValue> CodeGenFunction::EmitAtomicCompareExchange(
+std::pair<RValue, llvm::Value *> CodeGenFunction::EmitAtomicCompareExchange(
     LValue Obj, RValue Expected, RValue Desired, SourceLocation Loc,
     llvm::AtomicOrdering Success, llvm::AtomicOrdering Failure, bool IsWeak,
     AggValueSlot Slot) {
@@ -1821,56 +1821,15 @@ std::pair<RValue, RValue> CodeGenFunction::EmitAtomicCompareExchange(
              Obj.getAddress().getElementType());
   AtomicInfo Atomics(*this, Obj);
 
-  if (Failure >= Success)
-    // Don't assert on undefined behavior.
-    Failure = llvm::AtomicCmpXchgInst::getStrongestFailureOrdering(Success);
+  return Atomics.EmitAtomicCompareExchange(Expected, Desired, Success, Failure,
+                                           IsWeak);
+}
 
-  auto Alignment = Atomics.getValueAlignment();
-  // Check whether we should use a library call.
-  if (Atomics.shouldUseLibcall()) {
-    auto *ExpectedAddr = Atomics.materializeRValue(Expected);
-    // Produce a source address.
-    auto *DesiredAddr = Atomics.materializeRValue(Desired);
-    // bool __atomic_compare_exchange(size_t size, void *obj, void *expected,
-    // void *desired, int success, int failure);
-    CallArgList Args;
-    Args.add(RValue::get(Atomics.getAtomicSizeValue()),
-             getContext().getSizeType());
-    Args.add(RValue::get(EmitCastToVoidPtr(Obj.getAddress())),
-             getContext().VoidPtrTy);
-    Args.add(RValue::get(EmitCastToVoidPtr(ExpectedAddr)),
-             getContext().VoidPtrTy);
-    Args.add(RValue::get(EmitCastToVoidPtr(DesiredAddr)),
-             getContext().VoidPtrTy);
-    Args.add(RValue::get(llvm::ConstantInt::get(IntTy, Success)),
-             getContext().IntTy);
-    Args.add(RValue::get(llvm::ConstantInt::get(IntTy, Failure)),
-             getContext().IntTy);
-    auto SuccessFailureRVal = emitAtomicLibcall(
-        *this, "__atomic_compare_exchange", getContext().BoolTy, Args);
-    auto *PreviousVal =
-        Builder.CreateAlignedLoad(ExpectedAddr, Alignment.getQuantity());
-    return std::make_pair(RValue::get(PreviousVal), SuccessFailureRVal);
-  }
-
-  // If we've got a scalar value of the right size, try to avoid going
-  // through memory.
-  auto *ExpectedIntVal = Atomics.convertRValueToInt(Expected);
-  auto *DesiredIntVal = Atomics.convertRValueToInt(Desired);
-
-  // Do the atomic store.
-  auto *Addr = Atomics.emitCastToAtomicIntPointer(Obj.getAddress());
-  auto *Inst = Builder.CreateAtomicCmpXchg(Addr, ExpectedIntVal, DesiredIntVal,
-                                          Success, Failure);
-  // Other decoration.
-  Inst->setVolatile(Obj.isVolatileQualified());
-  Inst->setWeak(IsWeak);
-
-  // Okay, turn that back into the original value type.
-  auto *PreviousVal = Builder.CreateExtractValue(Inst, /*Idxs=*/0);
-  auto *SuccessFailureVal = Builder.CreateExtractValue(Inst, /*Idxs=*/1);
-  return std::make_pair(Atomics.convertIntToValue(PreviousVal, Slot, Loc),
-                        RValue::get(SuccessFailureVal));
+void CodeGenFunction::EmitAtomicUpdate(
+    LValue LVal, llvm::AtomicOrdering AO,
+    const llvm::function_ref<RValue(RValue)> &UpdateOp, bool IsVolatile) {
+  AtomicInfo Atomics(*this, LVal);
+  Atomics.EmitAtomicUpdate(AO, UpdateOp, IsVolatile);
 }
 
 void CodeGenFunction::EmitAtomicInit(Expr *init, LValue dest) {

@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_LIB_CODEGEN_CGOPENMPRUNTIME_H
 #define LLVM_CLANG_LIB_CODEGEN_CGOPENMPRUNTIME_H
 
+#include "clang/AST/Type.h"
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/SourceLocation.h"
 #include "llvm/ADT/DenseMap.h"
@@ -43,9 +44,9 @@ class Address;
 class CodeGenFunction;
 class CodeGenModule;
 
-class CGOpenMPRuntime {
-public:
+typedef llvm::function_ref<void(CodeGenFunction &)> RegionCodeGenTy;
 
+class CGOpenMPRuntime {
 private:
   enum OpenMPRTLFunction {
     /// \brief Call to void __kmpc_fork_call(ident_t *loc, kmp_int32 argc,
@@ -71,11 +72,9 @@ private:
     // Call to kmp_int32 __kmpc_cancel_barrier(ident_t *loc, kmp_int32
     // global_tid);
     OMPRTL__kmpc_cancel_barrier,
-    // Calls for static scheduling 'omp for' loops.
-    OMPRTL__kmpc_for_static_init_4,
-    OMPRTL__kmpc_for_static_init_4u,
-    OMPRTL__kmpc_for_static_init_8,
-    OMPRTL__kmpc_for_static_init_8u,
+    // Call to void __kmpc_barrier(ident_t *loc, kmp_int32 global_tid);
+    OMPRTL__kmpc_barrier,
+    // Call to void __kmpc_for_static_fini(ident_t *loc, kmp_int32 global_tid);
     OMPRTL__kmpc_for_static_fini,
     // Call to void __kmpc_serialized_parallel(ident_t *loc, kmp_int32
     // global_tid);
@@ -86,7 +85,7 @@ private:
     // Call to void __kmpc_push_num_threads(ident_t *loc, kmp_int32 global_tid,
     // kmp_int32 num_threads);
     OMPRTL__kmpc_push_num_threads,
-    // Call to void __kmpc_flush(ident_t *loc, ...);
+    // Call to void __kmpc_flush(ident_t *loc);
     OMPRTL__kmpc_flush,
     // Call to kmp_int32 __kmpc_master(ident_t *, kmp_int32 global_tid);
     OMPRTL__kmpc_master,
@@ -476,9 +475,8 @@ private:
   /// \brief Emits object of ident_t type with info for source location.
   /// \param Flags Flags for OpenMP location.
   ///
-  llvm::Value *
-  EmitOpenMPUpdateLocation(CodeGenFunction &CGF, SourceLocation Loc,
-                           OpenMPLocationFlags Flags = OMP_IDENT_KMPC);
+  llvm::Value *emitUpdateLocation(CodeGenFunction &CGF, SourceLocation Loc,
+                                  OpenMPLocationFlags Flags = OMP_IDENT_KMPC);
 
   /// \brief Returns pointer to ident_t type.
   llvm::Type *getIdentTyPointerTy();
@@ -489,7 +487,23 @@ private:
   /// \brief Returns specified OpenMP runtime function.
   /// \param Function OpenMP runtime function.
   /// \return Specified function.
-  llvm::Constant *CreateRuntimeFunction(OpenMPRTLFunction Function);
+  llvm::Constant *createRuntimeFunction(OpenMPRTLFunction Function);
+
+  /// \brief Returns __kmpc_for_static_init_* runtime function for the specified
+  /// size \a IVSize and sign \a IVSigned.
+  llvm::Constant *createForStaticInitFunction(unsigned IVSize, bool IVSigned);
+
+  /// \brief Returns __kmpc_dispatch_init_* runtime function for the specified
+  /// size \a IVSize and sign \a IVSigned.
+  llvm::Constant *createDispatchInitFunction(unsigned IVSize, bool IVSigned);
+
+  /// \brief Returns __kmpc_dispatch_next_* runtime function for the specified
+  /// size \a IVSize and sign \a IVSigned.
+  llvm::Constant *createDispatchNextFunction(unsigned IVSize, bool IVSigned);
+
+  /// \brief Returns __kmpc_dispatch_fini_* runtime function for the specified
+  /// size \a IVSize and sign \a IVSigned.
+  llvm::Constant *createDispatchFiniFunction(unsigned IVSize, bool IVSigned);
 
   /// \brief If the specified mangled name is not in the module, create and
   /// return threadprivate cache object. This object is a pointer's worth of
@@ -504,7 +518,7 @@ private:
 
   /// \brief Gets thread id value for the current thread.
   ///
-  llvm::Value *GetOpenMPThreadID(CodeGenFunction &CGF, SourceLocation Loc);
+  llvm::Value *getThreadID(CodeGenFunction &CGF, SourceLocation Loc);
 
   /// \brief Gets (if variable with the given name already exist) or creates
   /// internal global variable with the specified Name. The created variable has
@@ -512,7 +526,7 @@ private:
   /// \param Ty Type of the global variable. If it is exist already the type
   /// must be the same.
   /// \param Name Name of the variable.
-  llvm::Constant *GetOrCreateInternalVariable(llvm::Type *Ty,
+  llvm::Constant *getOrCreateInternalVariable(llvm::Type *Ty,
                                               const llvm::Twine &Name);
 
   /// \brief Set of threadprivate variables with the generated initializer.
@@ -533,33 +547,51 @@ private:
   /// reference to the existing copy is returned.
   /// \param CriticalName Name of the critical region.
   ///
-  llvm::Value *GetCriticalRegionLock(StringRef CriticalName);
+  llvm::Value *getCriticalRegionLock(StringRef CriticalName);
 
 public:
   explicit CGOpenMPRuntime(CodeGenModule &CGM);
   virtual ~CGOpenMPRuntime() {}
+  virtual void clear();
 
-  /// \brief Emits outlined function for the specified OpenMP directive \a D
-  /// (required for parallel and task directives). This outlined function has
-  /// type void(*)(kmp_int32 /*ThreadID*/, kmp_int32 /*BoundID*/, struct
-  /// context_vars*).
+  /// \brief Emits outlined function for the specified OpenMP parallel directive
+  /// \a D. This outlined function has type void(*)(kmp_int32 *ThreadID,
+  /// kmp_int32 BoundID, struct context_vars*).
   /// \param D OpenMP directive.
   /// \param ThreadIDVar Variable for thread id in the current OpenMP region.
+  /// \param InnermostKind Kind of innermost directive (for simple directives it
+  /// is a directive itself, for combined - its innermost directive).
+  /// \param CodeGen Code generation sequence for the \a D directive.
+  virtual llvm::Value *emitParallelOutlinedFunction(
+      const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
+      OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen);
+
+  /// \brief Emits outlined function for the OpenMP task directive \a D. This
+  /// outlined function has type void(*)(kmp_int32 ThreadID, kmp_int32
+  /// PartID, struct context_vars*).
+  /// \param D OpenMP directive.
+  /// \param ThreadIDVar Variable for thread id in the current OpenMP region.
+  /// \param InnermostKind Kind of innermost directive (for simple directives it
+  /// is a directive itself, for combined - its innermost directive).
+  /// \param CodeGen Code generation sequence for the \a D directive.
   ///
-  virtual llvm::Value *
-  EmitOpenMPOutlinedFunction(const OMPExecutableDirective &D,
-                             const VarDecl *ThreadIDVar);
+  virtual llvm::Value *emitTaskOutlinedFunction(
+      const OMPExecutableDirective &D, const VarDecl *ThreadIDVar,
+      OpenMPDirectiveKind InnermostKind, const RegionCodeGenTy &CodeGen);
 
   /// \brief Cleans up references to the objects in finished function.
   ///
-  void FunctionFinished(CodeGenFunction &CGF);
+  void functionFinished(CodeGenFunction &CGF);
 
-  /// \brief Emits code for parallel call of the \a OutlinedFn with variables
-  /// captured in a record which address is stored in \a CapturedStruct.
+  /// \brief Emits code for parallel or serial call of the \a OutlinedFn with
+  /// variables captured in a record which address is stored in \a
+  /// CapturedStruct.
   /// \param OutlinedFn Outlined function to be run in parallel threads. Type of
   /// this function is void(*)(kmp_int32 *, kmp_int32, struct context_vars*).
   /// \param CapturedVars A pointer to the record with the references to
   /// variables used in \a OutlinedFn function.
+  /// \param IfCond Condition in the associated 'if' clause, if it was
+  /// specified, nullptr otherwise.
   ///
   virtual void emitParallelCall(CodeGenFunction &CGF, SourceLocation Loc,
                                 llvm::Value *OutlinedFn,
@@ -579,12 +611,19 @@ public:
   /// \brief Emits a master region.
   /// \param MasterOpGen Generator for the statement associated with the given
   /// master region.
-  virtual void EmitOMPMasterRegion(CodeGenFunction &CGF,
-                                   const std::function<void()> &MasterOpGen,
-                                   SourceLocation Loc);
+  virtual void emitMasterRegion(CodeGenFunction &CGF,
+                                const RegionCodeGenTy &MasterOpGen,
+                                SourceLocation Loc);
 
   /// \brief Emits code for a taskyield directive.
-  virtual void EmitOMPTaskyieldCall(CodeGenFunction &CGF, SourceLocation Loc);
+  virtual void emitTaskyieldCall(CodeGenFunction &CGF, SourceLocation Loc);
+
+  /// \brief Emit a taskgroup region.
+  /// \param TaskgroupOpGen Generator for the statement associated with the
+  /// given taskgroup region.
+  virtual void emitTaskgroupRegion(CodeGenFunction &CGF,
+                                   const RegionCodeGenTy &TaskgroupOpGen,
+                                   SourceLocation Loc);
 
   /// \brief Emits a single region.
   /// \param SingleOpGen Generator for the statement associated with the given
@@ -649,6 +688,7 @@ public:
   /// \param SchedKind Schedule kind, specified by the 'schedule' clause.
   /// \param IVSize Size of the iteration variable in bits.
   /// \param IVSigned Sign of the interation variable.
+  /// \param Ordered true if loop is ordered, false otherwise.
   /// \param IL Address of the output variable in which the flag of the
   /// last iteration is returned.
   /// \param LB Address of the output variable in which the lower iteration
@@ -684,7 +724,6 @@ public:
   ///
   /// \param CGF Reference to current CodeGenFunction.
   /// \param Loc Clang source location.
-  /// \param ScheduleKind Schedule kind, specified by the 'schedule' clause.
   ///
   virtual void emitForStaticFinish(CodeGenFunction &CGF, SourceLocation Loc);
 
@@ -711,9 +750,15 @@ public:
   /// global_tid, kmp_int32 num_threads) to generate code for 'num_threads'
   /// clause.
   /// \param NumThreads An integer value of threads.
-  virtual void EmitOMPNumThreadsClause(CodeGenFunction &CGF,
-                                       llvm::Value *NumThreads,
-                                       SourceLocation Loc);
+  virtual void emitNumThreadsClause(CodeGenFunction &CGF,
+                                    llvm::Value *NumThreads,
+                                    SourceLocation Loc);
+
+  /// \brief Emit call to void __kmpc_push_proc_bind(ident_t *loc, kmp_int32
+  /// global_tid, int proc_bind) to generate code for 'proc_bind' clause.
+  virtual void emitProcBindClause(CodeGenFunction &CGF,
+                                  OpenMPProcBindClauseKind ProcBind,
+                                  SourceLocation Loc);
 
   /// \brief Returns address of the threadprivate variable for the current
   /// thread.
@@ -928,6 +973,7 @@ public:
   /// it.
   virtual llvm::Function *emitRegistrationFunction();
 };
+
 } // namespace CodeGen
 } // namespace clang
 

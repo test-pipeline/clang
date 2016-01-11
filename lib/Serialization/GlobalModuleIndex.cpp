@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "ASTReaderInternals.h"
+#include "clang/Frontend/PCHContainerOperations.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Serialization/ASTBitCodes.h"
@@ -843,12 +844,12 @@ GlobalModuleIndex::writeIndex(FileManager &FileMgr,
     return EC_IOError;
 
   // Remove the old index file. It isn't relevant any more.
-  llvm::sys::fs::remove(IndexPath.str());
+  llvm::sys::fs::remove(IndexPath);
 
   // Rename the newly-written index file to the proper name.
-  if (llvm::sys::fs::rename(IndexTmpPath.str(), IndexPath.str())) {
+  if (llvm::sys::fs::rename(IndexTmpPath, IndexPath)) {
     // Rename failed; just remove the 
-    llvm::sys::fs::remove(IndexTmpPath.str());
+    llvm::sys::fs::remove(IndexTmpPath);
     return EC_IOError;
   }
 

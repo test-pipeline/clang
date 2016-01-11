@@ -2,14 +2,20 @@
 // Test (r)value and CVR qualifiers on C++11 non-static member functions.
 class A {
 public:
-  // CHECK: !"0x2e\00l\00{{.*}}\00[[@LINE+2]]"{{, [^,]+, [^,]+}}, ![[PLSR:[0-9]+]], {{.*}}[ DW_TAG_subprogram ] [line [[@LINE+2]]] [public] [reference] [l]
-  // CHECK: ![[PLSR]] ={{.*}}[ DW_TAG_subroutine_type ]{{.*}}[reference]
+  // CHECK: !DISubprogram(name: "l",
+  // CHECK-SAME:          line: [[@LINE+4]]
+  // CHECK-SAME:          type: ![[PLSR:[0-9]+]]
+  // CHECK-SAME:          flags: DIFlagPublic | DIFlagPrototyped | DIFlagLValueReference,
+  // CHECK: ![[PLSR]] = !DISubroutineType(flags: DIFlagLValueReference, types: ![[ARGS:[0-9]+]])
   void l() const &;
-  // CHECK: ![[ARGS:[0-9]+]] = !{null, ![[THIS:[0-9]+]]}
-  // CHECK: ![[THIS]] = {{.*}} ![[CONST_A:.*]]} ; [ DW_TAG_pointer_type ]
-  // CHECK: ![[CONST_A]] = {{.*}} [ DW_TAG_const_type ]
-  // CHECK: !"0x2e\00r\00{{.*}}\00[[@LINE+2]]"{{, [^,]+, [^,]+}}, ![[PRSR:[0-9]+]], {{.*}}[ DW_TAG_subprogram ] [line [[@LINE+2]]] [public] [rvalue reference] [r]
-  // CHECK: ![[PRSR]] ={{.*}}![[ARGS]], null, null, null}{{.*}}[ DW_TAG_subroutine_type ]{{.*}}[rvalue reference]
+  // CHECK: ![[ARGS]] = !{null, ![[THIS:[0-9]+]]}
+  // CHECK: ![[THIS]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: ![[CONST_A:[0-9]+]]
+  // CHECK: ![[CONST_A]] = !DIDerivedType(tag: DW_TAG_const_type
+  // CHECK: !DISubprogram(name: "r"
+  // CHECK-SAME:          line: [[@LINE+4]]
+  // CHECK-SAME:          type: ![[PRSR:[0-9]+]]
+  // CHECK-SAME:          flags: DIFlagPublic | DIFlagPrototyped | DIFlagRValueReference,
+  // CHECK: ![[PRSR]] = !DISubroutineType(flags: DIFlagRValueReference, types: ![[ARGS]])
   void r() const &&;
 };
 

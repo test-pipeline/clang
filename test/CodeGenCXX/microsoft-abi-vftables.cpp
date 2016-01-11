@@ -1,9 +1,8 @@
-// RUN: %clang_cc1 %s -fno-rtti -triple=i386-pc-win32 -emit-llvm -o - -O1 -disable-llvm-optzns | FileCheck %s -check-prefix=NO-RTTI
-// RUN: %clang_cc1 %s -triple=i386-pc-win32 -emit-llvm -o - -O1 -disable-llvm-optzns | FileCheck %s -check-prefix=RTTI
+// RUN: %clang_cc1 %s -fno-rtti -triple=i386-pc-win32 -fms-extensions -emit-llvm -o - -O1 -disable-llvm-optzns | FileCheck %s -check-prefix=NO-RTTI
+// RUN: %clang_cc1 %s -triple=i386-pc-win32 -fms-extensions -emit-llvm -o - -O1 -disable-llvm-optzns | FileCheck %s -check-prefix=RTTI
 
 // RTTI-DAG: $"\01??_7S@@6B@" = comdat largest
 // RTTI-DAG: $"\01??_7V@@6B@" = comdat largest
-// RTTI-DAG: $"\01??_7W@?A@@6B@" = comdat largest
 
 struct S {
   virtual ~S();
@@ -40,3 +39,14 @@ struct W {
 // RTTI-DAG: @"\01??_7W@?A@@6B@" = internal unnamed_addr alias i8*, getelementptr inbounds ([2 x i8*], [2 x i8*]* [[VTABLE_W]], i32 0, i32 1)
 
 // NO-RTTI-DAG: @"\01??_7W@?A@@6B@" = internal unnamed_addr constant [1 x i8*] [i8* bitcast ({{.*}} @"\01??_GW@?A@@UAEPAXI@Z" to i8*)]
+
+struct X {};
+template <class> struct Y : virtual X {
+  Y() {}
+  virtual ~Y();
+};
+
+extern template class Y<int>;
+template Y<int>::Y();
+// RTTI-DAG: @"\01??_7?$Y@H@@6B@" = external unnamed_addr constant [1 x i8*]
+// NO-RTTI-DAG: @"\01??_7?$Y@H@@6B@" = external unnamed_addr constant [1 x i8*]

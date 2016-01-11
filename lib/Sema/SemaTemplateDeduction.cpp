@@ -576,6 +576,7 @@ struct clang::DeducedPack {
   DeducedPack *Outer;
 };
 
+namespace {
 /// A scope in which we're performing pack deduction.
 class PackDeductionScope {
 public:
@@ -730,6 +731,7 @@ private:
 
   SmallVector<DeducedPack, 2> Packs;
 };
+} // namespace
 
 /// \brief Deduce the template arguments by comparing the list of parameter
 /// types to the list of argument types, as in the parameter-type-lists of
@@ -3291,19 +3293,13 @@ DeduceTemplateArgumentByListElement(Sema &S,
   // Handle the case where an init list contains another init list as the
   // element.
   if (InitListExpr *ILE = dyn_cast<InitListExpr>(Arg)) {
-    QualType X;
-    if (!S.isStdInitializerList(ParamType.getNonReferenceType(), &X))
+    Sema::TemplateDeductionResult Result;
+    if (!DeduceFromInitializerList(S, TemplateParams,
+                                   ParamType.getNonReferenceType(), ILE, Info,
+                                   Deduced, TDF, Result))
       return Sema::TDK_Success; // Just ignore this expression.
 
-    // Recurse down into the init list.
-    for (unsigned i = 0, e = ILE->getNumInits(); i < e; ++i) {
-      if (Sema::TemplateDeductionResult Result =
-            DeduceTemplateArgumentByListElement(S, TemplateParams, X,
-                                                 ILE->getInit(i),
-                                                 Info, Deduced, TDF))
-        return Result;
-    }
-    return Sema::TDK_Success;
+    return Result;
   }
 
   // For all other cases, just match by type.
@@ -3422,22 +3418,14 @@ Sema::TemplateDeductionResult Sema::DeduceTemplateArguments(
 
       // If the argument is an initializer list ...
       if (InitListExpr *ILE = dyn_cast<InitListExpr>(Arg)) {
-        // ... then the parameter is an undeduced context, unless the parameter
-        // type is (reference to cv) std::initializer_list<P'>, in which case
-        // deduction is done for each element of the initializer list, and the
-        // result is the deduced type if it's the same for all elements.
-        QualType X;
+        TemplateDeductionResult Result;
         // Removing references was already done.
-        if (!isStdInitializerList(ParamType, &X))
+        if (!DeduceFromInitializerList(*this, TemplateParams, ParamType, ILE,
+                                       Info, Deduced, TDF, Result))
           continue;
 
-        for (unsigned i = 0, e = ILE->getNumInits(); i < e; ++i) {
-          if (TemplateDeductionResult Result =
-                DeduceTemplateArgumentByListElement(*this, TemplateParams, X,
-                                                     ILE->getInit(i),
-                                                     Info, Deduced, TDF))
-            return Result;
-        }
+        if (Result)
+          return Result;
         // Don't track the argument type, since an initializer list has none.
         continue;
       }
@@ -3493,19 +3481,15 @@ Sema::TemplateDeductionResult Sema::DeduceTemplateArguments(
 
       // As above, initializer lists need special handling.
       if (InitListExpr *ILE = dyn_cast<InitListExpr>(Arg)) {
-        QualType X;
-        if (!isStdInitializerList(ParamType, &X)) {
+        TemplateDeductionResult Result;
+        if (!DeduceFromInitializerList(*this, TemplateParams, ParamType, ILE,
+                                       Info, Deduced, TDF, Result)) {
           ++ArgIdx;
           break;
         }
 
-        for (unsigned i = 0, e = ILE->getNumInits(); i < e; ++i) {
-          if (TemplateDeductionResult Result =
-                DeduceTemplateArgumentsByTypeMatch(*this, TemplateParams, X,
-                                                   ILE->getInit(i)->getType(),
-                                                   Info, Deduced, TDF))
-            return Result;
-        }
+        if (Result)
+          return Result;
       } else {
 
         // Keep track of the argument type and corresponding argument index,
@@ -3743,8 +3727,10 @@ SpecializeCorrespondingLambdaCallOperatorAndInvoker(
   FunctionTemplateDecl *InvokerTemplate = LambdaClass->
                   getLambdaStaticInvoker()->getDescribedFunctionTemplate();
 
-  Sema::TemplateDeductionResult LLVM_ATTRIBUTE_UNUSED Result
-    = S.FinishTemplateArgumentDeduction(InvokerTemplate, DeducedArguments, 0, 
+#ifndef NDEBUG
+  Sema::TemplateDeductionResult LLVM_ATTRIBUTE_UNUSED Result =
+#endif
+    S.FinishTemplateArgumentDeduction(InvokerTemplate, DeducedArguments, 0, 
           InvokerSpecialized, TDInfo);
   assert(Result == Sema::TDK_Success && 
     "If the call operator succeeded so should the invoker!");
@@ -4037,6 +4023,8 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *&Init, QualType &Result) {
       }
 
       QualType Deduced = BuildDecltypeType(Init, Init->getLocStart(), false);
+      if (Deduced.isNull())
+        return DAR_FailedAlreadyDiagnosed;
       // FIXME: Support a non-canonical deduced type for 'auto'.
       Deduced = Context.getCanonicalType(Deduced);
       Result = SubstituteAutoTransform(*this, Deduced).Apply(Type);

@@ -29,6 +29,7 @@ module Clang_Basic {
   textual header "Basic/BuiltinsARM.def"
   textual header "Basic/Builtins.def"
   textual header "Basic/BuiltinsHexagon.def"
+  textual header "Basic/BuiltinsLe64.def"
   textual header "Basic/BuiltinsMips.def"
   textual header "Basic/BuiltinsNEON.def"
   textual header "Basic/BuiltinsNVPTX.def"
@@ -37,7 +38,6 @@ module Clang_Basic {
   textual header "Basic/BuiltinsWebAssembly.def"
   textual header "Basic/BuiltinsX86.def"
   textual header "Basic/BuiltinsXCore.def"
-  textual header "Basic/BuiltinsLe64.def"
   textual header "Basic/DiagnosticOptions.def"
   textual header "Basic/LangOptions.def"
   textual header "Basic/OpenCLExtensions.def"
@@ -103,13 +103,32 @@ module Clang_Rewrite { requires cplusplus umbrella "Rewrite" module * { export *
 module Clang_Sema { requires cplusplus umbrella "Sema" module * { export * } }
 module Clang_Serialization { requires cplusplus umbrella "Serialization" module * { export * } }
 
-module Clang_StaticAnalyzer {
+module Clang_StaticAnalyzer_Core {
   requires cplusplus
-  umbrella "StaticAnalyzer"
+  umbrella "StaticAnalyzer/Core"
 
   textual header "StaticAnalyzer/Core/Analyses.def"
 
   module * { export * }
 }
 
-module Clang_Tooling { requires cplusplus umbrella "Tooling" module * { export * } }
+module Clang_StaticAnalyzer_Checkers {
+  requires cplusplus
+  umbrella "StaticAnalyzer/Checkers"
+  module * { export * }
+}
+
+module Clang_StaticAnalyzer_Frontend {
+  requires cplusplus
+  umbrella "StaticAnalyzer/Frontend"
+  module * { export * }
+}
+
+module Clang_Tooling {
+  requires cplusplus umbrella "Tooling" module * { export * }
+  // FIXME: Exclude this header to avoid pulling all of the AST matchers
+  // library into clang-format. Due to inline key functions in the headers,
+  // importing the AST matchers library gives a link dependency on the AST
+  // matchers (and thus the AST), which clang-format should not have.
+  exclude header "Tooling/RefactoringCallbacks.h"
+}

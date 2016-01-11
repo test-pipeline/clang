@@ -13,7 +13,7 @@ void test(X x) {
   // CHECK-LABEL: define void @"\01?test@@YAXUX@@@Z"
 
   // X86: %[[argmem:[^ ]*]] = alloca inalloca <{ %struct.X }>
-  // X86: call void (<{ %struct.X }>*, ...)* bitcast (void (...)* @"\01?vararg@@YAXZZ" to void (<{ %struct.X }>*, ...)*)(<{ %struct.X }>* inalloca %[[argmem]])
+  // X86: call void (<{ %struct.X }>*, ...) bitcast (void (...)* @"\01?vararg@@YAXZZ" to void (<{ %struct.X }>*, ...)*)(<{ %struct.X }>* inalloca %[[argmem]])
 
   // X64: alloca %struct.X
 

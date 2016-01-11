@@ -140,8 +140,8 @@ static RValue PerformReturnAdjustment(CodeGenFunction &CGF,
 //           no-op thunk for the regular definition) call va_start/va_end.
 //           There's a bit of per-call overhead for this solution, but it's
 //           better for codesize if the definition is long.
-void CodeGenFunction::GenerateVarArgsThunk(
-                                      llvm::Function *Fn,
+llvm::Function *
+CodeGenFunction::GenerateVarArgsThunk(llvm::Function *Fn,
                                       const CGFunctionInfo &FnInfo,
                                       GlobalDecl GD, const ThunkInfo &Thunk) {
   const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
@@ -203,6 +203,8 @@ void CodeGenFunction::GenerateVarArgsThunk(
       }
     }
   }
+
+  return Fn;
 }
 
 void CodeGenFunction::StartThunk(llvm::Function *Fn, GlobalDecl GD,
@@ -394,7 +396,7 @@ void CodeGenFunction::EmitMustTailThunk(const CXXMethodDecl *MD,
   FinishFunction();
 }
 
-void CodeGenFunction::GenerateThunk(llvm::Function *Fn,
+void CodeGenFunction::generateThunk(llvm::Function *Fn,
                                     const CGFunctionInfo &FnInfo,
                                     GlobalDecl GD, const ThunkInfo &Thunk) {
   StartThunk(Fn, GD, FnInfo);
@@ -406,16 +408,6 @@ void CodeGenFunction::GenerateThunk(llvm::Function *Fn,
 
   // Make the call and return the result.
   EmitCallAndReturnForThunk(Callee, &Thunk);
-
-  // Set the right linkage.
-  CGM.setFunctionLinkage(GD, Fn);
-
-  if (CGM.supportsCOMDAT() && Fn->isWeakForLinker())
-    Fn->setComdat(CGM.getModule().getOrInsertComdat(Fn->getName()));
-
-  // Set the right visibility.
-  const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
-  setThunkVisibility(CGM, MD, Thunk, Fn);
 }
 
 void CodeGenVTables::emitThunk(GlobalDecl GD, const ThunkInfo &Thunk,
@@ -481,16 +473,13 @@ void CodeGenVTables::emitThunk(GlobalDecl GD, const ThunkInfo &Thunk,
     // expensive/sucky at the moment, so don't generate the thunk unless
     // we have to.
     // FIXME: Do something better here; GenerateVarArgsThunk is extremely ugly.
-    if (!UseAvailableExternallyLinkage) {
-      CodeGenFunction(CGM).GenerateVarArgsThunk(ThunkFn, FnInfo, GD, Thunk);
-      CGM.getCXXABI().setThunkLinkage(ThunkFn, ForVTable, GD,
-                                      !Thunk.Return.isEmpty());
-    }
+    if (UseAvailableExternallyLinkage)
+      return;
+    ThunkFn =
+        CodeGenFunction(CGM).GenerateVarArgsThunk(ThunkFn, FnInfo, GD, Thunk);
   } else {
     // Normal thunk body generation.
-    CodeGenFunction(CGM).GenerateThunk(ThunkFn, FnInfo, GD, Thunk);
-    CGM.getCXXABI().setThunkLinkage(ThunkFn, ForVTable, GD,
-                                    !Thunk.Return.isEmpty());
+    CodeGenFunction(CGM).generateThunk(ThunkFn, FnInfo, GD, Thunk);
   }
 
   setThunkProperties(CGM, Thunk, ThunkFn, ForVTable, GD);
@@ -763,7 +752,7 @@ CodeGenModule::getVTableLinkage(const CXXRecordDecl *RD) {
                    llvm::Function::InternalLinkage;
         
         return llvm::GlobalVariable::ExternalLinkage;
-        
+
       case TSK_ImplicitInstantiation:
         return !Context.getLangOpts().AppleKext ?
                  llvm::GlobalVariable::LinkOnceODRLinkage :
@@ -915,17 +904,20 @@ bool CodeGenModule::IsCFIBlacklistedRecord(const CXXRecordDecl *RD) {
 
 void CodeGenModule::EmitVTableBitSetEntries(llvm::GlobalVariable *VTable,
                                             const VTableLayout &VTLayout) {
-  if (!LangOpts.Sanitize.has(SanitizerKind::CFIVptr))
+  if (!LangOpts.Sanitize.has(SanitizerKind::CFIVCall) &&
+      !LangOpts.Sanitize.has(SanitizerKind::CFINVCall) &&
+      !LangOpts.Sanitize.has(SanitizerKind::CFIDerivedCast) &&
+      !LangOpts.Sanitize.has(SanitizerKind::CFIUnrelatedCast))
     return;
 
-  llvm::Metadata *VTableMD = llvm::ConstantAsMetadata::get(VTable);
+  CharUnits PointerWidth =
+      Context.toCharUnitsFromBits(Context.getTargetInfo().getPointerWidth(0));
 
   typedef std::pair<const CXXRecordDecl *, unsigned> BSEntry;
   std::vector<BSEntry> BitsetEntries;
   // Create a bit set entry for each address point.
   for (auto &&AP : VTLayout.getAddressPoints()) {
-    // FIXME: Add blacklisting scheme.
-    if (AP.first.getBase()->isInStdNamespace())
+    if (IsCFIBlacklistedRecord(AP.first.getBase()))
       continue;
 
     BitsetEntries.push_back(std::make_pair(AP.first.getBase(), AP.second));

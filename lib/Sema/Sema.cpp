@@ -90,14 +90,16 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
     LateTemplateParserCleanup(nullptr),
     OpaqueParser(nullptr), IdResolver(pp), StdInitializerList(nullptr),
     CXXTypeInfoDecl(nullptr), MSVCGuidDecl(nullptr),
-    NSNumberDecl(nullptr),
+    NSNumberDecl(nullptr), NSValueDecl(nullptr),
     NSStringDecl(nullptr), StringWithUTF8StringMethod(nullptr),
+    ValueWithBytesObjCTypeMethod(nullptr),
     NSArrayDecl(nullptr), ArrayWithObjectsMethod(nullptr),
     NSDictionaryDecl(nullptr), DictionaryWithObjectsMethod(nullptr),
     MSAsmLabelNameCounter(0),
     GlobalNewDeleteDeclared(false),
     TUKind(TUKind),
     NumSFINAEErrors(0),
+    CachedFakeTopLevelModule(nullptr),
     AccessCheckingSFINAE(false), InNonInstantiationSFINAEContext(false),
     NonInstantiationEntries(0), ArgumentPackSubstitutionIndex(-1),
     CurrentInstantiationScope(nullptr), DisableTypoCorrection(false),
@@ -555,14 +557,8 @@ void Sema::LoadExternalWeakUndeclaredIdentifiers() {
 
   SmallVector<std::pair<IdentifierInfo *, WeakInfo>, 4> WeakIDs;
   ExternalSource->ReadWeakUndeclaredIdentifiers(WeakIDs);
-  for (unsigned I = 0, N = WeakIDs.size(); I != N; ++I) {
-    llvm::DenseMap<IdentifierInfo*,WeakInfo>::iterator Pos
-      = WeakUndeclaredIdentifiers.find(WeakIDs[I].first);
-    if (Pos != WeakUndeclaredIdentifiers.end())
-      continue;
-
-    WeakUndeclaredIdentifiers.insert(WeakIDs[I]);
-  }
+  for (auto &WeakID : WeakIDs)
+    WeakUndeclaredIdentifiers.insert(WeakID);
 }
 
 
@@ -587,10 +583,10 @@ static bool MethodsAndNestedClassesComplete(const CXXRecordDecl *RD,
     if (const CXXMethodDecl *M = dyn_cast<CXXMethodDecl>(*I))
       Complete = M->isDefined() || (M->isPure() && !isa<CXXDestructorDecl>(M));
     else if (const FunctionTemplateDecl *F = dyn_cast<FunctionTemplateDecl>(*I))
-      // If the template function is marked as late template parsed at this point,
-      // it has not been instantiated and therefore we have not performed semantic
-      // analysis on it yet, so we cannot know if the type can be considered
-      // complete.
+      // If the template function is marked as late template parsed at this
+      // point, it has not been instantiated and therefore we have not
+      // performed semantic analysis on it yet, so we cannot know if the type
+      // can be considered complete.
       Complete = !F->getTemplatedDecl()->isLateTemplateParsed() &&
                   F->getTemplatedDecl()->isDefined();
     else if (const CXXRecordDecl *R = dyn_cast<CXXRecordDecl>(*I)) {
@@ -675,22 +671,6 @@ void Sema::ActOnEndOfTranslationUnit() {
   if (TUKind != TU_Prefix) {
     DiagnoseUseOfUnimplementedSelectors();
 
-    // If any dynamic classes have their key function defined within
-    // this translation unit, then those vtables are considered "used" and must
-    // be emitted.
-    for (DynamicClassesType::iterator I = DynamicClasses.begin(ExternalSource),
-                                      E = DynamicClasses.end();
-         I != E; ++I) {
-      assert(!(*I)->isDependentType() &&
-             "Should not see dependent types here!");
-      if (const CXXMethodDecl *KeyFunction =
-              Context.getCurrentKeyFunction(*I)) {
-        const FunctionDecl *Definition = nullptr;
-        if (KeyFunction->hasBody(Definition))
-          MarkVTableUsed(Definition->getLocation(), *I, true);
-      }
-    }
-
     // If DefinedUsedVTables ends up marking any virtual member functions it
     // might lead to more pending template instantiations, which we then need
     // to instantiate.
@@ -722,6 +702,8 @@ void Sema::ActOnEndOfTranslationUnit() {
 
   // All delayed member exception specs should be checked or we end up accepting
   // incompatible declarations.
+  // FIXME: This is wrong for TUKind == TU_Prefix. In that case, we need to
+  // write out the lists to the AST file (if any).
   assert(DelayedDefaultedMemberExceptionSpecs.empty());
   assert(DelayedExceptionSpecChecks.empty());
 
@@ -742,13 +724,10 @@ void Sema::ActOnEndOfTranslationUnit() {
   }
 
   // Check for #pragma weak identifiers that were never declared
-  // FIXME: This will cause diagnostics to be emitted in a non-determinstic
-  // order!  Iterating over a densemap like this is bad.
   LoadExternalWeakUndeclaredIdentifiers();
-  for (llvm::DenseMap<IdentifierInfo*,WeakInfo>::iterator
-       I = WeakUndeclaredIdentifiers.begin(),
-       E = WeakUndeclaredIdentifiers.end(); I != E; ++I) {
-    if (I->second.getUsed()) continue;
+  for (auto WeakID : WeakUndeclaredIdentifiers) {
+    if (WeakID.second.getUsed())
+      continue;
 
     Decl *PrevDecl = LookupSingleName(TUScope, WeakID.first, SourceLocation(),
                                       LookupOrdinaryName);
@@ -785,11 +764,7 @@ void Sema::ActOnEndOfTranslationUnit() {
         ModMap.resolveConflicts(Mod, /*Complain=*/false);
 
         // Queue the submodules, so their exports will also be resolved.
-        for (Module::submodule_iterator Sub = Mod->submodule_begin(),
-                                     SubEnd = Mod->submodule_end();
-             Sub != SubEnd; ++Sub) {
-          Stack.push_back(*Sub);
-        }
+        Stack.append(Mod->submodule_begin(), Mod->submodule_end());
       }
     }
 
@@ -920,6 +895,17 @@ void Sema::ActOnEndOfTranslationUnit() {
           IsRecordFullyDefined(RD, RecordsComplete, MNCComplete)) {
         Diag(D->getLocation(), diag::warn_unused_private_field)
               << D->getDeclName();
+      }
+    }
+  }
+
+  if (!Diags.isIgnored(diag::warn_mismatched_delete_new, SourceLocation())) {
+    if (ExternalSource)
+      ExternalSource->ReadMismatchingDeleteExpressions(DeleteExprs);
+    for (const auto &DeletedFieldInfo : DeleteExprs) {
+      for (const auto &DeleteExprLoc : DeletedFieldInfo.second) {
+        AnalyzeDeleteExprMismatch(DeletedFieldInfo.first, DeleteExprLoc.first,
+                                  DeleteExprLoc.second);
       }
     }
   }
@@ -1283,6 +1269,9 @@ void ExternalSemaSource::ReadUndefinedButUsed(
                        llvm::DenseMap<NamedDecl *, SourceLocation> &Undefined) {
 }
 
+void ExternalSemaSource::ReadMismatchingDeleteExpressions(llvm::MapVector<
+    FieldDecl *, llvm::SmallVector<std::pair<SourceLocation, bool>, 4>> &) {}
+
 void PrettyDeclStackTraceEntry::print(raw_ostream &OS) const {
   SourceLocation Loc = this->Loc;
   if (!Loc.isValid() && TheDecl) Loc = TheDecl->getLocation();
@@ -1530,4 +1519,9 @@ CapturedRegionScopeInfo *Sema::getCurCapturedRegion() {
     return nullptr;
 
   return dyn_cast<CapturedRegionScopeInfo>(FunctionScopes.back());
+}
+
+const llvm::MapVector<FieldDecl *, Sema::DeleteLocs> &
+Sema::getMismatchingDeleteExpressions() const {
+  return DeleteExprs;
 }

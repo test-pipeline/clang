@@ -24,7 +24,7 @@ int &g() { return r; }
 // LINUX: define weak_odr hidden i32* @_ZTW1r() {
 // DARWIN: define cxx_fast_tlscc i32* @_ZTW1r() [[ATTR:#[0-9]+]] {
 // CHECK: call void @_ZTH1r()
-// CHECK: load i32** @r, align 8
+// CHECK: load i32*, i32** @r, align 8
 // CHECK: ret i32* %{{.*}}
 
 // CHECK-LABEL: define internal void @__tls_init()

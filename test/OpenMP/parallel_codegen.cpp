@@ -2,15 +2,15 @@
 // RUN: %clang_cc1 -fopenmp -x c++ -std=c++11 -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -emit-pch -o %t %s
 // RUN: %clang_cc1 -fopenmp -x c++ -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -debug-info-kind=limited -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck --check-prefix=CHECK-DEBUG %s
 // expected-no-diagnostics
+// REQUIRES: x86-registered-target
 #ifndef HEADER
 #define HEADER
-
 // CHECK-DAG: %ident_t = type { i32, i32, i32, i32, i8* }
 // CHECK-DAG: [[STR:@.+]] = private unnamed_addr constant [23 x i8] c";unknown;unknown;0;0;;\00"
-// CHECK-DAG: [[DEF_LOC_2:@.+]] = private unnamed_addr constant %ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([23 x i8]* [[STR]], i32 0, i32 0) }
+// CHECK-DAG: [[DEF_LOC_2:@.+]] = private unnamed_addr constant %ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* [[STR]], i32 0, i32 0) }
 // CHECK-DEBUG-DAG: %ident_t = type { i32, i32, i32, i32, i8* }
 // CHECK-DEBUG-DAG: [[STR:@.+]] = private unnamed_addr constant [23 x i8] c";unknown;unknown;0;0;;\00"
-// CHECK-DEBUG-DAG: [[DEF_LOC_2:@.+]] = private unnamed_addr constant %ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([23 x i8]* [[STR]], i32 0, i32 0) }
+// CHECK-DEBUG-DAG: [[DEF_LOC_2:@.+]] = private unnamed_addr constant %ident_t { i32 0, i32 2, i32 0, i32 0, i8* getelementptr inbounds ([23 x i8], [23 x i8]* [[STR]], i32 0, i32 0) }
 // CHECK-DEBUG-DAG: [[LOC1:@.+]] = private unnamed_addr constant [{{.+}} x i8] c";{{.*}}parallel_codegen.cpp;main;[[@LINE+14]];9;;\00"
 // CHECK-DEBUG-DAG: [[LOC2:@.+]] = private unnamed_addr constant [{{.+}} x i8] c";{{.*}}parallel_codegen.cpp;tmain;[[@LINE+7]];9;;\00"
 
@@ -58,7 +58,7 @@ int main (int argc, char **argv) {
 // CHECK-NEXT:  [[ARGC:%.+]] = load i32, i32* [[ARGC_REF]]
 // CHECK-NEXT:  invoke {{.*}}void [[FOO:@.+foo.+]](i32{{[ ]?[a-z]*}} [[ARGC]])
 // CHECK:       ret void
-// CHECK:       call void @{{.+terminate.*|abort}}(
+// CHECK:       call {{.*}}void @{{.+terminate.*|abort}}(
 // CHECK-NEXT:  unreachable
 // CHECK-NEXT:  }
 // CHECK-DEBUG:       define internal void [[OMP_OUTLINED]](i32* noalias %.global_tid., i32* noalias %.bound_tid., i32* dereferenceable(4) [[ARGC_ADDR:%[^)]+]])
@@ -72,8 +72,8 @@ int main (int argc, char **argv) {
 // CHECK-DEBUG-NEXT:  unreachable
 // CHECK-DEBUG-NEXT:  }
 
-// CHECK-DAG: define linkonce_odr void [[FOO]]({{i32[ ]?[a-z]*}} %argc)
-// CHECK-DAG: declare void @__kmpc_fork_call(%ident_t*, i32, void (i32*, i32*, ...)*, ...)
+// CHECK-DAG: define linkonce_odr {{.*}}void [[FOO]]({{i32[ ]?[a-z]*}} %argc)
+// CHECK-DAG: declare {{.*}}void @__kmpc_fork_call(%ident_t*, i32, void (i32*, i32*, ...)*, ...)
 // CHECK-DEBUG-DAG: define linkonce_odr void [[FOO]](i32 %argc)
 // CHECK-DEBUG-DAG: declare void @__kmpc_fork_call(%ident_t*, i32, void (i32*, i32*, ...)*, ...)
 
@@ -100,7 +100,7 @@ int main (int argc, char **argv) {
 // CHECK-NEXT:  [[ARGC:%.+]] = load i8**, i8*** [[ARGC_REF]]
 // CHECK-NEXT:  invoke {{.*}}void [[FOO1:@.+foo.+]](i8** [[ARGC]])
 // CHECK:       ret void
-// CHECK:       call void @{{.+terminate.*|abort}}(
+// CHECK:       call {{.*}}void @{{.+terminate.*|abort}}(
 // CHECK-NEXT:  unreachable
 // CHECK-NEXT:  }
 // CHECK-DEBUG:       define internal void [[OMP_OUTLINED]](i32* noalias %.global_tid., i32* noalias %.bound_tid., i8*** dereferenceable({{4|8}}) %argc)
@@ -113,7 +113,10 @@ int main (int argc, char **argv) {
 // CHECK-DEBUG-NEXT:  unreachable
 // CHECK-DEBUG-NEXT:  }
 
-// CHECK: define linkonce_odr void [[FOO1]](i8** %argc)
+// CHECK: define linkonce_odr {{.*}}void [[FOO1]](i8** %argc)
 // CHECK-DEBUG: define linkonce_odr void [[FOO1]](i8** %argc)
+
+// CHECK: attributes #[[FN_ATTRS]] = {{.+}} nounwind
+// CHECK-DEBUG: attributes #[[FN_ATTRS]] = {{.+}} nounwind
 
 #endif

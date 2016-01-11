@@ -83,22 +83,13 @@ namespace SrcMgr {
   /// \brief One instance of this struct is kept for every file loaded or used.
   ///
   /// This object owns the MemoryBuffer object.
-  class ContentCache {
+  class LLVM_ALIGNAS(8) ContentCache {
     enum CCFlags {
       /// \brief Whether the buffer is invalid.
       InvalidFlag = 0x01,
       /// \brief Whether the buffer should not be freed on destruction.
       DoNotFreeFlag = 0x02
     };
-
-    // Note that the first member of this class is an aligned character buffer
-    // to ensure that this class has an alignment of 8 bytes. This wastes
-    // 8 bytes for every ContentCache object, but each of these corresponds to
-    // a file loaded into memory, so the 8 bytes doesn't seem terribly
-    // important. It is quite awkward to fit this aligner into any other part
-    // of the class due to the lack of portable ways to combine it with other
-    // members.
-    llvm::AlignedCharArray<8, 1> NonceAligner;
 
     /// \brief The actual buffer containing the characters from the input
     /// file.

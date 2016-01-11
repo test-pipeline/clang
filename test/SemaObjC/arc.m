@@ -303,8 +303,8 @@ void test12(id collection) {
     x = 0; // expected-error {{fast enumeration variables cannot be modified in ARC by default; declare the variable __strong to allow this}}
   }
 
-  for (const id x in collection) {
-    x = 0; // expected-error {{read-only variable is not assignable}}
+  for (const id x in collection) { // expected-note {{variable 'x' declared const here}}
+    x = 0; // expected-error {{cannot assign to variable 'x' with const-qualified type 'const __strong id'}}
   }
 
   for (__strong id x in collection) {

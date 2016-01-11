@@ -24,7 +24,10 @@ protected:
     DEBUG(llvm::errs() << "---\n");
     DEBUG(llvm::errs() << Code << "\n\n");
     std::vector<tooling::Range> Ranges(1, tooling::Range(Offset, Length));
-    tooling::Replacements Replaces = reformat(Style, Code, Ranges);
+    bool IncompleteFormat = false;
+    tooling::Replacements Replaces =
+        reformat(Style, Code, Ranges, "<stdin>", &IncompleteFormat);
+    EXPECT_FALSE(IncompleteFormat);
     std::string Result = applyAllReplacements(Code, Replaces);
     EXPECT_NE("", Result);
     DEBUG(llvm::errs() << "\n" << Result << "\n\n");
@@ -83,6 +86,10 @@ TEST_F(FormatTestJS, UnderstandsJavaScriptOperators) {
 
   verifyFormat("var b = a.map((x) => x + 1);");
   verifyFormat("return ('aaa') in bbbb;");
+
+  // ES6 spread operator.
+  verifyFormat("someFunction(...a);");
+  verifyFormat("var x = [1, ...a, 2];");
 }
 
 TEST_F(FormatTestJS, UnderstandsAmpAmp) {
@@ -121,6 +128,7 @@ TEST_F(FormatTestJS, ES6DestructuringAssignment) {
 }
 
 TEST_F(FormatTestJS, ContainerLiterals) {
+  verifyFormat("var x = {y: function(a) { return a; }};");
   verifyFormat("return {\n"
                "  link: function() {\n"
                "    f();  //\n"
@@ -159,6 +167,57 @@ TEST_F(FormatTestJS, ContainerLiterals) {
                "    return x.zIsTooLongForOneLineWithTheDeclarationLine();\n"
                "  }\n"
                "};");
+  // Simple object literal, as opposed to enum style below.
+  verifyFormat("var obj = {a: 123};");
+  // Enum style top level assignment.
+  verifyFormat("X = {\n  a: 123\n};");
+  verifyFormat("X.Y = {\n  a: 123\n};");
+  // But only on the top level, otherwise its a plain object literal assignment.
+  verifyFormat("function x() {\n"
+               "  y = {z: 1};\n"
+               "}");
+  verifyFormat("x = foo && {a: 123};");
+
+  // Arrow functions in object literals.
+  verifyFormat("var x = {y: (a) => { return a; }};");
+  verifyFormat("var x = {y: (a) => a};");
+
+  // Computed keys.
+  verifyFormat("var x = {[a]: 1, b: 2, [c]: 3};");
+  verifyFormat("var x = {\n"
+               "  [a]: 1,\n"
+               "  b: 2,\n"
+               "  [c]: 3,\n"
+               "};");
+}
+
+TEST_F(FormatTestJS, MethodsInObjectLiterals) {
+  verifyFormat("var o = {\n"
+               "  value: 'test',\n"
+               "  get value() {  // getter\n"
+               "    return this.value;\n"
+               "  }\n"
+               "};");
+  verifyFormat("var o = {\n"
+               "  value: 'test',\n"
+               "  set value(val) {  // setter\n"
+               "    this.value = val;\n"
+               "  }\n"
+               "};");
+  verifyFormat("var o = {\n"
+               "  value: 'test',\n"
+               "  someMethod(val) {  // method\n"
+               "    doSomething(this.value + val);\n"
+               "  }\n"
+               "};");
+  verifyFormat("var o = {\n"
+               "  someMethod(val) {  // method\n"
+               "    doSomething(this.value + val);\n"
+               "  },\n"
+               "  someOtherMethod(val) {  // method\n"
+               "    doSomething(this.value + val);\n"
+               "  }\n"
+               "};");
 }
 
 TEST_F(FormatTestJS, SpacesInContainerLiterals) {
@@ -184,6 +243,11 @@ TEST_F(FormatTestJS, GoogScopes) {
                "var x = a.b;\n"
                "var y = c.d;\n"
                "});  // goog.scope");
+  verifyFormat("goog.scope(function() {\n"
+               "// test\n"
+               "var x = 0;\n"
+               "// test\n"
+               "});");
 }
 
 TEST_F(FormatTestJS, GoogModules) {
@@ -274,6 +338,10 @@ TEST_F(FormatTestJS, FunctionLiterals) {
   verifyFormat("var func = function() {\n"
                "  return 1;\n"
                "};");
+  verifyFormat("var func =  //\n"
+               "    function() {\n"
+               "  return 1;\n"
+               "};");
   verifyFormat("return {\n"
                "  body: {\n"
                "    setAttribute: function(key, val) { this[key] = val; },\n"
@@ -311,6 +379,12 @@ TEST_F(FormatTestJS, FunctionLiterals) {
                "    return x.zIsTooLongForOneLineWithTheDeclarationLine();\n"
                "  };\n"
                "}");
+  verifyFormat("someLooooooooongFunction(\n"
+               "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "    function(aaaaaaaaaaaaaaaaaaaaaaaaaaaaa) {\n"
+               "      // code\n"
+               "    });");
 
   verifyFormat("f({a: function() { return 1; }});",
                getGoogleJSStyleWithColumns(33));
@@ -553,6 +627,7 @@ TEST_F(FormatTestJS, RegexLiteralClassification) {
   verifyFormat("var x = a && /abc/.test(y);");
   verifyFormat("var x = a || /abc/.test(y);");
   verifyFormat("var x = a + /abc/.search(y);");
+  verifyFormat("/abc/.search(y);");
   verifyFormat("var regexs = {/abc/, /abc/};");
   verifyFormat("return /abc/;");
 
@@ -568,6 +643,7 @@ TEST_F(FormatTestJS, RegexLiteralClassification) {
 }
 
 TEST_F(FormatTestJS, RegexLiteralSpecialCharacters) {
+  verifyFormat("var regex = /=/;");
   verifyFormat("var regex = /a*/;");
   verifyFormat("var regex = /a+/;");
   verifyFormat("var regex = /a?/;");
@@ -613,10 +689,23 @@ TEST_F(FormatTestJS, RegexLiteralSpecialCharacters) {
   verifyFormat("var regex = /\a\\//g;");
   verifyFormat("var regex = /a\\//;\n"
                "var x = 0;");
+  EXPECT_EQ("var regex = /'/g;", format("var regex = /'/g ;"));
+  EXPECT_EQ("var regex = /'/g;  //'", format("var regex = /'/g ; //'"));
   EXPECT_EQ("var regex = /\\/*/;\n"
             "var x = 0;",
             format("var regex = /\\/*/;\n"
                    "var x=0;"));
+  EXPECT_EQ("var x = /a\\//;", format("var x = /a\\//  \n;"));
+  verifyFormat("var regex = /\"/;", getGoogleJSStyleWithColumns(16));
+  verifyFormat("var regex =\n"
+               "    /\"/;",
+               getGoogleJSStyleWithColumns(15));
+  verifyFormat("var regex =  //\n"
+               "    /a/;");
+  verifyFormat("var regexs = [\n"
+               "  /d/,   //\n"
+               "  /aa/,  //\n"
+               "];");
 }
 
 TEST_F(FormatTestJS, RegexLiteralModifiers) {
@@ -644,6 +733,7 @@ TEST_F(FormatTestJS, TypeAnnotations) {
   verifyFormat("var x: string;");
   verifyFormat("var x: {a: string; b: number;} = {};");
   verifyFormat("function x(): string {\n  return 'x';\n}");
+  verifyFormat("function x(): {x: string} {\n  return {x: 'x'};\n}");
   verifyFormat("function x(y: string): string {\n  return 'x';\n}");
   verifyFormat("for (var y: string in x) {\n  x();\n}");
   verifyFormat("function x(y: {a?: number;} = {}): number {\n"
@@ -762,11 +852,14 @@ TEST_F(FormatTestJS, Modules) {
                getGoogleJSStyleWithColumns(20));
   verifyFormat("import {X as myLocalX, Y as myLocalY} from 'some/module.js';");
   verifyFormat("import * as lib from 'some/module.js';");
-  verifyFormat("var x = {\n  import: 1\n};\nx.import = 2;");
+  verifyFormat("var x = {import: 1};\nx.import = 2;");
 
   verifyFormat("export function fn() {\n"
                "  return 'fn';\n"
                "}");
+  verifyFormat("export function A() {}\n"
+               "export default function B() {}\n"
+               "export function C() {}");
   verifyFormat("export const x = 12;");
   verifyFormat("export default class X {}");
   verifyFormat("export {X, Y} from 'some/module.js';");
@@ -782,6 +875,9 @@ TEST_F(FormatTestJS, Modules) {
   verifyFormat("export default class X { y: number }");
   verifyFormat("export default function() {\n  return 1;\n}");
   verifyFormat("export var x = 12;");
+  verifyFormat("class C {}\n"
+               "export function f() {}\n"
+               "var v;");
   verifyFormat("export var x: number = 12;");
   verifyFormat("export const y = {\n"
                "  a: 1,\n"
@@ -809,15 +905,11 @@ TEST_F(FormatTestJS, TemplateStrings) {
                    "     ${  name    }\n"
                    "  !`;"));
 
-  // FIXME: +1 / -1 offsets are to work around clang-format miscalculating
-  // widths for unknown tokens that are not whitespace (e.g. '`'). Remove when
-  // the code is corrected.
-
   verifyFormat("var x =\n"
                "    `hello ${world}` >= some();",
                getGoogleJSStyleWithColumns(34)); // Barely doesn't fit.
   verifyFormat("var x = `hello ${world}` >= some();",
-               getGoogleJSStyleWithColumns(35 + 1)); // Barely fits.
+               getGoogleJSStyleWithColumns(35)); // Barely fits.
   EXPECT_EQ("var x = `hello\n"
             "  ${world}` >=\n"
             "    some();",
@@ -832,7 +924,9 @@ TEST_F(FormatTestJS, TemplateStrings) {
                    "  ${world}` >= some();",
                    getGoogleJSStyleWithColumns(22))); // Barely fits.
 
-  verifyFormat("var x =\n    `h`;", getGoogleJSStyleWithColumns(13 - 1));
+  verifyFormat("var x =\n"
+               "    `h`;",
+               getGoogleJSStyleWithColumns(11));
   EXPECT_EQ(
       "var x =\n    `multi\n  line`;",
       format("var x = `multi\n  line`;", getGoogleJSStyleWithColumns(13)));

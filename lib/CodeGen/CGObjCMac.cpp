@@ -486,7 +486,6 @@ public:
   }
 
   ObjCCommonTypesHelper(CodeGen::CodeGenModule &cgm);
-  ~ObjCCommonTypesHelper(){}
 };
 
 /// ObjCTypesHelper - Helper class that encapsulates lazy
@@ -595,7 +594,6 @@ public:
 
 public:
   ObjCTypesHelper(CodeGen::CodeGenModule &cgm);
-  ~ObjCTypesHelper() {}
 };
 
 /// ObjCNonFragileABITypesHelper - will have all types needed by objective-c's
@@ -730,7 +728,6 @@ public:
   llvm::Type *EHTypePtrTy;
   
   ObjCNonFragileABITypesHelper(CodeGen::CodeGenModule &cgm);
-  ~ObjCNonFragileABITypesHelper(){}
 };
 
 class CGObjCCommonMac : public CodeGen::CGObjCRuntime {
@@ -1674,14 +1671,13 @@ struct NullReturnState {
 
 /// getConstantGEP() - Help routine to construct simple GEPs.
 static llvm::Constant *getConstantGEP(llvm::LLVMContext &VMContext,
-                                      llvm::Constant *C,
-                                      unsigned idx0,
+                                      llvm::GlobalVariable *C, unsigned idx0,
                                       unsigned idx1) {
   llvm::Value *Idxs[] = {
     llvm::ConstantInt::get(llvm::Type::getInt32Ty(VMContext), idx0),
     llvm::ConstantInt::get(llvm::Type::getInt32Ty(VMContext), idx1)
   };
-  return llvm::ConstantExpr::getGetElementPtr(C, Idxs);
+  return llvm::ConstantExpr::getGetElementPtr(C->getValueType(), C, Idxs);
 }
 
 /// hasObjCExceptionAttribute - Return true if this class or any super
@@ -1815,8 +1811,7 @@ CGObjCMac::GenerateMessageSendSuper(CodeGen::CodeGenFunction &CGF,
         CGF.Builder.CreateAlignedLoad(SuperPtr, CGF.getPointerAlign());
       Target = Super;
     }
-  } 
-  else if (isCategoryImpl)
+  } else if (isCategoryImpl)
     Target = EmitClassRef(CGF, Class->getSuperClass());
   else {
     llvm::Value *ClassPtr = EmitSuperClassRef(Class);
@@ -5438,6 +5433,7 @@ ObjCNonFragileABITypesHelper::ObjCNonFragileABITypesHelper(CodeGen::CodeGenModul
   //   const uint32_t size;  // sizeof(struct _protocol_t)
   //   const uint32_t flags;  // = 0
   //   const char ** extendedMethodTypes;
+  //   const char *demangledName;
   // }
 
   // Holder for struct _protocol_list_t *
@@ -5450,6 +5446,7 @@ ObjCNonFragileABITypesHelper::ObjCNonFragileABITypesHelper(CodeGen::CodeGenModul
                              MethodListnfABIPtrTy, MethodListnfABIPtrTy,
                              MethodListnfABIPtrTy, MethodListnfABIPtrTy,
                              PropertyListPtrTy, IntTy, IntTy, Int8PtrPtrTy,
+                             Int8PtrTy,
                              nullptr);
 
   // struct _protocol_t*
@@ -6393,6 +6390,7 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocolRef(
 ///   const uint32_t size;  // sizeof(struct _protocol_t)
 ///   const uint32_t flags;  // = 0
 ///   const char ** extendedMethodTypes;
+///   const char *demangledName;
 /// }
 /// @endcode
 ///
@@ -6444,7 +6442,7 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocol(
   MethodTypesExt.insert(MethodTypesExt.end(),
                         OptMethodTypesExt.begin(), OptMethodTypesExt.end());
 
-  llvm::Constant *Values[11];
+  llvm::Constant *Values[12];
   // isa is NULL
   Values[0] = llvm::Constant::getNullValue(ObjCTypes.ObjectPtrTy);
   Values[1] = GetClassName(PD->getObjCRuntimeNameAsString());
@@ -6477,6 +6475,9 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocol(
   Values[10] = EmitProtocolMethodTypes("\01l_OBJC_$_PROTOCOL_METHOD_TYPES_"
                                        + PD->getObjCRuntimeNameAsString(),
                                        MethodTypesExt, ObjCTypes);
+  // const char *demangledName;
+  Values[11] = llvm::Constant::getNullValue(ObjCTypes.Int8PtrTy);
+    
   llvm::Constant *Init = llvm::ConstantStruct::get(ObjCTypes.ProtocolnfABITy,
                                                    Values);
 
@@ -7187,10 +7188,10 @@ CGObjCNonFragileABIMac::GetInterfaceEHType(const ObjCInterfaceDecl *ID,
   llvm::Value *VTableIdx = llvm::ConstantInt::get(CGM.Int32Ty, 2);
 
   llvm::Constant *Values[] = {
-    llvm::ConstantExpr::getGetElementPtr(VTableGV, VTableIdx),
-    GetClassName(ID->getObjCRuntimeNameAsString()),
-    GetClassGlobal(ClassName.str())
-  };
+      llvm::ConstantExpr::getGetElementPtr(VTableGV->getValueType(), VTableGV,
+                                           VTableIdx),
+      GetClassName(ID->getObjCRuntimeNameAsString()),
+      GetClassGlobal(ClassName.str())};
   llvm::Constant *Init =
     llvm::ConstantStruct::get(ObjCTypes.EHTypeTy, Values);
 

@@ -1,4 +1,6 @@
 // RUN: c-index-test -test-load-source all -x cuda %s | FileCheck %s
+// RUN: c-index-test -test-load-source all -x cuda --cuda-host-only %s | FileCheck %s
+// RUN: c-index-test -test-load-source all -x cuda --cuda-device-only %s | FileCheck %s
 
 __attribute__((device)) void f_device();
 __attribute__((global)) void f_global();

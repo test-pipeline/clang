@@ -1,11 +1,21 @@
 // RUN: %clang_cc1 -triple x86_64-apple-darwin9.0.0 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -D WARN_PARTIAL -Wpartial-availability -triple x86_64-apple-darwin9.0.0 -fsyntax-only -verify %s
 
 @protocol P
 - (void)proto_method __attribute__((availability(macosx,introduced=10.1,deprecated=10.2))); // expected-note 2 {{'proto_method' has been explicitly marked deprecated here}}
+
+#if defined(WARN_PARTIAL)
+  // expected-note@+2 2 {{'partial_proto_method' has been explicitly marked partial here}}
+#endif
+- (void)partial_proto_method __attribute__((availability(macosx,introduced=10.8)));
 @end
 
 @interface A <P>
 - (void)method __attribute__((availability(macosx,introduced=10.1,deprecated=10.2))); // expected-note {{'method' has been explicitly marked deprecated here}}
+#if defined(WARN_PARTIAL)
+  // expected-note@+2 {{'partialMethod' has been explicitly marked partial here}}
+#endif
+- (void)partialMethod __attribute__((availability(macosx,introduced=10.8)));
 
 - (void)overridden __attribute__((availability(macosx,introduced=10.3))); // expected-note{{overridden method is here}}
 - (void)overridden2 __attribute__((availability(macosx,introduced=10.3)));
@@ -19,6 +29,7 @@
 // rdar://11475360
 @interface B : A
 - (void)method; // NOTE: we expect 'method' to *not* inherit availability.
+- (void)partialMethod; // Likewise.
 - (void)overridden __attribute__((availability(macosx,introduced=10.4))); // expected-warning{{overriding method introduced after overridden method on OS X (10.4 vs. 10.3)}}
 - (void)overridden2 __attribute__((availability(macosx,introduced=10.2)));
 - (void)overridden3 __attribute__((availability(macosx,deprecated=10.4)));
@@ -33,6 +44,32 @@ void f(A *a, B *b) {
   [b method]; // no-warning
   [a proto_method]; // expected-warning{{'proto_method' is deprecated: first deprecated in OS X 10.2}}
   [b proto_method]; // expected-warning{{'proto_method' is deprecated: first deprecated in OS X 10.2}}
+
+#if defined(WARN_PARTIAL)
+  // expected-warning@+2 {{'partialMethod' is partial: introduced in OS X 10.8}} expected-note@+2 {{explicitly redeclare 'partialMethod' to silence this warning}}
+#endif
+  [a partialMethod];
+  [b partialMethod];  // no warning
+#if defined(WARN_PARTIAL)
+  // expected-warning@+2 {{'partial_proto_method' is partial: introduced in OS X 10.8}} expected-note@+2 {{explicitly redeclare 'partial_proto_method' to silence this warning}}
+#endif
+  [a partial_proto_method];
+#if defined(WARN_PARTIAL)
+  // expected-warning@+2 {{'partial_proto_method' is partial: introduced in OS X 10.8}} expected-note@+2 {{explicitly redeclare 'partial_proto_method' to silence this warning}}
+#endif
+  [b partial_proto_method];
+}
+
+@interface A (NewAPI)
+- (void)partialMethod;
+- (void)partial_proto_method;
+@end
+
+void f_after_redecl(A *a, B *b) {
+  [a partialMethod]; // no warning
+  [b partialMethod]; // no warning
+  [a partial_proto_method]; // no warning
+  [b partial_proto_method]; // no warning
 }
 
 // Test case for <rdar://problem/11627873>.  Warn about

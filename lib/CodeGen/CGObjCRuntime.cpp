@@ -134,7 +134,7 @@ LValue CGObjCRuntime::EmitValueForIvarAtOffset(CodeGen::CodeGenFunction &CGF,
   CGBitFieldInfo *Info = new (CGF.CGM.getContext()) CGBitFieldInfo(
     CGBitFieldInfo::MakeInfo(CGF.CGM.getTypes(), Ivar, BitOffset, BitFieldSize,
                              CGF.CGM.getContext().toBits(StorageSize),
-                             Alignment.getQuantity()));
+                             CharUnits::fromQuantity(0)));
 
   Address Addr(V, Alignment);
   Addr = CGF.Builder.CreateElementBitCast(Addr,

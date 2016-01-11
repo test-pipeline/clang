@@ -62,7 +62,7 @@ void * variant_load_1(int i) {
 @end
 
 // CHECK-LABEL: define internal i8* @block_block_invoke
-// CHECK: load i64* @"OBJC_IVAR_$_ForBlock.foo"
+// CHECK: load i64, i64* @"OBJC_IVAR_$_ForBlock.foo"
 id (^block)(ForBlock*) = ^(ForBlock* a) {
   return a->foo;
 };

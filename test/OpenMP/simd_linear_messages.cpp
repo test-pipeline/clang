@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify -fopenmp=libiomp5 %s
+// RUN: %clang_cc1 -verify -fopenmp %s
 
 namespace X {
   int x;
@@ -220,7 +220,7 @@ int main(int argc, char **argv) {
   for (int k = 0; k < argc; ++k) ++k;
   // expected-error@+2 {{linear variable with incomplete type 'S1'}}
   // expected-error@+1 {{const-qualified variable cannot be linear}}
-  #pragma omp simd linear (a, b) 
+  #pragma omp simd linear(a, b)
   for (int k = 0; k < argc; ++k) ++k;
   #pragma omp simd linear (argv[1]) // expected-error {{expected variable name}}
   for (int k = 0; k < argc; ++k) ++k;
@@ -228,7 +228,7 @@ int main(int argc, char **argv) {
   // expected-error@+1 {{argument of a linear clause should be of integral or pointer type, not 'S5'}}
   #pragma omp simd linear(val(e, g))
   for (int k = 0; k < argc; ++k) ++k;
-  #pragma omp simd linear(h) // expected-error {{threadprivate or thread local variable cannot be linear}}
+  #pragma omp simd linear(h, C::x) // expected-error 2 {{threadprivate or thread local variable cannot be linear}}
   for (int k = 0; k < argc; ++k) ++k;
   #pragma omp parallel
   {
