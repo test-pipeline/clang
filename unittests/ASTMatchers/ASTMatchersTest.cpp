@@ -1616,9 +1616,9 @@ TEST(ForEachArgumentWithParam, ReportsNoFalsePositives) {
       callExpr(forEachArgumentWithParam(ArgumentY, IntParam));
 
   // IntParam does not match.
-  EXPECT_FALSE(matches("void f(int* i) { int* y; f(y); }", CallExpr));
+  EXPECT_TRUE(notMatches("void f(int* i) { int* y; f(y); }", CallExpr));
   // ArgumentY does not match.
-  EXPECT_FALSE(matches("void f(int i) { int x; f(x); }", CallExpr));
+  EXPECT_TRUE(notMatches("void f(int i) { int x; f(x); }", CallExpr));
 }
 
 TEST(ForEachArgumentWithParam, MatchesCXXMemberCallExpr) {
@@ -1636,6 +1636,18 @@ TEST(ForEachArgumentWithParam, MatchesCXXMemberCallExpr) {
       "  S1[y];"
       "}",
       CallExpr, new VerifyIdIsBoundTo<ParmVarDecl>("param", 1)));
+
+  StatementMatcher CallExpr2 =
+      callExpr(forEachArgumentWithParam(ArgumentY, IntParam));
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+      "struct S {"
+      "  static void g(int i);"
+      "};"
+      "void f() {"
+      "  int y = 1;"
+      "  S::g(y);"
+      "}",
+      CallExpr2, new VerifyIdIsBoundTo<ParmVarDecl>("param", 1)));
 }
 
 TEST(ForEachArgumentWithParam, MatchesCallExpr) {
@@ -1800,6 +1812,13 @@ TEST(IsExternC, MatchesExternCFunctionDeclarations) {
   EXPECT_TRUE(matches("extern \"C\" { void f() {} }",
               functionDecl(isExternC())));
   EXPECT_TRUE(notMatches("void f() {}", functionDecl(isExternC())));
+}
+
+TEST(IsDefaulted, MatchesDefaultedFunctionDeclarations) {
+  EXPECT_TRUE(notMatches("class A { ~A(); };",
+                         functionDecl(hasName("~A"), isDefaulted())));
+  EXPECT_TRUE(matches("class B { ~B() = default; };",
+                      functionDecl(hasName("~B"), isDefaulted())));
 }
 
 TEST(IsDeleted, MatchesDeletedFunctionDeclarations) {
@@ -2954,6 +2973,10 @@ TEST(HasBody, FindsBodyOfForWhileDoLoops) {
               doStmt(hasBody(compoundStmt()))));
   EXPECT_TRUE(matches("void f() { int p[2]; for (auto x : p) {} }",
               cxxForRangeStmt(hasBody(compoundStmt()))));
+  EXPECT_TRUE(matches("void f() {}", functionDecl(hasBody(compoundStmt()))));
+  EXPECT_TRUE(notMatches("void f();", functionDecl(hasBody(compoundStmt()))));
+  EXPECT_TRUE(matches("void f(); void f() {}",
+                         functionDecl(hasBody(compoundStmt()))));
 }
 
 TEST(HasAnySubstatement, MatchesForTopLevelCompoundStatement) {
@@ -3646,6 +3669,14 @@ TEST(ExceptionHandling, SimpleCases) {
                       varDecl(isExceptionVariable())));
   EXPECT_TRUE(notMatches("void foo() try { int X; } catch (...) { }",
                          varDecl(isExceptionVariable())));
+}
+
+TEST(ParenExpression, SimpleCases) {
+  EXPECT_TRUE(matches("int i = (3);", parenExpr()));
+  EXPECT_TRUE(matches("int i = (3 + 7);", parenExpr()));
+  EXPECT_TRUE(notMatches("int i = 3;", parenExpr()));
+  EXPECT_TRUE(notMatches("int foo() { return 1; }; int a = foo();",
+                         parenExpr()));
 }
 
 TEST(HasConditionVariableStatement, DoesNotMatchCondition) {
