@@ -739,6 +739,10 @@ def BugHashDumper : Checker<"DumpBugHash">,
   HelpText<"Dump the bug hash for all statements.">,
   DescFile<"DebugCheckers.cpp">;
 
+def CallStackChecker : Checker<"CSChecker">,
+  HelpText<"Check for said call stack.">,
+  DescFile<"CallStackChecker.cpp">;
+
 } // end "debug"
 
 

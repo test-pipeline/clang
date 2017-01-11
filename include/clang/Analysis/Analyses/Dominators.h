@@ -155,6 +155,12 @@ public:
     DT->print(OS);
   }
 
+  inline CFGBlock *getIDom(CFGBlock *A) {
+    if (DT->getNode(A)->getIDom())
+      return DT->getNode(A)->getIDom()->getBlock();
+    return nullptr;
+  }
+
 private:
   CFG *cfg;
 };
