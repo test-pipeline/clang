@@ -15,47 +15,19 @@ namespace {
 
     typedef llvm::SmallVector<std::string, 4> LitVecTy;
 
-    class CallStackChecker : public Checker<check::PreCall,
-                                            check::PreStmt<IntegerLiteral>,
-                                            check::ASTCodeBody> {
+    class CallStackChecker : public Checker<check::ASTCodeBody> {
     public:
-        void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
-        void checkPreStmt(const IntegerLiteral *IL, CheckerContext &C) const;
         void checkASTCodeBody(const Decl *D, AnalysisManager &mgr, BugReporter &BR) const;
-        mutable StringRef matchThis;
         static std::string formatIntegerLiteral(const IntegerLiteral *IL);
         static void printToken(std::string inString, CheckerContext &C);
         static void printTokens(LitVecTy litVector, const Decl *D);
-        static void iterateOver(Stmt *S, const Decl *D, LitVecTy &litVector);
-        static LitVecTy obtainBlockLits(CFGBlock *block, const Decl *D);
+        static void printSuccTokens(LitVecTy litVecOne, LitVecTy litVecTwo);
+        static void iterateOver(Stmt *S, const Decl *D, LitVecTy &ilVec, LitVecTy &slVec);
+        static void obtainBlockLits(CFGBlock *block, const Decl *D, LitVecTy &ilVec, LitVecTy &slVec);
+        static void writeToFile(StringRef Filename, LitVecTy tokens);
+        static void writeSuccToFile(StringRef Filename, LitVecTy tokens, LitVecTy succTokens);
     };
 } // end anonymous namespace
-
-void CallStackChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
-
-//    const NamedDecl *ND = dyn_cast<NamedDecl>(Call.getDecl());
-//    if (!ND)
-//        return;
-//
-//    if (!matchThis.equals(ND->getQualifiedNameAsString()))
-//        return;
-//
-//    Call.dump();
-//    const NamedDecl *FD = dyn_cast<NamedDecl>(C.getCurrentAnalysisDeclContext()->getDecl());
-//    if (!FD)
-//        return;
-//
-//    llvm::errs() << "\n" << FD->getQualifiedNameAsString() << "\n";
-//    return;
-}
-
-void CallStackChecker::checkPreStmt(const IntegerLiteral *IL, CheckerContext &C) const {
-//    std::string inString = formatIntegerLiteral(IL);
-//    if (inString.empty())
-//        return;
-//
-//    printToken(inString, C);
-}
 
 std::string CallStackChecker::formatIntegerLiteral(const IntegerLiteral *IL) {
     std::string inString = IL->getValue().toString(16, false);
@@ -71,6 +43,39 @@ void CallStackChecker::printToken(std::string inString, CheckerContext &C) {
                                                    "null") << "\n";
 }
 
+void CallStackChecker::writeToFile(StringRef Filename, LitVecTy tokens) {
+    std::string content;
+    std::error_code EC;
+    llvm::raw_fd_ostream fileStream(Filename, EC, llvm::sys::fs::F_Append);
+
+    for (auto token: tokens)
+        content.append(token + "\n");
+
+    if (EC)
+        llvm::errs() << EC.message() << "\n";
+    fileStream << content;
+    fileStream.close();
+    if (fileStream.has_error())
+        llvm::errs() << "Error writing to file\n";
+}
+
+void CallStackChecker::writeSuccToFile(StringRef Filename, LitVecTy tokens, LitVecTy succTokens) {
+    std::string content;
+    std::error_code EC;
+    llvm::raw_fd_ostream fileStream(Filename, EC, llvm::sys::fs::F_Append);
+
+    for (auto token: tokens)
+        for (auto succToken : succTokens)
+            content.append(token + "\t" + succToken + "\n");
+
+    if (EC)
+        llvm::errs() << EC.message() << "\n";
+    fileStream << content;
+    fileStream.close();
+    if (fileStream.has_error())
+        llvm::errs() << "Error writing to file\n";
+}
+
 void CallStackChecker::printTokens(LitVecTy litVector, const Decl *D) {
     const NamedDecl *FD = dyn_cast<NamedDecl>(D);
     std::string functionName;
@@ -82,33 +87,45 @@ void CallStackChecker::printTokens(LitVecTy litVector, const Decl *D) {
     for (std::string inString : litVector) {
         llvm::errs() << "\n" << inString << " in " << functionName << "\n";
     }
-
 }
 
-void CallStackChecker::iterateOver(Stmt *S, const Decl *D, LitVecTy &litVector) {
+void CallStackChecker::printSuccTokens(LitVecTy litVecOne, LitVecTy litVecTwo) {
+    for (auto inStrOne : litVecOne)
+        for (auto inStrTwo : litVecTwo)
+            llvm::errs() << "\n" << inStrOne << "," << inStrTwo << "\n";
+}
+
+void CallStackChecker::iterateOver(Stmt *S, const Decl *D, LitVecTy &intLitVector, LitVecTy &strLitVector) {
     for (Stmt *SubStmt : S->children()) {
         if (SubStmt) {
-            if (IntegerLiteral *IL = dyn_cast<IntegerLiteral>(SubStmt->IgnoreImplicit())) {
+            SubStmt = SubStmt->IgnoreImplicit();
+            if (IntegerLiteral *IL = dyn_cast<IntegerLiteral>(SubStmt)) {
                 std::string inString = formatIntegerLiteral(IL);
                 if (inString.empty())
                     continue;
-                litVector.push_back(inString);
+                intLitVector.push_back(inString);
             }
-            iterateOver(SubStmt->IgnoreImplicit(), D, litVector);
+            else if (StringLiteral *SL = dyn_cast<StringLiteral>(SubStmt)) {
+                std::string inString = SL->getString();
+                if (inString.empty())
+                    continue;
+                strLitVector.push_back(inString);
+            }
+            iterateOver(SubStmt, D, intLitVector, strLitVector);
         }
     }
 }
 
-LitVecTy CallStackChecker::obtainBlockLits(CFGBlock *block, const Decl *D) {
-    LitVecTy litVector;
+void CallStackChecker::obtainBlockLits(CFGBlock *block, const Decl *D, LitVecTy &intLitVector,
+                                        LitVecTy &strLitVector) {
     // Check if block has a terminator condition containing a integer/string literal
-    if (!block->getTerminatorCondition())
-        return litVector;
+    if (!block->getTerminator() || !block->getTerminatorCondition())
+        return;
 
     Stmt *termCond = block->getTerminatorCondition()->IgnoreImplicit();
     // Obtain Integer/string literals (if any) in terminator condition
-    iterateOver(termCond, D, litVector);
-    return litVector;
+    iterateOver(termCond, D, intLitVector, strLitVector);
+    return;
 }
 
 void CallStackChecker::checkASTCodeBody(const Decl *D, AnalysisManager &mgr, BugReporter &BR) const {
@@ -117,38 +134,26 @@ void CallStackChecker::checkASTCodeBody(const Decl *D, AnalysisManager &mgr, Bug
     if (!cfg)
         return;
 
-    // Domtree data structure (required for obtaining immediate dom)
-    DominatorTree dom;
-
-    // Find immediate dom and obtain its Integer/string literals (if any) in term condition
-    bool isADCNonNull = false;
-    AnalysisDeclContext *AC = mgr.getAnalysisDeclContext(D);
-    if (AC) {
-        isADCNonNull = true;
-        dom.buildDominatorTree(*AC);
-    }
-
     for (CFG::iterator it = cfg->begin(), ei = cfg->end(); it != ei; ++it) {
         // Present CFG block
         CFGBlock *block = *it;
-        // Present CFG block's immediate dominator
-        CFGBlock *DomBlock = nullptr;
 
         // List of literals in present CFG block/its dominator
-        LitVecTy blockLiterals, domBlockLiterals;
+        LitVecTy blockIntLiterals, blockStrLiterals;
+        LitVecTy succIntLiterals, succStrLiterals;
 
-        blockLiterals = obtainBlockLits(block, D);
-        printTokens(blockLiterals, D);
+        obtainBlockLits(block, D, blockIntLiterals, blockStrLiterals);
+        writeToFile("./Int.csv", blockIntLiterals);
+        writeToFile("./Str.csv", blockStrLiterals);
 
-        if (!isADCNonNull)
-            continue;
-
-        DomBlock = dom.getIDom(block);
-        if (!DomBlock)
-            continue;
-
-        domBlockLiterals = obtainBlockLits(DomBlock, D);
-        printTokens(blockLiterals, D);
+        // Print all tokens in successors of the present CFG block
+        for (CFGBlock *succ : block->succs()) {
+            if (succ) {
+                obtainBlockLits(succ, D, succIntLiterals, succStrLiterals);
+                writeSuccToFile("./Int.csv", blockIntLiterals, succIntLiterals);
+                writeSuccToFile("./Str.csv", blockStrLiterals, succStrLiterals);
+            }
+        }
     }
 }
 
@@ -156,12 +161,3 @@ void CallStackChecker::checkASTCodeBody(const Decl *D, AnalysisManager &mgr, Bug
 void ento::registerCallStackChecker(CheckerManager &mgr) {
     mgr.registerChecker<CallStackChecker>();
 }
-
-// Register plugin for out-of-tree builds!
-//extern "C"
-//void clang_registerCheckers(CheckerRegistry &registry) {
-//  registry.addChecker<Line2ConstraintChecker>("custom.bs.l2c", "line2constraint checker");
-//}
-//
-//extern "C"
-//const char clang_analyzerAPIVersionString[] = CLANG_ANALYZER_API_VERSION_STRING;
