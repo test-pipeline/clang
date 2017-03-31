@@ -1,9 +1,9 @@
 // REQUIRES: powerpc-registered-target
-// RUN: %clang_cc1 -faltivec -target-feature +power9-vector \
+// RUN: %clang_cc1 -target-feature +altivec -target-feature +power9-vector \
 // RUN:   -triple powerpc64-unknown-unknown -emit-llvm %s \
 // RUN:   -o - | FileCheck %s -check-prefix=CHECK-BE
 
-// RUN: %clang_cc1 -faltivec -target-feature +power9-vector \
+// RUN: %clang_cc1 -target-feature +altivec -target-feature +power9-vector \
 // RUN:   -triple powerpc64le-unknown-unknown -emit-llvm %s \
 // RUN:   -o - | FileCheck %s
 
@@ -868,20 +868,24 @@ vector unsigned long long test76(void) {
   return vec_rlmi(vula, vula, vula);
 }
 vector unsigned int test77(void) {
+// CHECK-BE: %[[RES1:.+]] = shl <4 x i32
+// CHECK-BE: %[[RES2:.+]] = or <4 x i32> %[[RES1]]
 // CHECK-BE: @llvm.ppc.altivec.vrlwnm(<4 x i32
-// CHECK-BE: and <4 x i32
 // CHECK-BE: ret <4 x i32>
+// CHECK: %[[RES1:.+]] = shl <4 x i32
+// CHECK: %[[RES2:.+]] = or <4 x i32> %[[RES1]]
 // CHECK: @llvm.ppc.altivec.vrlwnm(<4 x i32
-// CHECK: and <4 x i32
 // CHECK: ret <4 x i32>
   return vec_rlnm(vuia, vuia, vuia);
 }
 vector unsigned long long test78(void) {
+// CHECK-BE: %[[RES1:.+]] = shl <2 x i64
+// CHECK-BE: %[[RES2:.+]] = or <2 x i64> %[[RES1]]
 // CHECK-BE: @llvm.ppc.altivec.vrldnm(<2 x i64
-// CHECK-BE: and <2 x i64
 // CHECK-BE-NEXT: ret <2 x i64>
+// CHECK: %[[RES1:.+]] = shl <2 x i64
+// CHECK: %[[RES2:.+]] = or <2 x i64> %[[RES1]]
 // CHECK: @llvm.ppc.altivec.vrldnm(<2 x i64
-// CHECK: and <2 x i64
 // CHECK-NEXT: ret <2 x i64>
   return vec_rlnm(vula, vula, vula);
 }

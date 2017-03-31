@@ -2370,7 +2370,11 @@ enum CXCursorKind {
    */
   CXCursor_OMPTargetTeamsDistributeParallelForSimdDirective = 278,
 
-  CXCursor_LastStmt = CXCursor_OMPTargetTeamsDistributeParallelForSimdDirective,
+  /** \brief OpenMP target teams distribute simd directive.
+   */
+  CXCursor_OMPTargetTeamsDistributeSimdDirective = 279,
+
+  CXCursor_LastStmt = CXCursor_OMPTargetTeamsDistributeSimdDirective,
 
   /**
    * \brief Cursor that represents the translation unit itself.
@@ -3007,8 +3011,9 @@ enum CXTypeKind {
   CXType_ObjCClass = 28,
   CXType_ObjCSel = 29,
   CXType_Float128 = 30,
+  CXType_Half = 31,
   CXType_FirstBuiltin = CXType_Void,
-  CXType_LastBuiltin  = CXType_ObjCSel,
+  CXType_LastBuiltin  = CXType_Half,
 
   CXType_Complex = 100,
   CXType_Pointer = 101,
@@ -3430,6 +3435,16 @@ CINDEX_LINKAGE long long clang_getArraySize(CXType T);
  * If a non-elaborated type is passed in, an invalid type is returned.
  */
 CINDEX_LINKAGE CXType clang_Type_getNamedType(CXType T);
+
+/**
+ * \brief Determine if a typedef is 'transparent' tag.
+ *
+ * A typedef is considered 'transparent' if it shares a name and spelling
+ * location with its underlying tag type, as is the case with the NS_ENUM macro.
+ *
+ * \returns non-zero if transparent and zero otherwise.
+ */
+CINDEX_LINKAGE unsigned clang_Type_isTransparentTagTypedef(CXType T);
 
 /**
  * \brief List the possible error codes for \c clang_Type_getSizeOf,

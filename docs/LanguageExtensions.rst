@@ -356,7 +356,7 @@ is:
 
 Query for this feature with ``__has_extension(attribute_ext_vector_type)``.
 
-Giving ``-faltivec`` option to clang enables support for AltiVec vector syntax
+Giving ``-maltivec`` option to clang enables support for AltiVec vector syntax
 and functions.  For example:
 
 .. code-block:: c++
@@ -1775,6 +1775,46 @@ number. This canonicalization is useful for implementing certain
 numeric primitives such as frexp. See `LLVM canonicalize intrinsic
 <http://llvm.org/docs/LangRef.html#llvm-canonicalize-intrinsic>`_ for
 more information on the semantics.
+
+String builtins
+---------------
+
+Clang provides constant expression evaluation support for builtins forms of
+the following functions from the C standard library ``<string.h>`` header:
+
+* ``memchr``
+* ``memcmp``
+* ``strchr``
+* ``strcmp``
+* ``strlen``
+* ``strncmp``
+* ``wcschr``
+* ``wcscmp``
+* ``wcslen``
+* ``wcsncmp``
+* ``wmemchr``
+* ``wmemcmp``
+
+In each case, the builtin form has the name of the C library function prefixed
+by ``__builtin_``. Example:
+
+.. code-block:: c
+
+  void *p = __builtin_memchr("foobar", 'b', 5);
+
+In addition to the above, one further builtin is provided:
+
+.. code-block:: c
+
+  char *__builtin_char_memchr(const char *haystack, int needle, size_t size);
+
+``__builtin_char_memchr(a, b, c)`` is identical to
+``(char*)__builtin_memchr(a, b, c)`` except that its use is permitted within
+constant expressions in C++11 onwards (where a cast from ``void*`` to ``char*``
+is disallowed in general).
+
+Support for constant expression evaluation for the above builtins be detected
+with ``__has_feature(cxx_constexpr_string_builtins)``.
 
 .. _langext-__c11_atomic:
 

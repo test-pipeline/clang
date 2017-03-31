@@ -312,7 +312,7 @@ Sema::getCurrentMangleNumberContext(const DeclContext *DC,
   //   In the following contexts [...] the one-definition rule requires closure
   //   types in different translation units to "correspond":
   bool IsInNonspecializedTemplate =
-    !ActiveTemplateInstantiations.empty() || CurContext->isDependentContext();
+      inTemplateInstantiation() || CurContext->isDependentContext();
   switch (Kind) {
   case Normal: {
     //  -- the bodies of non-exported nonspecialized template functions
@@ -763,7 +763,7 @@ QualType Sema::buildLambdaInitCaptureInitialization(SourceLocation Loc,
   // call-operator.
   Result = ActOnFinishFullExpr(Init, Loc, /*DiscardedValue*/ false,
                                /*IsConstexpr*/ false,
-                               /*IsLambdaInitCaptureInitalizer*/ true);
+                               /*IsLambdaInitCaptureInitializer*/ true);
   if (Result.isInvalid())
     return QualType();
 
@@ -1384,7 +1384,7 @@ static void addBlockPointerConversion(Sema &S,
 }
 
 static ExprResult performLambdaVarCaptureInitialization(
-    Sema &S, LambdaScopeInfo::Capture &Capture, FieldDecl *Field) {
+    Sema &S, const LambdaScopeInfo::Capture &Capture, FieldDecl *Field) {
   assert(Capture.isVariableCapture() && "not a variable capture");
 
   auto *Var = Capture.getVariable();
@@ -1438,6 +1438,43 @@ mapImplicitCaptureStyle(CapturingScopeInfo::ImplicitCaptureStyle ICS) {
   llvm_unreachable("Unknown implicit capture style");
 }
 
+bool Sema::CaptureHasSideEffects(const LambdaScopeInfo::Capture &From) {
+  if (!From.isVLATypeCapture()) {
+    Expr *Init = From.getInitExpr();
+    if (Init && Init->HasSideEffects(Context))
+      return true;
+  }
+
+  if (!From.isCopyCapture())
+    return false;
+
+  const QualType T = From.isThisCapture()
+                         ? getCurrentThisType()->getPointeeType()
+                         : From.getCaptureType();
+
+  if (T.isVolatileQualified())
+    return true;
+
+  const Type *BaseT = T->getBaseElementTypeUnsafe();
+  if (const CXXRecordDecl *RD = BaseT->getAsCXXRecordDecl())
+    return !RD->isCompleteDefinition() || !RD->hasTrivialCopyConstructor() ||
+           !RD->hasTrivialDestructor();
+
+  return false;
+}
+
+void Sema::DiagnoseUnusedLambdaCapture(const LambdaScopeInfo::Capture &From) {
+  if (CaptureHasSideEffects(From))
+    return;
+
+  auto diag = Diag(From.getLocation(), diag::warn_unused_lambda_capture);
+  if (From.isThisCapture())
+    diag << "'this'";
+  else
+    diag << From.getVariable();
+  diag << From.isNonODRUsed();
+}
+
 ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
                                  LambdaScopeInfo *LSI) {
   // Collect information from the lambda scope.
@@ -1476,9 +1513,13 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
     // Translate captures.
     auto CurField = Class->field_begin();
     for (unsigned I = 0, N = LSI->Captures.size(); I != N; ++I, ++CurField) {
-      LambdaScopeInfo::Capture From = LSI->Captures[I];
+      const LambdaScopeInfo::Capture &From = LSI->Captures[I];
       assert(!From.isBlockCapture() && "Cannot capture __block variables");
       bool IsImplicit = I >= LSI->NumExplicitCaptures;
+
+      // Warn about unused explicit captures.
+      if (!CurContext->isDependentContext() && !IsImplicit && !From.isODRUsed())
+        DiagnoseUnusedLambdaCapture(From);
 
       // Handle 'this' capture.
       if (From.isThisCapture()) {
