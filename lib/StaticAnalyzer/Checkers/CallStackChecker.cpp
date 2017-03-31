@@ -32,7 +32,20 @@ namespace {
 std::string CallStackChecker::formatIntegerLiteral(const IntegerLiteral *IL) {
     std::string inString = IL->getValue().toString(16, false);
     if (!inString.empty())
+#if 0
         inString.insert(0, "0x");
+#else
+    {
+        size_t inStrLen = inString.size();
+        if (inStrLen % 2) {
+            inString.insert(0, "0");
+            inStrLen++;
+        }
+        for (size_t i = 0; i < (2 * inStrLen); i += 4) {
+            inString.insert(i, "\\x");
+        }
+    }
+#endif
     return inString;
 }
 
@@ -49,7 +62,11 @@ void CallStackChecker::writeToFile(StringRef Filename, LitVecTy tokens) {
     llvm::raw_fd_ostream fileStream(Filename, EC, llvm::sys::fs::F_Append);
 
     for (auto token: tokens)
+#if 0
         content.append(token + "\n");
+#else
+        content.append("\"" + token + "\"" + "\n");
+#endif
 
     if (EC)
         llvm::errs() << EC.message() << "\n";
